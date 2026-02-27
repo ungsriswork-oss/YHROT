@@ -4,6 +4,23 @@ import { FaUserDoctor, FaPills, FaUserNurse } from "react-icons/fa6";
 function HomePage() {
   const navigate = useNavigate();
 
+  // ฟังก์ชันสำหรับจัดการการคลิกเข้าสู่ระบบ
+  const handleLogin = (role, path) => {
+    if (role === 'pharmacist') {
+      // ถ้าเป็นเภสัชกร ให้ถามรหัสผ่าน
+      const password = prompt('กรุณาใส่รหัสผ่านสำหรับเภสัชกร:');
+      
+      if (password === 'pharmacy') {
+        navigate(path); // รหัสถูก ให้เปลี่ยนหน้า
+      } else if (password !== null) {
+        alert('รหัสผ่านไม่ถูกต้อง'); // รหัสผิด แจ้งเตือน
+      }
+    } else {
+      // ถ้าเป็นตำแหน่งอื่น (เจ้าพนักงาน, ผู้ช่วยเภสัชกร) ให้เปลี่ยนหน้าได้เลย
+      navigate(path);
+    }
+  };
+
   return (
     <div className="min-h-screen w-full bg-gradient-to-br from-slate-100 to-slate-200 flex flex-col items-center justify-center p-5 font-sans absolute top-0 left-0">
       
@@ -22,7 +39,7 @@ function HomePage() {
         
         {/* การ์ดที่ 1: เภสัชกร */}
         <button 
-          onClick={() => navigate('/pharmacist')}
+          onClick={() => handleLogin('pharmacist', '/pharmacist')}
           className="bg-white border-none rounded-[2rem] p-10 w-72 flex flex-col items-center justify-center text-center cursor-pointer shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group"
         >
           {/* กรอบไอคอน (บังคับกึ่งกลางด้วย flex items-center justify-center) */}
@@ -35,7 +52,7 @@ function HomePage() {
 
         {/* การ์ดที่ 2: เจ้าพนักงานเภสัชกรรม */}
         <button 
-          onClick={() => navigate('/technician')}
+          onClick={() => handleLogin('technician', '/technician')}
           className="bg-white border-none rounded-[2rem] p-10 w-72 flex flex-col items-center justify-center text-center cursor-pointer shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group"
         >
           <div className="bg-emerald-50 rounded-full mb-6 flex items-center justify-center w-28 h-28 group-hover:bg-emerald-100 group-hover:scale-105 transition-all duration-300">
@@ -47,7 +64,7 @@ function HomePage() {
 
         {/* การ์ดที่ 3: ผู้ช่วยเภสัชกร */}
         <button 
-          onClick={() => navigate('/assistant')}
+          onClick={() => handleLogin('assistant', '/assistant')}
           className="bg-white border-none rounded-[2rem] p-10 w-72 flex flex-col items-center justify-center text-center cursor-pointer shadow-lg hover:shadow-2xl hover:-translate-y-2 transition-all duration-300 group"
         >
           <div className="bg-teal-50 rounded-full mb-6 flex items-center justify-center w-28 h-28 group-hover:bg-teal-100 group-hover:scale-105 transition-all duration-300">
