@@ -18,25 +18,37 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 
-// --- Custom Hook สำหรับจัดการ Local Storage ---
-function useLocalStorage(key, initialValue) {
-  const [storedValue, setStoredValue] = useState(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      return initialValue;
-    }
-  });
+// --- นำเข้าคำสั่งของ Firebase ---
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db } from '../firebase'; // ชี้ไปที่ไฟล์ firebase.js ของคุณ
+
+// --- Custom Hook สำหรับจัดการ Firebase Sync (แทน Local Storage) ---
+function useFirebaseSync(key, initialValue) {
+  const [storedValue, setStoredValue] = useState(initialValue);
+
+  useEffect(() => {
+    const docRef = doc(db, 'shift_data', key);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setStoredValue(docSnap.data().value);
+      } else {
+        setDoc(docRef, { value: initialValue });
+      }
+    });
+    return () => unsubscribe();
+  }, [key]);
 
   const setValue = (value) => {
     try {
-      const valueToStore =
-        value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore);
-      window.localStorage.setItem(key, JSON.stringify(valueToStore));
-    } catch (error) {}
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
+      setStoredValue(valueToStore); 
+      const docRef = doc(db, 'shift_data', key);
+      setDoc(docRef, { value: valueToStore });
+    } catch (error) {
+      console.error("Firebase Sync Error:", error);
+    }
   };
+
   return [storedValue, setValue];
 }
 
@@ -246,15 +258,15 @@ export default function PharmacistPage() {
 // 1. Component: จัดการตารางเวร (เภสัชกร)
 // ==========================================
 function ScheduleManager() {
-  const [employees] = useLocalStorage('ph_employees', []);
-  const [shifts] = useLocalStorage('ph_shift_types', []);
-  const [schedules, setSchedules] = useLocalStorage('ph_schedules', []);
-  const [activeScheduleId, setActiveScheduleId] = useLocalStorage(
+  const [employees] = useFirebaseSync('ph_employees', []);
+  const [shifts] = useFirebaseSync('ph_shift_types', []);
+  const [schedules, setSchedules] = useFirebaseSync('ph_schedules', []);
+  const [activeScheduleId, setActiveScheduleId] = useFirebaseSync(
     'ph_active_schedule',
     null
   );
 
-  const [rules, setRules] = useLocalStorage('ph_rules', {
+  const [rules, setRules] = useFirebaseSync('ph_rules', {
     ph_noConsecutive: true,
     ph_balanceTypes: true,
     ph_balanceMoneyHours: true,
@@ -1134,8 +1146,8 @@ function ScheduleManager() {
 // 2. Component: จัดการพนักงาน (เภสัชกร)
 // ==========================================
 function EmployeesManager() {
-  const [shifts] = useLocalStorage('ph_shift_types', []);
-  const [employees, setEmployees] = useLocalStorage('ph_employees', []);
+  const [shifts] = useFirebaseSync('ph_shift_types', []);
+  const [employees, setEmployees] = useFirebaseSync('ph_employees', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -1397,7 +1409,7 @@ function EmployeesManager() {
 // 3. Component: จัดการประเภทเวร (เภสัชกร)
 // ==========================================
 function ShiftTypesManager() {
-  const [shifts, setShifts] = useLocalStorage('ph_shift_types', []);
+  const [shifts, setShifts] = useFirebaseSync('ph_shift_types', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
