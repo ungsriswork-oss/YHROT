@@ -18,24 +18,35 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 
-// --- Custom Hook สำหรับจัดการ Local Storage ---
-function useLocalStorage(key, initialValue) {
-  const [storedValue, setStoredValue] = useState(() => {
-    try {
-      const item = window.localStorage.getItem(key);
-      return item ? JSON.parse(item) : initialValue;
-    } catch (error) {
-      return initialValue;
-    }
-  });
+// --- นำเข้าคำสั่งของ Firebase ---
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { db } from '../firebase';
+
+// --- Custom Hook สำหรับจัดการ Firebase Sync ---
+function useFirebaseSync(key, initialValue) {
+  const [storedValue, setStoredValue] = useState(initialValue);
+
+  useEffect(() => {
+    const docRef = doc(db, 'shift_data', key);
+    const unsubscribe = onSnapshot(docRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setStoredValue(docSnap.data().value);
+      } else {
+        setDoc(docRef, { value: initialValue });
+      }
+    });
+    return () => unsubscribe();
+  }, [key]);
 
   const setValue = (value) => {
     try {
-      const valueToStore =
-        value instanceof Function ? value(storedValue) : value;
+      const valueToStore = value instanceof Function ? value(storedValue) : value;
       setStoredValue(valueToStore);
-      window.localStorage.setItem(key, JSON.stringify(valueToStore));
-    } catch (error) {}
+      const docRef = doc(db, 'shift_data', key);
+      setDoc(docRef, { value: valueToStore });
+    } catch (error) {
+      console.error("Firebase Sync Error:", error);
+    }
   };
   return [storedValue, setValue];
 }
@@ -48,10 +59,7 @@ const getShiftValue = (shift) => {
   const name = shift.name.trim().toUpperCase();
 
   // 💰 จุดที่ 1: แก้ไขค่าเวรแบบเหมาจ่ายตรงนี้ 💰
-  // ตัวอย่าง: ถ้าเวรชื่อ "T2" ได้เงิน 800 บาท
   if (name === 'T2') return 800;
-  // ถ้ามีเวรชื่ออื่นๆ ที่เป็นราคาเหมา สามารถใส่เพิ่มตรงนี้ได้เลย เช่น:
-  // if (name === 'เวรพิเศษ') return 1200;
 
   // สำหรับเวรที่คิดตามจำนวนชั่วโมง:
   if (!shift.start || !shift.end) return 0;
@@ -61,7 +69,6 @@ const getShiftValue = (shift) => {
   if (hrs < 0) hrs += 24;
 
   // 💰 จุดที่ 2: เรทราคาต่อชั่วโมง 💰
-  // สมมติให้เจ้าพนักงานฯ ได้ชั่วโมงละ 80 บาท (แก้ตัวเลข 80 เป็นเรทจริงได้เลย)
   return hrs * 80;
 };
 
@@ -84,7 +91,6 @@ const getShiftCategory = (shift) => {
   if (!shift || !shift.name) return 'อื่นๆ';
   const nameUpper = shift.name.trim().toUpperCase();
 
-  // คุณสามารถเพิ่มชื่อเวรของเจ้าพนักงานใน array เหล่านี้ได้เลย
   const morningShifts = ['เช้า', 'M', 'M1'];
   if (morningShifts.includes(nameUpper)) return 'เช้า';
 
@@ -219,15 +225,15 @@ export default function TechnicianPage() {
 // 1. Component: จัดการตารางเวร (เจ้าพนักงานเภสัชกรรม)
 // ==========================================
 function ScheduleManager() {
-  const [employees] = useLocalStorage('tech_employees', []);
-  const [shifts] = useLocalStorage('tech_shift_types', []);
-  const [schedules, setSchedules] = useLocalStorage('tech_schedules', []);
-  const [activeScheduleId, setActiveScheduleId] = useLocalStorage(
+  const [employees] = useFirebaseSync('tech_employees', []);
+  const [shifts] = useFirebaseSync('tech_shift_types', []);
+  const [schedules, setSchedules] = useFirebaseSync('tech_schedules', []);
+  const [activeScheduleId, setActiveScheduleId] = useFirebaseSync(
     'tech_active_schedule',
     null
   );
 
-  const [rules, setRules] = useLocalStorage('tech_rules', {
+  const [rules, setRules] = useFirebaseSync('tech_rules', {
     tech_noConsecutive: true,
     tech_balanceTypes: true,
     tech_balanceMoneyHours: true,
@@ -245,18 +251,8 @@ function ScheduleManager() {
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
 
   const thaiMonths = [
-    'มกราคม',
-    'กุมภาพันธ์',
-    'มีนาคม',
-    'เมษายน',
-    'พฤษภาคม',
-    'มิถุนายน',
-    'กรกฎาคม',
-    'สิงหาคม',
-    'กันยายน',
-    'ตุลาคม',
-    'พฤศจิกายน',
-    'ธันวาคม',
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
   ];
   const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
@@ -302,12 +298,11 @@ function ScheduleManager() {
     ).getDate();
     let csvContent = '\uFEFFพนักงาน,หมวดหมู่,';
     for (let i = 1; i <= daysInMonth; i++) csvContent += i + ',';
-    csvContent += 'เช้า,บ่าย,ดึก,T2,อื่นๆ,รวมเงิน\n';
+    csvContent += 'รวมเงิน\n'; // ลบช่องสรุปเวรออก
 
     employees.forEach((emp) => {
       let row = [`"${emp.name}"`, `"เจ้าพนักงานเภสัชกรรม"`];
       let totalMoney = 0;
-      let counts = { เช้า: 0, บ่าย: 0, ดึก: 0, T2: 0, อื่นๆ: 0 };
 
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${activeSchedule.year}-${String(
@@ -319,18 +314,9 @@ function ScheduleManager() {
         row.push(sData ? `"${sData.name}"` : '');
         if (sData) {
           totalMoney += getShiftValue(sData);
-          const cat = getShiftCategory(sData);
-          if (counts[cat] !== undefined) counts[cat]++;
         }
       }
-      row.push(
-        counts['เช้า'],
-        counts['บ่าย'],
-        counts['ดึก'],
-        counts['T2'],
-        counts['อื่นๆ'],
-        totalMoney
-      );
+      row.push(totalMoney); // ส่งออกแค่รวมเงิน
       csvContent += row.join(',') + '\n';
     });
 
@@ -738,22 +724,7 @@ function ScheduleManager() {
                       </div>
                     </th>
                   ))}
-                  {/* ปรับแก้คอลัมน์สรุปเวร */}
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-blue-50/50">
-                    เช้า
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-orange-50/50">
-                    บ่าย
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-purple-50/50">
-                    ดึก
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-teal-50/50">
-                    T2
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-gray-100">
-                    อื่นๆ
-                  </th>
+                  {/* ลบ <th> สรุปเวรทั้งหมดออก เหลือแค่รวมเงิน */}
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold print:text-black">
                     รวม(บ.)
                   </th>
@@ -762,7 +733,6 @@ function ScheduleManager() {
               <tbody>
                 {employees.map((emp) => {
                   let totalMoney = 0;
-                  let counts = { เช้า: 0, บ่าย: 0, ดึก: 0, T2: 0, อื่นๆ: 0 };
 
                   return (
                     <tr
@@ -785,8 +755,6 @@ function ScheduleManager() {
                         );
                         if (sData) {
                           totalMoney += getShiftValue(sData);
-                          const cat = getShiftCategory(sData);
-                          if (counts[cat] !== undefined) counts[cat]++;
                         }
                         return (
                           <td
@@ -815,21 +783,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-blue-700 bg-blue-50/30">
-                        {counts['เช้า'] > 0 ? counts['เช้า'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-orange-700 bg-orange-50/30">
-                        {counts['บ่าย'] > 0 ? counts['บ่าย'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-purple-700 bg-purple-50/30">
-                        {counts['ดึก'] > 0 ? counts['ดึก'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-teal-700 bg-teal-50/30">
-                        {counts['T2'] > 0 ? counts['T2'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700 bg-gray-50">
-                        {counts['อื่นๆ'] > 0 ? counts['อื่นๆ'] : '-'}
-                      </td>
+                      {/* ลบ <td> สรุปเวรทั้งหมดออก */}
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right print:text-black">
                         {totalMoney.toLocaleString()}
                       </td>
@@ -936,8 +890,8 @@ function ScheduleManager() {
 // 2. Component: จัดการพนักงาน (เจ้าพนักงานเภสัชกรรม)
 // ==========================================
 function EmployeesManager() {
-  const [shifts] = useLocalStorage('tech_shift_types', []);
-  const [employees, setEmployees] = useLocalStorage('tech_employees', []);
+  const [shifts] = useFirebaseSync('tech_shift_types', []);
+  const [employees, setEmployees] = useFirebaseSync('tech_employees', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -1199,7 +1153,7 @@ function EmployeesManager() {
 // 3. Component: จัดการประเภทเวร (เจ้าพนักงานเภสัชกรรม)
 // ==========================================
 function ShiftTypesManager() {
-  const [shifts, setShifts] = useLocalStorage('tech_shift_types', []);
+  const [shifts, setShifts] = useFirebaseSync('tech_shift_types', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: '',

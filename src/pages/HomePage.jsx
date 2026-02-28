@@ -6,18 +6,30 @@ function HomePage() {
 
   // ฟังก์ชันสำหรับจัดการการคลิกเข้าสู่ระบบ
   const handleLogin = (role, path) => {
+    let passwordPrompt = '';
+    let correctPassword = '';
+
+    // กำหนดข้อความแจ้งเตือนและรหัสผ่านของแต่ละตำแหน่ง
     if (role === 'pharmacist') {
-      // ถ้าเป็นเภสัชกร ให้ถามรหัสผ่าน
-      const password = prompt('กรุณาใส่รหัสผ่านสำหรับเภสัชกร:');
+      passwordPrompt = 'กรุณาใส่รหัสผ่านสำหรับเภสัชกร:';
+      correctPassword = 'pharmacy';
+    } else if (role === 'technician') {
+      passwordPrompt = 'กรุณาใส่รหัสผ่านสำหรับเจ้าพนักงานฯ:';
+      correctPassword = 'phartech'; // รหัสผ่านของเจ้าพนักงานเภสัชกรรม
+    } else if (role === 'assistant') {
+      passwordPrompt = 'กรุณาใส่รหัสผ่านสำหรับผู้ช่วยเภสัชกร:';
+      correctPassword = 'pharass'; // รหัสผ่านของผู้ช่วยเภสัชกร
+    }
+
+    // ทำการถามรหัสผ่าน
+    if (passwordPrompt) {
+      const password = prompt(passwordPrompt);
       
-      if (password === 'pharmacy') {
+      if (password === correctPassword) {
         navigate(path); // รหัสถูก ให้เปลี่ยนหน้า
       } else if (password !== null) {
-        alert('รหัสผ่านไม่ถูกต้อง'); // รหัสผิด แจ้งเตือน
+        alert('รหัสผ่านไม่ถูกต้อง'); // รหัสผิด แจ้งเตือน (กรณีไม่ได้กด Cancel)
       }
-    } else {
-      // ถ้าเป็นตำแหน่งอื่น (เจ้าพนักงาน, ผู้ช่วยเภสัชกร) ให้เปลี่ยนหน้าได้เลย
-      navigate(path);
     }
   };
 
