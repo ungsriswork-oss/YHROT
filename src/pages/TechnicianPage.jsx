@@ -358,6 +358,12 @@ function ScheduleManager() {
         const prevDateStr = `${activeSchedule.year}-${String(
           activeSchedule.month + 1
         ).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
+        
+        // 🛠️ [แก้ไข] เพิ่มตัวแปร nextDateStr สำหรับเช็ควันพรุ่งนี้
+        const nextDateStr = `${activeSchedule.year}-${String(
+          activeSchedule.month + 1
+        ).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
+
         const dayOfWeek = new Date(
           activeSchedule.year,
           activeSchedule.month,
@@ -437,11 +443,11 @@ function ScheduleManager() {
               )
                 return false;
 
-              if (
-                rules.tech_noConsecutive &&
-                newAssignments[`${emp.id}_${prevDateStr}`]
-              )
-                return false;
+              // 🛠️ [แก้ไข] ปรับปรุงลอจิกห้ามเวรติดกัน ให้เช็คทั้งหน้าและหลัง
+              if (rules.tech_noConsecutive) {
+                if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
+                if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
+              }
 
               return true;
             });

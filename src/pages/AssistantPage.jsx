@@ -326,6 +326,12 @@ function ScheduleManager() {
         const prevDateStr = `${activeSchedule.year}-${String(
           activeSchedule.month + 1
         ).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
+        
+        // 🛠️ [แก้ไข] เพิ่มตัวแปร nextDateStr สำหรับเช็ควันพรุ่งนี้
+        const nextDateStr = `${activeSchedule.year}-${String(
+          activeSchedule.month + 1
+        ).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
+
         const dayOfWeek = new Date(
           activeSchedule.year,
           activeSchedule.month,
@@ -365,12 +371,11 @@ function ScheduleManager() {
               )
                 return false;
 
-              // กฎ 1: ไม่ลงเวรติดกัน
-              if (
-                rules.as_noConsecutive &&
-                newAssignments[`${emp.id}_${prevDateStr}`]
-              )
-                return false;
+              // 🛠️ [แก้ไข] กฎ 1: ไม่ลงเวรติดกัน เช็คทั้งเมื่อวานและพรุ่งนี้
+              if (rules.as_noConsecutive) {
+                if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
+                if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
+              }
 
               return true;
             });
