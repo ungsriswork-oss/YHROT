@@ -399,305 +399,312 @@ function ScheduleManager() {
   };
 
   const handleAutoGenerate = () => {
-    if (!activeSchedule) return;
-    const daysInMonth = new Date(
-      activeSchedule.year,
-      activeSchedule.month + 1,
-      0
-    ).getDate();
-    const newAssignments = {};
-    const empStats = {};
+    if (!activeSchedule) return;
+    const daysInMonth = new Date(
+      activeSchedule.year,
+      activeSchedule.month + 1,
+      0
+    ).getDate();
+    const newAssignments = {};
+    const empStats = {};
 
-    employees.forEach((e) => {
-      empStats[e.id] = {
-        money: 0,
-        hours: 0,
-        totalShifts: 0,
-        counts: {},
-        catCounts: {
-          A: 0,
-          เช้า: 0,
-          บ่าย: 0,
-          ดึก: 0,
-          SMC: 0,
-          As1: 0,
-          '4o': 0,
-          '2o': 0,
-          อื่นๆ: 0,
-        },
-        specialGroupShift: null,
-        specialCount: 0,
-        countA_As1: 0,
-        assignedUniqueMornings: new Set(),
-        assignedNights: new Set(),
-        assignedAfternoons: new Set(),
-      };
-    });
+    employees.forEach((e) => {
+      empStats[e.id] = {
+        money: 0,
+        hours: 0,
+        totalShifts: 0,
+        counts: {},
+        catCounts: {
+          A: 0,
+          เช้า: 0,
+          บ่าย: 0,
+          ดึก: 0,
+          SMC: 0,
+          As1: 0,
+          '4o': 0,
+          '2o': 0,
+          อื่นๆ: 0,
+        },
+        specialGroupShift: null,
+        specialCount: 0,
+        countA_As1: 0,
+        assignedUniqueMornings: new Set(),
+        assignedNights: new Set(),
+        assignedAfternoons: new Set(),
+      };
+    });
 
-    const assignShiftsForPass = (shiftsToProcess, isFillerPass) => {
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const prevDateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
-        const dayOfWeek = new Date(
-          activeSchedule.year,
-          activeSchedule.month,
-          d
-        ).getDay();
-        const isSaturday = dayOfWeek === 6;
-        const isHoliday =
-          dayOfWeek === 0 ||
-          dayOfWeek === 6 ||
-          !!activeSchedule.holidays[dateStr];
+    const assignShiftsForPass = (shiftsToProcess, isFillerPass) => {
+      for (let d = 1; d <= daysInMonth; d++) {
+        const dateStr = `${activeSchedule.year}-${String(
+          activeSchedule.month + 1
+        ).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        
+        const prevDateStr = `${activeSchedule.year}-${String(
+          activeSchedule.month + 1
+        ).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
+        
+        // 🛠️ [แก้ไข] เพิ่มตัวแปร nextDateStr สำหรับเช็ควันพรุ่งนี้
+        const nextDateStr = `${activeSchedule.year}-${String(
+          activeSchedule.month + 1
+        ).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
 
-        shiftsToProcess.forEach((shift) => {
-          const allowed = shift.allowedDays || 'all';
-          if (allowed === 'weekdays' && isHoliday) return;
-          if (allowed === 'weekends_holidays' && !isHoliday) return;
-          if (allowed === 'saturdays_only' && !isSaturday) return;
-          if (
-            allowed === 'mon_tue_only' &&
-            (![1, 2].includes(dayOfWeek) || isHoliday)
-          )
-            return;
-          if (
-            allowed === 'holidays_except_saturday' &&
-            (!isHoliday || isSaturday)
-          )
-            return;
+        const dayOfWeek = new Date(
+          activeSchedule.year,
+          activeSchedule.month,
+          d
+        ).getDay();
+        const isSaturday = dayOfWeek === 6;
+        const isHoliday =
+          dayOfWeek === 0 ||
+          dayOfWeek === 6 ||
+          !!activeSchedule.holidays[dateStr];
 
-          // =========================================================
-          // ลอจิกใหม่: ตรวจสอบ "วันแรกของช่วงหยุดยาว" (สำหรับ T2)
-          // =========================================================
-          if (allowed === 'first_day_of_holidays') {
-            if (!isHoliday) return; // ต้องเป็นวันหยุดเท่านั้นถึงจะลงได้
+        shiftsToProcess.forEach((shift) => {
+          const allowed = shift.allowedDays || 'all';
+          if (allowed === 'weekdays' && isHoliday) return;
+          if (allowed === 'weekends_holidays' && !isHoliday) return;
+          if (allowed === 'saturdays_only' && !isSaturday) return;
+          if (
+            allowed === 'mon_tue_only' &&
+            (![1, 2].includes(dayOfWeek) || isHoliday)
+          )
+            return;
+          if (
+            allowed === 'holidays_except_saturday' &&
+            (!isHoliday || isSaturday)
+          )
+            return;
 
-            // หาวันที่ของ "เมื่อวาน"
-            const prevDate = new Date(
-              activeSchedule.year,
-              activeSchedule.month,
-              d - 1
-            );
-            const prevDayOfWeek = prevDate.getDay();
-            const isPrevWeekend = prevDayOfWeek === 0 || prevDayOfWeek === 6;
+          // =========================================================
+          // ลอจิกใหม่: ตรวจสอบ "วันแรกของช่วงหยุดยาว" (สำหรับ T2)
+          // =========================================================
+          if (allowed === 'first_day_of_holidays') {
+            if (!isHoliday) return; // ต้องเป็นวันหยุดเท่านั้นถึงจะลงได้
 
-            const prevDateString = `${prevDate.getFullYear()}-${String(
-              prevDate.getMonth() + 1
-            ).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+            // หาวันที่ของ "เมื่อวาน"
+            const prevDate = new Date(
+              activeSchedule.year,
+              activeSchedule.month,
+              d - 1
+            );
+            const prevDayOfWeek = prevDate.getDay();
+            const isPrevWeekend = prevDayOfWeek === 0 || prevDayOfWeek === 6;
 
-            let isPrevHoliday = isPrevWeekend;
+            const prevDateString = `${prevDate.getFullYear()}-${String(
+              prevDate.getMonth() + 1
+            ).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
 
-            // ตรวจสอบวันหยุดพิเศษของเมื่อวาน (เช็คย้อนข้ามเดือนได้ด้วย)
-            if (activeSchedule.month === prevDate.getMonth()) {
-              if (activeSchedule.holidays[prevDateString]) isPrevHoliday = true;
-            } else {
-              const prevMonthSchedule = schedules.find(
-                (s) =>
-                  s.year === prevDate.getFullYear() &&
-                  s.month === prevDate.getMonth()
-              );
-              if (
-                prevMonthSchedule &&
-                prevMonthSchedule.holidays[prevDateString]
-              ) {
-                isPrevHoliday = true;
-              }
-            }
+            let isPrevHoliday = isPrevWeekend;
 
-            // ถ้าเมื่อวานก็เป็นวันหยุด แปลว่าวันนี้ "ไม่ใช่วันแรก" ของการหยุดต่อเนื่อง -> ห้ามลง T2
-            if (isPrevHoliday) return;
-          }
-          // =========================================================
+            // ตรวจสอบวันหยุดพิเศษของเมื่อวาน (เช็คย้อนข้ามเดือนได้ด้วย)
+            if (activeSchedule.month === prevDate.getMonth()) {
+              if (activeSchedule.holidays[prevDateString]) isPrevHoliday = true;
+            } else {
+              const prevMonthSchedule = schedules.find(
+                (s) =>
+                  s.year === prevDate.getFullYear() &&
+                  s.month === prevDate.getMonth()
+              );
+              if (
+                prevMonthSchedule &&
+                prevMonthSchedule.holidays[prevDateString]
+              ) {
+                isPrevHoliday = true;
+              }
+            }
 
-          for (let i = 0; i < shift.min; i++) {
-            let eligible = employees.filter((emp) => {
-              if (newAssignments[`${emp.id}_${dateStr}`]) return false;
-              if (emp.offShifts && emp.offShifts.includes(shift.id))
-                return false;
-              if (
-                emp.specificShifts &&
-                emp.specificShifts.length > 0 &&
-                !emp.specificShifts.includes(shift.id)
-              )
-                return false;
+            // ถ้าเมื่อวานก็เป็นวันหยุด แปลว่าวันนี้ "ไม่ใช่วันแรก" ของการหยุดต่อเนื่อง -> ห้ามลง T2
+            if (isPrevHoliday) return;
+          }
+          // =========================================================
 
-              const upperName = shift.name.toUpperCase();
-              const cat = getShiftCategory(shift);
+          for (let i = 0; i < shift.min; i++) {
+            let eligible = employees.filter((emp) => {
+              if (newAssignments[`${emp.id}_${dateStr}`]) return false;
+              if (emp.offShifts && emp.offShifts.includes(shift.id))
+                return false;
+              if (
+                emp.specificShifts &&
+                emp.specificShifts.length > 0 &&
+                !emp.specificShifts.includes(shift.id)
+              )
+                return false;
 
-              if (
-                rules.ph_noConsecutive &&
-                newAssignments[`${emp.id}_${prevDateStr}`]
-              )
-                return false;
+              const upperName = shift.name.toUpperCase();
+              const cat = getShiftCategory(shift);
 
-              if (rules.ph_limitSpecial) {
-                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
-                  upperName.includes(n)
-                );
-                if (specialMatch) {
-                  if (
-                    empStats[emp.id].specialGroupShift &&
-                    empStats[emp.id].specialGroupShift !== specialMatch
-                  )
-                    return false;
-                  if (empStats[emp.id].specialCount >= 1) return false;
-                }
-              }
+              // 🛠️ [แก้ไข] ปรับปรุงลอจิกห้ามเวรติดกัน ให้เช็คทั้งเมื่อวาน(prev) และ พรุ่งนี้(next)
+              if (rules.ph_noConsecutive) {
+                if (newAssignments[`${emp.id}_${prevDateStr}`]) return false; // เช็คว่าเมื่อวานมีเวรไหม
+                if (newAssignments[`${emp.id}_${nextDateStr}`]) return false; // เช็คว่าพรุ่งนี้มีเวรรออยู่แล้วไหม
+              }
 
-              if (
-                rules.ph_limitA_As1 &&
-                (upperName === 'A' || upperName === 'AS1')
-              ) {
-                if (empStats[emp.id].countA_As1 >= 1) return false;
-              }
+              if (rules.ph_limitSpecial) {
+                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
+                  upperName.includes(n)
+                );
+                if (specialMatch) {
+                  if (
+                    empStats[emp.id].specialGroupShift &&
+                    empStats[emp.id].specialGroupShift !== specialMatch
+                  )
+                    return false;
+                  if (empStats[emp.id].specialCount >= 1) return false;
+                }
+              }
 
-              if (rules.ph_uniqueMorning) {
-                const uniqueMorningSet = ['B', 'C', 'D', 'E', 'F', 'G'];
-                if (
-                  uniqueMorningSet.includes(upperName) &&
-                  empStats[emp.id].assignedUniqueMornings.has(upperName)
-                )
-                  return false;
-              }
+              if (
+                rules.ph_limitA_As1 &&
+                (upperName === 'A' || upperName === 'AS1')
+              ) {
+                if (empStats[emp.id].countA_As1 >= 1) return false;
+              }
 
-              if (rules.ph_uniqueNightMax2 && cat === 'ดึก') {
-                if (empStats[emp.id].catCounts['ดึก'] >= 2) return false;
-                if (empStats[emp.id].assignedNights.has(upperName))
-                  return false;
-              }
+              if (rules.ph_uniqueMorning) {
+                const uniqueMorningSet = ['B', 'C', 'D', 'E', 'F', 'G'];
+                if (
+                  uniqueMorningSet.includes(upperName) &&
+                  empStats[emp.id].assignedUniqueMornings.has(upperName)
+                )
+                  return false;
+              }
 
-              if (rules.ph_uniqueAfternoonMustHaveBe && cat === 'บ่าย') {
-                if (empStats[emp.id].assignedAfternoons.has(upperName))
-                  return false;
-              }
+              if (rules.ph_uniqueNightMax2 && cat === 'ดึก') {
+                if (empStats[emp.id].catCounts['ดึก'] >= 2) return false;
+                if (empStats[emp.id].assignedNights.has(upperName))
+                  return false;
+              }
 
-              return true;
-            });
+              if (rules.ph_uniqueAfternoonMustHaveBe && cat === 'บ่าย') {
+                if (empStats[emp.id].assignedAfternoons.has(upperName))
+                  return false;
+              }
 
-            if (eligible.length > 0) {
-              for (let k = eligible.length - 1; k > 0; k--) {
-                const j = Math.floor(Math.random() * (k + 1));
-                [eligible[k], eligible[j]] = [eligible[j], eligible[k]];
-              }
+              return true;
+            });
 
-              const cat = getShiftCategory(shift);
-              const shiftNameUpper = shift.name.toUpperCase();
+            if (eligible.length > 0) {
+              for (let k = eligible.length - 1; k > 0; k--) {
+                const j = Math.floor(Math.random() * (k + 1));
+                [eligible[k], eligible[j]] = [eligible[j], eligible[k]];
+              }
 
-              eligible.sort((a, b) => {
-                if (
-                  rules.ph_uniqueAfternoonMustHaveBe &&
-                  (shiftNameUpper === 'บE' || shiftNameUpper === 'บe')
-                ) {
-                  const aHasBe =
-                    empStats[a.id].assignedAfternoons.has('บE') ||
-                    empStats[a.id].assignedAfternoons.has('บe');
-                  const bHasBe =
-                    empStats[b.id].assignedAfternoons.has('บE') ||
-                    empStats[b.id].assignedAfternoons.has('บe');
-                  if (aHasBe !== bHasBe) return aHasBe ? 1 : -1;
-                }
+              const cat = getShiftCategory(shift);
+              const shiftNameUpper = shift.name.toUpperCase();
 
-                if (isFillerPass || !rules.ph_balanceTypes) {
-                  if (rules.ph_balanceMoneyHours) {
-                    if (empStats[a.id].money !== empStats[b.id].money)
-                      return empStats[a.id].money - empStats[b.id].money;
-                    if (empStats[a.id].hours !== empStats[b.id].hours)
-                      return empStats[a.id].hours - empStats[b.id].hours;
-                  }
-                  return (
-                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
-                  );
-                } else {
-                  if (
-                    empStats[a.id].catCounts[cat] !==
-                    empStats[b.id].catCounts[cat]
-                  ) {
-                    return (
-                      empStats[a.id].catCounts[cat] -
-                      empStats[b.id].catCounts[cat]
-                    );
-                  }
-                  if (rules.ph_balanceMoneyHours) {
-                    if (empStats[a.id].money !== empStats[b.id].money)
-                      return empStats[a.id].money - empStats[b.id].money;
-                    if (empStats[a.id].hours !== empStats[b.id].hours)
-                      return empStats[a.id].hours - empStats[b.id].hours;
-                  }
-                  return (
-                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
-                  );
-                }
-              });
+              eligible.sort((a, b) => {
+                if (
+                  rules.ph_uniqueAfternoonMustHaveBe &&
+                  (shiftNameUpper === 'บE' || shiftNameUpper === 'บe')
+                ) {
+                  const aHasBe =
+                    empStats[a.id].assignedAfternoons.has('บE') ||
+                    empStats[a.id].assignedAfternoons.has('บe');
+                  const bHasBe =
+                    empStats[b.id].assignedAfternoons.has('บE') ||
+                    empStats[b.id].assignedAfternoons.has('บe');
+                  if (aHasBe !== bHasBe) return aHasBe ? 1 : -1;
+                }
 
-              const chosen = eligible[0];
-              newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
+                if (isFillerPass || !rules.ph_balanceTypes) {
+                  if (rules.ph_balanceMoneyHours) {
+                    if (empStats[a.id].money !== empStats[b.id].money)
+                      return empStats[a.id].money - empStats[b.id].money;
+                    if (empStats[a.id].hours !== empStats[b.id].hours)
+                      return empStats[a.id].hours - empStats[b.id].hours;
+                  }
+                  return (
+                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
+                  );
+                } else {
+                  if (
+                    empStats[a.id].catCounts[cat] !==
+                    empStats[b.id].catCounts[cat]
+                  ) {
+                    return (
+                      empStats[a.id].catCounts[cat] -
+                      empStats[b.id].catCounts[cat]
+                    );
+                  }
+                  if (rules.ph_balanceMoneyHours) {
+                    if (empStats[a.id].money !== empStats[b.id].money)
+                      return empStats[a.id].money - empStats[b.id].money;
+                    if (empStats[a.id].hours !== empStats[b.id].hours)
+                      return empStats[a.id].hours - empStats[b.id].hours;
+                  }
+                  return (
+                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
+                  );
+                }
+              });
 
-              empStats[chosen.id].money += getShiftValue(shift);
-              empStats[chosen.id].hours += getShiftHours(shift);
-              empStats[chosen.id].totalShifts += 1;
-              empStats[chosen.id].catCounts[cat]++;
-              if (!empStats[chosen.id].counts[shift.id])
-                empStats[chosen.id].counts[shift.id] = 0;
-              empStats[chosen.id].counts[shift.id]++;
+              const chosen = eligible[0];
+              newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
-              const assignedNameUpper = shift.name.toUpperCase();
-              if (rules.ph_limitSpecial) {
-                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
-                  assignedNameUpper.includes(n)
-                );
-                if (specialMatch) {
-                  empStats[chosen.id].specialGroupShift = specialMatch;
-                  empStats[chosen.id].specialCount += 1;
-                }
-              }
-              if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1')
-                empStats[chosen.id].countA_As1 += 1;
-              if (['B', 'C', 'D', 'E', 'F', 'G'].includes(assignedNameUpper))
-                empStats[chosen.id].assignedUniqueMornings.add(
-                  assignedNameUpper
-                );
-              if (cat === 'ดึก')
-                empStats[chosen.id].assignedNights.add(assignedNameUpper);
-              if (cat === 'บ่าย')
-                empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
-            }
-          }
-        });
-      }
-    };
+              empStats[chosen.id].money += getShiftValue(shift);
+              empStats[chosen.id].hours += getShiftHours(shift);
+              empStats[chosen.id].totalShifts += 1;
+              empStats[chosen.id].catCounts[cat]++;
+              if (!empStats[chosen.id].counts[shift.id])
+                empStats[chosen.id].counts[shift.id] = 0;
+              empStats[chosen.id].counts[shift.id]++;
 
-    const mainShifts = shifts.filter((s) => getShiftCategory(s) !== '2o');
-    const fillerShifts = shifts.filter((s) => getShiftCategory(s) === '2o');
+              const assignedNameUpper = shift.name.toUpperCase();
+              if (rules.ph_limitSpecial) {
+                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
+                  assignedNameUpper.includes(n)
+                );
+                if (specialMatch) {
+                  empStats[chosen.id].specialGroupShift = specialMatch;
+                  empStats[chosen.id].specialCount += 1;
+                }
+              }
+              if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1')
+                empStats[chosen.id].countA_As1 += 1;
+              if (['B', 'C', 'D', 'E', 'F', 'G'].includes(assignedNameUpper))
+                empStats[chosen.id].assignedUniqueMornings.add(
+                  assignedNameUpper
+                );
+              if (cat === 'ดึก')
+                empStats[chosen.id].assignedNights.add(assignedNameUpper);
+              if (cat === 'บ่าย')
+                empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
+            }
+          }
+        });
+      }
+    };
 
-    mainShifts.sort((a, b) => {
-      const priority = {
-        ดึก: 1,
-        บ่าย: 2,
-        SMC: 3,
-        As1: 4,
-        เช้า: 5,
-        A: 6,
-        '4o': 7,
-        อื่นๆ: 8,
-      };
-      return (
-        (priority[getShiftCategory(a)] || 9) -
-        (priority[getShiftCategory(b)] || 9)
-      );
-    });
+    const mainShifts = shifts.filter((s) => getShiftCategory(s) !== '2o');
+    const fillerShifts = shifts.filter((s) => getShiftCategory(s) === '2o');
 
-    assignShiftsForPass(mainShifts, false);
-    assignShiftsForPass(fillerShifts, true);
+    mainShifts.sort((a, b) => {
+      const priority = {
+        ดึก: 1,
+        บ่าย: 2,
+        SMC: 3,
+        As1: 4,
+        เช้า: 5,
+        A: 6,
+        '4o': 7,
+        อื่นๆ: 8,
+      };
+      return (
+        (priority[getShiftCategory(a)] || 9) -
+        (priority[getShiftCategory(b)] || 9)
+      );
+    });
 
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s
-      )
-    );
-  };
+    assignShiftsForPass(mainShifts, false);
+    assignShiftsForPass(fillerShifts, true);
+
+    setSchedules(
+      schedules.map((s) =>
+        s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s
+      )
+    );
+  };
 
   const handleAssignShift = (shiftId) => {
     if (!activeSchedule) return;
