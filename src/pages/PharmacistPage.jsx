@@ -22,7 +22,7 @@ import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase'; 
 
 // ==========================================
-// Custom Hook: จัดการ Firebase Sync
+// Custom Hook: จัดการ Firebase Sync (แก้บั๊ก Undefined)
 // ==========================================
 function useFirebaseSync(key, initialValue) {
   const [storedValue, setStoredValue] = useState(initialValue);
@@ -31,9 +31,20 @@ function useFirebaseSync(key, initialValue) {
     const docRef = doc(db, 'shift_data', key);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        const data = docSnap.data().value;
+        const docData = docSnap.data();
+        
+        // 🛠️ ป้องกันค่าว่าง (undefined) ทำให้ระบบพัง
+        let data = docData.value;
+        if (data === undefined || data === null) {
+          data = initialValue;
+        }
+
+        // 🛠️ บังคับโครงสร้าง Array ป้องกัน Firebase เพี้ยน
+        if (Array.isArray(initialValue) && !Array.isArray(data)) {
+          data = initialValue;
+        }
+
         const isObj = (val) => val && typeof val === 'object' && !Array.isArray(val);
-        // [แก้ไขบั๊ก] นำโครงสร้างกฎใหม่ ไปผสมกับข้อมูลเก่า เพื่อป้องกัน Error ค่า Null
         if (isObj(data) && isObj(initialValue)) {
           setStoredValue({ ...initialValue, ...data });
         } else {
@@ -49,15 +60,18 @@ function useFirebaseSync(key, initialValue) {
   const setValue = (value) => {
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore); 
-      const docRef = doc(db, 'shift_data', key);
-      setDoc(docRef, { value: valueToStore });
+      // 🛠️ ป้องกันการโยนค่า undefined กลับไปเซฟใน Firebase
+      if (valueToStore !== undefined) {
+        setStoredValue(valueToStore); 
+        const docRef = doc(db, 'shift_data', key);
+        setDoc(docRef, { value: valueToStore });
+      }
     } catch (error) {
       console.error("Firebase Sync Error:", error);
     }
   };
 
-  return [storedValue, setValue];
+  return [storedValue !== undefined ? storedValue : initialValue, setValue];
 }
 
 // ==========================================
@@ -216,17 +230,22 @@ export default function PharmacistPage() {
 // 1. Component: จัดการตารางเวร (เภสัชกร)
 // ==========================================
 function ScheduleManager() {
-  const [employees] = useFirebaseSync('ph_employees', []);
-  const [shifts] = useFirebaseSync('ph_shift_types', []);
-  const [schedules, setSchedules] = useFirebaseSync('ph_schedules', []);
+  const [employeesRaw] = useFirebaseSync('ph_employees', []);
+  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
+  const [schedulesRaw, setSchedules] = useFirebaseSync('ph_schedules', []);
   const [activeScheduleId, setActiveScheduleId] = useFirebaseSync('ph_active_schedule', null);
 
-  // ข้อมูลกฎอัปเดตใหม่ เปิดเป็น true ให้หมดแต่แรก
+  // 🛠️ รับประกันว่าจะเป็น Array แน่นอน ป้องกันแอปพัง
+  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
+  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
+  const schedules = Array.isArray(schedulesRaw) ? schedulesRaw : [];
+
   const [rules, setRules] = useFirebaseSync('ph_rules', {
     rule_1: true, rule_2: true, rule_3: true, rule_4: true,
     rule_5: true, rule_6: true, rule_7: true, rule_8: true,
   });
-  const safeRules = rules || {}; // ป้องกัน error null/undefined
+  // 🛠️ รับประกันว่ากฎจะเป็น Object เสมอ
+  const safeRules = (rules && typeof rules === 'object' && !Array.isArray(rules)) ? rules : {};
 
   const [selectedRuleRole] = useState('pharmacist');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -300,7 +319,6 @@ function ScheduleManager() {
     const newAssignments = {};
     const empStats = {};
 
-    // ค้นหาเวรดึกเพื่อเช็คคนที่งดดึก
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
@@ -363,29 +381,29 @@ function ScheduleManager() {
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // กฎ 1. เวรต้องไม่ติดกัน 2 วัน
+              // กฎ 1
               if (safeRules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // กฎ 2. เวรบ่าย ห้ามซ้ำชื่อกัน
+              // กฎ 2
               if (safeRules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              // กฎ 4 และ 5. คนมี R1 ห้ามมี T1, T2 และสลับกัน
+              // กฎ 4 และ 5
               if (safeRules.rule_4 || safeRules.rule_5) {
                 if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
-              // กฎ 6. As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน
+              // กฎ 6
               if (safeRules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // กฎ 7. เวรเช้าต้องไม่ซ้ำตำแหน่งกัน (ซ้ำชื่อไม่ได้)
+              // กฎ 7
               if (safeRules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -403,7 +421,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // กฎ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ
+                // กฎ 3
                 if (safeRules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -411,7 +429,7 @@ function ScheduleManager() {
                    if (!aNeedsG && bNeedsG) return 1;
                 }
 
-                // กฎ 2. เวรบ่าย >=2 ต้องได้ บe เสมอ
+                // กฎ 2
                 if (safeRules.rule_2 && cat === 'บ่าย') {
                    if (shiftNameUpper === 'บE' || shiftNameUpper === 'บe') {
                        const aNeedsBe = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
@@ -426,7 +444,7 @@ function ScheduleManager() {
                    }
                 }
 
-                // กฎ 7 และ กฎ 8. กระจายชั่วโมง/เวรให้เท่ากัน + ลดชั่วโมงคนงดดึก
+                // กฎ 7 และ กฎ 8
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
                    if (safeRules.rule_8 && empStats[empId].optOutNight) hrs += 14; 
@@ -760,8 +778,12 @@ function ScheduleManager() {
 // 2. Component: จัดการพนักงาน (เภสัชกร)
 // ==========================================
 function EmployeesManager() {
-  const [shifts] = useFirebaseSync('ph_shift_types', []);
-  const [employees, setEmployees] = useFirebaseSync('ph_employees', []);
+  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
+  const [employeesRaw, setEmployees] = useFirebaseSync('ph_employees', []);
+  
+  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
+  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] });
 
@@ -872,7 +894,9 @@ function EmployeesManager() {
 // 3. Component: จัดการประเภทเวร (เภสัชกร)
 // ==========================================
 function ShiftTypesManager() {
-  const [shifts, setShifts] = useFirebaseSync('ph_shift_types', []);
+  const [shiftsRaw, setShifts] = useFirebaseSync('ph_shift_types', []);
+  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
+  
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
 
