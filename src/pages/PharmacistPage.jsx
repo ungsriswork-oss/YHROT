@@ -60,7 +60,7 @@ const getShiftValue = (shift) => {
   const name = shift.name.trim();
 
   if (['4s1', '4s2', '4s3', '4s4'].includes(name.toLowerCase())) return 720;
-  if (name.toLowerCase() === 'as1') return 1840;
+  if (['as1', 'as/4'].includes(name.toLowerCase())) return 1840;
 
   if (!shift.start || !shift.end) return 0;
   const [h1, m1] = shift.start.split(':').map(Number);
@@ -103,7 +103,7 @@ const getShiftCategory = (shift) => {
   const nightShifts = ['ดI', 'ดE', 'ดก', 'ด'];
   if (nightShifts.includes(nameUpper)) return 'ดึก';
 
-  if (nameUpper === 'AS1') return 'As1';
+  if (nameUpper === 'AS1' || nameUpper === 'AS/4') return 'As/4';
 
   const smcShifts = ['4s1', '4s2', '4s3', '4s4'];
   if (smcShifts.includes(nameLower)) return 'SMC';
@@ -133,7 +133,7 @@ const CATEGORIZED_RULES = {
       },
       {
         id: 'ph_limitA_As1',
-        label: '5. เวร A และ As1 จะมีได้คนละ 1 เวร/เดือน',
+        label: '5. เวร A และ As/4 จะมีได้คนละ 1 เวร/เดือน',
       },
       {
         id: 'ph_uniqueMorning',
@@ -346,18 +346,18 @@ function ScheduleManager() {
     ).getDate();
     let csvContent = '\uFEFFพนักงาน,หมวดหมู่,';
     for (let i = 1; i <= daysInMonth; i++) csvContent += i + ',';
-    csvContent += 'เช้า,บ่าย,ดึก,As1,A,SMC,4o,2o,รวมชั่วโมง,รวมเงิน\n'; // <-- เพิ่มรวมชั่วโมงตรงนี้
+    csvContent += 'เช้า,บ่าย,ดึก,As/4,A,SMC,4o,2o,รวมชั่วโมง,รวมเงิน\n'; 
 
     employees.forEach((emp) => {
       let row = [`"${emp.name}"`, `"เภสัชกร"`];
       let totalMoney = 0;
-      let totalHours = 0; // <-- ตัวแปรเก็บชั่วโมงรวม
+      let totalHours = 0; 
       let counts = {
         A: 0,
         เช้า: 0,
         บ่าย: 0,
         ดึก: 0,
-        As1: 0,
+        'As/4': 0,
         SMC: 0,
         '4o': 0,
         '2o': 0,
@@ -373,7 +373,7 @@ function ScheduleManager() {
         row.push(sData ? `"${sData.name}"` : '');
         if (sData) {
           totalMoney += getShiftValue(sData);
-          totalHours += getShiftHours(sData); // <-- บวกชั่วโมงเข้าไป
+          totalHours += getShiftHours(sData); 
           const cat = getShiftCategory(sData);
           if (counts[cat] !== undefined) counts[cat]++;
         }
@@ -382,12 +382,12 @@ function ScheduleManager() {
         counts['เช้า'],
         counts['บ่าย'],
         counts['ดึก'],
-        counts['As1'],
+        counts['As/4'],
         counts['A'],
         counts['SMC'],
         counts['4o'],
         counts['2o'],
-        totalHours, // <-- ใส่ค่าชั่วโมงรวมใน Excel
+        totalHours, 
         totalMoney
       );
       csvContent += row.join(',') + '\n';
@@ -423,14 +423,14 @@ function ScheduleManager() {
           บ่าย: 0,
           ดึก: 0,
           SMC: 0,
-          As1: 0,
+          'As/4': 0,
           '4o': 0,
           '2o': 0,
           อื่นๆ: 0,
         },
         specialGroupShift: null,
         specialCount: 0,
-        countA_As1: 0,
+        countA_As4: 0,
         assignedUniqueMornings: new Set(),
         assignedNights: new Set(),
         assignedAfternoons: new Set(),
@@ -559,9 +559,9 @@ function ScheduleManager() {
 
               if (
                 rules.ph_limitA_As1 &&
-                (upperName === 'A' || upperName === 'AS1')
+                (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')
               ) {
-                if (empStats[emp.id].countA_As1 >= 1) return false;
+                if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
               if (rules.ph_uniqueMorning) {
@@ -663,8 +663,8 @@ function ScheduleManager() {
                   empStats[chosen.id].specialCount += 1;
                 }
               }
-              if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1')
-                empStats[chosen.id].countA_As1 += 1;
+              if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1' || assignedNameUpper === 'AS/4')
+                empStats[chosen.id].countA_As4 += 1;
               if (['B', 'C', 'D', 'E', 'F', 'G'].includes(assignedNameUpper))
                 empStats[chosen.id].assignedUniqueMornings.add(
                   assignedNameUpper
@@ -687,7 +687,7 @@ function ScheduleManager() {
         ดึก: 1,
         บ่าย: 2,
         SMC: 3,
-        As1: 4,
+        'As/4': 4,
         เช้า: 5,
         A: 6,
         '4o': 7,
@@ -942,7 +942,7 @@ function ScheduleManager() {
                     ดึก
                   </th>
                   <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-teal-50/50">
-                    As1
+                    As/4
                   </th>
                   <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-indigo-50/50">
                     A
@@ -974,7 +974,7 @@ function ScheduleManager() {
                     เช้า: 0,
                     บ่าย: 0,
                     ดึก: 0,
-                    As1: 0,
+                    'As/4': 0,
                     SMC: 0,
                     '4o': 0,
                     '2o': 0,
@@ -1042,7 +1042,7 @@ function ScheduleManager() {
                         {counts['ดึก'] > 0 ? counts['ดึก'] : '-'}
                       </td>
                       <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-teal-700 bg-teal-50/30">
-                        {counts['As1'] > 0 ? counts['As1'] : '-'}
+                        {counts['As/4'] > 0 ? counts['As/4'] : '-'}
                       </td>
                       <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-indigo-700 bg-indigo-50/30">
                         {counts['A'] > 0 ? counts['A'] : '-'}
@@ -1571,7 +1571,7 @@ function ShiftTypesManager() {
                 </label>
                 <input
                   type="text"
-                  placeholder="เช่น 4s1, R2"
+                  placeholder="เช่น เช้า, บ่าย, ดึก, T2"
                   className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
                   value={formData.name}
                   onChange={(e) =>
@@ -1664,7 +1664,6 @@ function ShiftTypesManager() {
                   <option value="holidays_except_saturday">
                     เฉพาะวันหยุด (ยกเว้นเสาร์)
                   </option>
-                  {/* เพิ่มบรรทัดนี้ เพื่อให้กดเลือกเงื่อนไขใหม่ได้ */}
                   <option value="first_day_of_holidays">
                     วันแรกของช่วงหยุดยาว/ส.-อา. (สำหรับ T2)
                   </option>
