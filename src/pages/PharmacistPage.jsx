@@ -18,11 +18,12 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 
-// --- นำเข้าคำสั่งของ Firebase ---
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase'; // ชี้ไปที่ไฟล์ firebase.js ของคุณ
+import { db } from '../firebase'; 
 
-// --- Custom Hook สำหรับจัดการ Firebase Sync (แทน Local Storage) ---
+// ==========================================
+// Custom Hook: จัดการ Firebase Sync
+// ==========================================
 function useFirebaseSync(key, initialValue) {
   const [storedValue, setStoredValue] = useState(initialValue);
 
@@ -30,7 +31,14 @@ function useFirebaseSync(key, initialValue) {
     const docRef = doc(db, 'shift_data', key);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        setStoredValue(docSnap.data().value);
+        const data = docSnap.data().value;
+        const isObj = (val) => val && typeof val === 'object' && !Array.isArray(val);
+        // [แก้ไขบั๊ก] นำโครงสร้างกฎใหม่ ไปผสมกับข้อมูลเก่า เพื่อป้องกัน Error ค่า Null
+        if (isObj(data) && isObj(initialValue)) {
+          setStoredValue({ ...initialValue, ...data });
+        } else {
+          setStoredValue(data);
+        }
       } else {
         setDoc(docRef, { value: initialValue });
       }
@@ -53,7 +61,7 @@ function useFirebaseSync(key, initialValue) {
 }
 
 // ==========================================
-// ฟังก์ชันคำนวณมูลค่าเวร
+// ฟังก์ชันคำนวณมูลค่าและชั่วโมง
 // ==========================================
 const getShiftValue = (shift) => {
   if (!shift || !shift.name) return 0;
@@ -70,9 +78,6 @@ const getShiftValue = (shift) => {
   return hrs * 100;
 };
 
-// ==========================================
-// ฟังก์ชันคำนวณชั่วโมงการทำงาน
-// ==========================================
 const getShiftHours = (shift) => {
   if (!shift || !shift.start || !shift.end) return 0;
   const [h1, m1] = shift.start.split(':').map(Number);
@@ -115,7 +120,7 @@ const getShiftCategory = (shift) => {
 };
 
 // ==========================================
-// ข้อมูลตั้งต้นสำหรับเงื่อนไข (เภสัชกร) ชุดใหม่
+// ข้อมูลตั้งต้นสำหรับเงื่อนไข (ชุดใหม่ 8 ข้อ)
 // ==========================================
 const CATEGORIZED_RULES = {
   pharmacist: {
@@ -128,7 +133,7 @@ const CATEGORIZED_RULES = {
       { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
       { id: 'rule_6', label: '6. เวร As/4 หรือ A จะมีได้แค่เวรใดเวรหนึ่ง และคนละ 1 เวร/เดือน' },
       { id: 'rule_7', label: '7. เวรแต่ละประเภทต้องกระจายเท่ากัน เวรเช้าต้องไม่ซ้ำตำแหน่งกัน' },
-      { id: 'rule_8', label: '8. คนที่งดรับเวรดึก (0.00-8.00) จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
+      { id: 'rule_8', label: '8. คนงดเวรดึก จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
     ],
   },
 };
@@ -146,40 +151,18 @@ export default function PharmacistPage() {
     <div className="min-h-screen w-full bg-slate-50 font-sans text-slate-800 flex flex-col p-0 m-0">
       <style>{`
         @media print {
-          @page { 
-            size: A4 landscape; 
-            margin: 3mm; 
-          }
-          html, body { 
-            background-color: white !important; 
-            -webkit-print-color-adjust: exact; 
-            print-color-adjust: exact; 
-            zoom: 0.82; 
-          }
+          @page { size: A4 landscape; margin: 3mm; }
+          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.82; }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
-          
-          table { 
-            width: 100% !important; 
-            max-width: 100% !important;
-            border-collapse: collapse; 
-            table-layout: fixed; 
-          }
-          
+          table { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\[1300px\] { min-width: 0px !important; }
           th.w-\[120px\] { width: 70px !important; } 
           th.w-\[30px\] { width: 22px !important; }  
           th.w-\[70px\] { width: 45px !important; }  
-
-          th, td { 
-            padding: 1px 0px !important; 
-            font-size: 7.5px !important; 
-            word-wrap: break-word;
-            overflow: hidden;
-          }
-          
+          th, td { padding: 1px 0px !important; font-size: 7.5px !important; word-wrap: break-word; overflow: hidden; }
           .text-xs { font-size: 7px !important; line-height: 1 !important; }
           .text-\[11px\] { font-size: 7px !important; }
           .text-\[10px\] { font-size: 6px !important; }
@@ -188,10 +171,10 @@ export default function PharmacistPage() {
         }
       `}</style>
 
-      {/* Header */}
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
           <button
+            type="button"
             onClick={() => navigate('/')}
             className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
           >
@@ -206,11 +189,10 @@ export default function PharmacistPage() {
           {tabs.map((tab) => (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white text-indigo-700 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               <tab.icon className="w-4 h-4" /> {tab.name}
@@ -239,27 +221,18 @@ function ScheduleManager() {
   const [schedules, setSchedules] = useFirebaseSync('ph_schedules', []);
   const [activeScheduleId, setActiveScheduleId] = useFirebaseSync('ph_active_schedule', null);
 
-  // อัปเดต State กฎใหม่
+  // ข้อมูลกฎอัปเดตใหม่ เปิดเป็น true ให้หมดแต่แรก
   const [rules, setRules] = useFirebaseSync('ph_rules', {
-    rule_1: true,
-    rule_2: true,
-    rule_3: true,
-    rule_4: true,
-    rule_5: true,
-    rule_6: true,
-    rule_7: true,
-    rule_8: true,
+    rule_1: true, rule_2: true, rule_3: true, rule_4: true,
+    rule_5: true, rule_6: true, rule_7: true, rule_8: true,
   });
+  const safeRules = rules || {}; // ป้องกัน error null/undefined
 
   const [selectedRuleRole] = useState('pharmacist');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createMonth, setCreateMonth] = useState(new Date().getMonth());
   const [createYear, setCreateYear] = useState(new Date().getFullYear());
-  const [assignmentModal, setAssignmentModal] = useState({
-    isOpen: false,
-    empId: null,
-    dateStr: null,
-  });
+  const [assignmentModal, setAssignmentModal] = useState({ isOpen: false, empId: null, dateStr: null });
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
 
   const thaiMonths = [
@@ -272,15 +245,8 @@ function ScheduleManager() {
 
   const handleCreateSchedule = () => {
     const newId = `${createYear}-${createMonth}`;
-    if (schedules.find((s) => s.id === newId))
-      return alert('มีตารางของเดือนนี้อยู่แล้ว!');
-    const newSchedule = {
-      id: newId,
-      year: createYear,
-      month: createMonth,
-      assignments: {},
-      holidays: {},
-    };
+    if (schedules.find((s) => s.id === newId)) return alert('มีตารางของเดือนนี้อยู่แล้ว!');
+    const newSchedule = { id: newId, year: createYear, month: createMonth, assignments: {}, holidays: {} };
     setSchedules([...schedules, newSchedule]);
     setActiveScheduleId(newId);
     setIsCreateModalOpen(false);
@@ -304,8 +270,7 @@ function ScheduleManager() {
 
     employees.forEach((emp) => {
       let row = [`"${emp.name}"`, `"เภสัชกร"`];
-      let totalMoney = 0;
-      let totalHours = 0; 
+      let totalMoney = 0; let totalHours = 0; 
       let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
 
       for (let d = 1; d <= daysInMonth; d++) {
@@ -319,11 +284,7 @@ function ScheduleManager() {
           if (counts[cat] !== undefined) counts[cat]++;
         }
       }
-      row.push(
-        counts['เช้า'], counts['บ่าย'], counts['ดึก'], counts['As/4'],
-        counts['A'], counts['SMC'], counts['4o'], counts['2o'],
-        totalHours, totalMoney
-      );
+      row.push(counts['เช้า'], counts['บ่าย'], counts['ดึก'], counts['As/4'], counts['A'], counts['SMC'], counts['4o'], counts['2o'], totalHours, totalMoney);
       csvContent += row.join(',') + '\n';
     });
 
@@ -343,14 +304,10 @@ function ScheduleManager() {
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
-      // ตรวจสอบว่าคนนี้งดเวรดึกทั้งหมดหรือไม่
       const optOutNight = nightShiftIds.length > 0 && nightShiftIds.every(id => e.offShifts && e.offShifts.includes(id));
-
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0, counts: {},
         catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
-        
-        // ข้อมูลสำหรับกฎใหม่
         countA_As4: 0,
         assignedUniqueMornings: new Set(),
         assignedNights: new Set(),
@@ -407,29 +364,29 @@ function ScheduleManager() {
               const cat = getShiftCategory(shift);
 
               // กฎ 1. เวรต้องไม่ติดกัน 2 วัน
-              if (rules.rule_1) {
+              if (safeRules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
               // กฎ 2. เวรบ่าย ห้ามซ้ำชื่อกัน
-              if (rules.rule_2 && cat === 'บ่าย') {
+              if (safeRules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
               // กฎ 4 และ 5. คนมี R1 ห้ามมี T1, T2 และสลับกัน
-              if (rules.rule_4 || rules.rule_5) {
+              if (safeRules.rule_4 || safeRules.rule_5) {
                 if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
               // กฎ 6. As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน
-              if (rules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
+              if (safeRules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
               // กฎ 7. เวรเช้าต้องไม่ซ้ำตำแหน่งกัน (ซ้ำชื่อไม่ได้)
-              if (rules.rule_7 && cat === 'เช้า') {
+              if (safeRules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
 
@@ -446,8 +403,8 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // กฎ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ (ดึงคนที่มี R1 มารับ G ก่อน)
-                if (rules.rule_3 && shiftNameUpper === 'G') {
+                // กฎ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ
+                if (safeRules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
                    if (aNeedsG && !bNeedsG) return -1;
@@ -455,14 +412,13 @@ function ScheduleManager() {
                 }
 
                 // กฎ 2. เวรบ่าย >=2 ต้องได้ บe เสมอ
-                if (rules.rule_2 && cat === 'บ่าย') {
+                if (safeRules.rule_2 && cat === 'บ่าย') {
                    if (shiftNameUpper === 'บE' || shiftNameUpper === 'บe') {
                        const aNeedsBe = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
                        const bNeedsBe = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
                        if (aNeedsBe && !bNeedsBe) return -1;
                        if (!aNeedsBe && bNeedsBe) return 1;
                    } else {
-                       // ถ้าไม่ใช่เวร บE ให้ลดความสำคัญของคนที่มีบ่าย 1 เวรแล้วแต่ยังไม่มี บE เพื่อเก็บช่องว่างไว้ให้ไปรับ บE 
                        const aHasNoBeAndHasAfternoon = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
                        const bHasNoBeAndHasAfternoon = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
                        if (aHasNoBeAndHasAfternoon && !bHasNoBeAndHasAfternoon) return 1;
@@ -470,31 +426,26 @@ function ScheduleManager() {
                    }
                 }
 
-                // กฎ 7 และ กฎ 8. กระจายชั่วโมงและจำนวนเวรให้เท่ากัน + ลดชั่วโมงคนงดดึก
+                // กฎ 7 และ กฎ 8. กระจายชั่วโมง/เวรให้เท่ากัน + ลดชั่วโมงคนงดดึก
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
-                   // กฎ 8: คนงดดึก บวกคะแนนชั่วโมงเสมือน +14 เข้าไป ให้ระบบเห็นว่าทำชั่วโมงไปเยอะแล้ว เพื่อให้หยุดให้เวรเร็วขึ้น
-                   if (rules.rule_8 && empStats[empId].optOutNight) {
-                       hrs += 14; 
-                   }
+                   if (safeRules.rule_8 && empStats[empId].optOutNight) hrs += 14; 
                    return hrs;
                 };
 
-                if (rules.rule_7 || rules.rule_8) {
+                if (safeRules.rule_7 || safeRules.rule_8) {
                    const effHoursA = getEffectiveHours(a.id);
                    const effHoursB = getEffectiveHours(b.id);
                    if (effHoursA !== effHoursB) return effHoursA - effHoursB;
                    if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
                        return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
                 }
-
                 return 0;
               });
 
               const chosen = eligible[0];
               newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
-              // อัปเดตสถิติ
               empStats[chosen.id].money += getShiftValue(shift);
               empStats[chosen.id].hours += getShiftHours(shift);
               empStats[chosen.id].totalShifts += 1;
@@ -517,9 +468,7 @@ function ScheduleManager() {
               if (cat === 'บ่าย') {
                 empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
                 empStats[chosen.id].afternoonCount += 1;
-                if (assignedNameUpper === 'บE' || assignedNameUpper === 'บe') {
-                   empStats[chosen.id].hasBe = true;
-                }
+                if (assignedNameUpper === 'บE' || assignedNameUpper === 'บe') empStats[chosen.id].hasBe = true;
               }
             }
           }
@@ -538,11 +487,7 @@ function ScheduleManager() {
     assignShiftsForPass(mainShifts, false);
     assignShiftsForPass(fillerShifts, true);
 
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
   };
 
   const handleAssignShift = (shiftId) => {
@@ -551,13 +496,7 @@ function ScheduleManager() {
     const updatedAssignments = { ...activeSchedule.assignments };
     if (shiftId === null) delete updatedAssignments[`${empId}_${dateStr}`];
     else updatedAssignments[`${empId}_${dateStr}`] = shiftId;
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId
-          ? { ...s, assignments: updatedAssignments }
-          : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: updatedAssignments } : s));
     setAssignmentModal({ isOpen: false, empId: null, dateStr: null });
   };
 
@@ -566,11 +505,7 @@ function ScheduleManager() {
     const updatedHolidays = { ...activeSchedule.holidays };
     if (updatedHolidays[dateStr]) delete updatedHolidays[dateStr];
     else updatedHolidays[dateStr] = 'วันหยุดพิเศษ';
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId ? { ...s, holidays: updatedHolidays } : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, holidays: updatedHolidays } : s));
   };
 
   let monthDates = [];
@@ -580,17 +515,15 @@ function ScheduleManager() {
       const d = new Date(activeSchedule.year, activeSchedule.month, i + 1);
       const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
       return {
-        dateNum: i + 1,
-        dayStr: thaiDays[d.getDay()],
-        dateStr,
+        dateNum: i + 1, dayStr: thaiDays[d.getDay()], dateStr,
         isHoliday: d.getDay() === 0 || d.getDay() === 6 || !!activeSchedule.holidays[dateStr],
       };
     });
   }
 
   const activeCategoryRules = CATEGORIZED_RULES[selectedRuleRole].rules;
-  const inactiveRules = activeCategoryRules.filter((r) => !rules[r.id]);
-  const currentlyActiveRules = activeCategoryRules.filter((r) => rules[r.id]);
+  const inactiveRules = activeCategoryRules.filter((r) => !safeRules[r.id]);
+  const currentlyActiveRules = activeCategoryRules.filter((r) => safeRules[r.id]);
 
   return (
     <div className="flex flex-col h-full w-full">
@@ -600,11 +533,10 @@ function ScheduleManager() {
             {schedules.map((sch) => (
               <button
                 key={sch.id}
+                type="button"
                 onClick={() => setActiveScheduleId(sch.id)}
                 className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${
-                  activeScheduleId === sch.id
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-transparent text-gray-600 hover:bg-gray-100'
+                  activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'
                 }`}
               >
                 {thaiMonths[sch.month]} {sch.year + 543}
@@ -614,6 +546,7 @@ function ScheduleManager() {
         </div>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={handleAutoGenerate}
             disabled={!activeSchedule}
             className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-purple-700 active:scale-95 transition-transform shadow-sm"
@@ -621,6 +554,7 @@ function ScheduleManager() {
             <Wand2 className="w-4 h-4" /> สุ่มเวรอัตโนมัติ
           </button>
           <button
+            type="button"
             onClick={() => setIsCreateModalOpen(true)}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm"
           >
@@ -638,13 +572,17 @@ function ScheduleManager() {
           </div>
           <div className="relative">
             <button
-              onClick={() => setShowRuleDropdown(!showRuleDropdown)}
-              className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium transition-colors"
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                setShowRuleDropdown(!showRuleDropdown);
+              }}
+              className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium transition-colors z-50"
             >
               <Plus className="w-3.5 h-3.5" /> เพิ่มเงื่อนไข
             </button>
             {showRuleDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-[350px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2">
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 shadow-xl rounded-xl z-[100] py-2 max-h-[60vh] overflow-y-auto">
                 <div className="px-4 py-1.5 bg-gray-50 text-xs font-bold text-gray-700 mb-1 border-b border-gray-100">
                   เงื่อนไขของ: {CATEGORIZED_RULES[selectedRuleRole].label}
                 </div>
@@ -652,8 +590,10 @@ function ScheduleManager() {
                   inactiveRules.map((rule) => (
                     <button
                       key={rule.id}
-                      onClick={() => {
-                        setRules({ ...rules, [rule.id]: true });
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRules({ ...safeRules, [rule.id]: true });
                         setShowRuleDropdown(false);
                       }}
                       className="w-full text-left px-5 py-2.5 text-xs text-gray-600 hover:bg-indigo-50 transition-colors"
@@ -662,9 +602,7 @@ function ScheduleManager() {
                     </button>
                   ))
                 ) : (
-                  <div className="px-5 py-4 text-xs text-gray-400 text-center">
-                    ไม่มีเงื่อนไขเพิ่มเติมให้เลือก
-                  </div>
+                  <div className="px-5 py-4 text-xs text-gray-400 text-center">ไม่มีเงื่อนไขเพิ่มเติมให้เลือก</div>
                 )}
               </div>
             )}
@@ -674,14 +612,12 @@ function ScheduleManager() {
         <div className="flex items-center gap-2 flex-wrap min-h-[30px]">
           {currentlyActiveRules.length > 0 ? (
             currentlyActiveRules.map((rule) => (
-              <div
-                key={rule.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm max-w-full"
-              >
+              <div key={rule.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm max-w-full">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
                 <span className="truncate whitespace-normal">{rule.label}</span>
                 <button
-                  onClick={() => setRules({ ...rules, [rule.id]: false })}
+                  type="button"
+                  onClick={() => setRules({ ...safeRules, [rule.id]: false })}
                   className="ml-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -689,33 +625,16 @@ function ScheduleManager() {
               </div>
             ))
           ) : (
-            <span className="text-xs text-gray-400 italic">
-              ไม่มีเงื่อนไขที่ถูกเปิดใช้งานสำหรับหมวดหมู่นี้ หรือเว้นว่างไว้
-            </span>
+            <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่ถูกเปิดใช้งาน</span>
           )}
         </div>
       </div>
 
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3">
-          <button
-            onClick={handleDeleteSchedule}
-            className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"
-          >
-            <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
-          </button>
-          <button
-            onClick={handleExportExcel}
-            className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
-          >
-            <Download className="w-4 h-4" /> Excel
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="text-slate-700 bg-white border border-slate-200 shadow-sm px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50 transition-colors"
-          >
-            <Printer className="w-4 h-4" /> PDF
-          </button>
+          <button type="button" onClick={handleDeleteSchedule} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"><Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้</button>
+          <button type="button" onClick={handleExportExcel} className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"><Download className="w-4 h-4" /> Excel</button>
+          <button type="button" onClick={() => window.print()} className="text-slate-700 bg-white border border-slate-200 shadow-sm px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50 transition-colors"><Printer className="w-4 h-4" /> PDF</button>
         </div>
       )}
 
@@ -730,31 +649,14 @@ function ScheduleManager() {
             <div className="hidden print:block text-center font-bold text-sm text-black mb-2 pb-1">
               ตารางปฏิบัติงาน เภสัชกร ประจำเดือน {thaiMonths[activeSchedule.month]} พ.ศ. {activeSchedule.year + 543}
             </div>
-            <table
-              className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0"
-              id="schedule-table"
-            >
+            <table className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0" id="schedule-table">
               <thead>
                 <tr className="bg-slate-50 sticky top-0 z-20 shadow-sm">
-                  <th className="p-2 border-b border-r border-gray-200 w-[120px] text-sm text-gray-700 print:w-[80px]">
-                    พนักงาน
-                  </th>
+                  <th className="p-2 border-b border-r border-gray-200 w-[120px] text-sm text-gray-700 print:w-[80px]">พนักงาน</th>
                   {monthDates.map((d) => (
-                    <th
-                      key={d.dateStr}
-                      onClick={() => handleToggleHoliday(d.dateStr)}
-                      className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-50 transition-colors ${
-                        d.isHoliday
-                          ? 'bg-red-50 text-red-600 font-bold print:bg-gray-100'
-                          : 'text-slate-600'
-                      }`}
-                    >
-                      <div className="text-[10px] print:text-[8px] leading-tight pt-1">
-                        {d.dayStr}
-                      </div>
-                      <div className="text-xs print:text-[10px] pb-1">
-                        {d.dateNum}
-                      </div>
+                    <th key={d.dateStr} onClick={() => handleToggleHoliday(d.dateStr)} className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-50 transition-colors ${d.isHoliday ? 'bg-red-50 text-red-600 font-bold print:bg-gray-100' : 'text-slate-600'}`}>
+                      <div className="text-[10px] print:text-[8px] leading-tight pt-1">{d.dayStr}</div>
+                      <div className="text-xs print:text-[10px] pb-1">{d.dateNum}</div>
                     </th>
                   ))}
                   <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-blue-50/50">เช้า</th>
@@ -771,50 +673,22 @@ function ScheduleManager() {
               </thead>
               <tbody>
                 {employees.map((emp) => {
-                  let totalMoney = 0;
-                  let totalHours = 0;
+                  let totalMoney = 0; let totalHours = 0;
                   let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
 
                   return (
                     <tr key={emp.id} className="hover:bg-gray-50 transition-colors h-8">
                       <td className="sticky left-0 bg-white group-hover:bg-gray-50 px-2 py-1 border-b border-r border-gray-200 text-left text-xs font-bold text-gray-800 truncate print:static print:text-[10px]">
                         <div className="flex flex-col">
-                          <span>{emp.name}</span>
-                          <span className="text-[9px] font-normal text-gray-400">เภสัชกร</span>
+                          <span>{emp.name}</span><span className="text-[9px] font-normal text-gray-400">เภสัชกร</span>
                         </div>
                       </td>
                       {monthDates.map((d) => {
-                        const sData = shifts.find(
-                          (s) => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]
-                        );
-                        if (sData) {
-                          totalMoney += getShiftValue(sData);
-                          totalHours += getShiftHours(sData);
-                          const cat = getShiftCategory(sData);
-                          if (counts[cat] !== undefined) counts[cat]++;
-                        }
+                        const sData = shifts.find((s) => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                        if (sData) { totalMoney += getShiftValue(sData); totalHours += getShiftHours(sData); const cat = getShiftCategory(sData); if (counts[cat] !== undefined) counts[cat]++; }
                         return (
-                          <td
-                            key={d.dateStr}
-                            onClick={() =>
-                              setAssignmentModal({
-                                isOpen: true,
-                                empId: emp.id,
-                                dateStr: d.dateStr,
-                              })
-                            }
-                            className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${
-                              d.isHoliday ? 'bg-red-50/30 print:bg-gray-100' : ''
-                            }`}
-                          >
-                            {sData && (
-                              <div
-                                className="absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white leading-none overflow-hidden print:text-black print:border print:border-gray-800 shadow-sm"
-                                style={{ backgroundColor: sData.color }}
-                              >
-                                {sData.name}
-                              </div>
-                            )}
+                          <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })} className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-50/30 print:bg-gray-100' : ''}`}>
+                            {sData && (<div className="absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white leading-none overflow-hidden print:text-black print:border print:border-gray-800 shadow-sm" style={{ backgroundColor: sData.color }}>{sData.name}</div>)}
                           </td>
                         );
                       })}
@@ -844,70 +718,33 @@ function ScheduleManager() {
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">เดือน</label>
-                <select
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500"
-                  value={createMonth}
-                  onChange={(e) => setCreateMonth(Number(e.target.value))}
-                >
-                  {thaiMonths.map((m, i) => (
-                    <option key={i} value={i}>{m}</option>
-                  ))}
+                <select className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createMonth} onChange={(e) => setCreateMonth(Number(e.target.value))}>
+                  {thaiMonths.map((m, i) => (<option key={i} value={i}>{m}</option>))}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">ปี (ค.ศ.)</label>
-                <input
-                  type="number"
-                  className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500"
-                  value={createYear}
-                  onChange={(e) => setCreateYear(Number(e.target.value))}
-                />
+                <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createYear} onChange={(e) => setCreateYear(Number(e.target.value))} />
               </div>
             </div>
             <div className="flex gap-3 justify-end pt-2">
-              <button
-                onClick={() => setIsCreateModalOpen(false)}
-                className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleCreateSchedule}
-                className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors"
-              >
-                สร้างตาราง
-              </button>
+              <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">ยกเลิก</button>
+              <button type="button" onClick={handleCreateSchedule} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">สร้างตาราง</button>
             </div>
           </div>
         </div>
       )}
 
       {assignmentModal.isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
-          onClick={() => setAssignmentModal({ isOpen: false, empId: null, dateStr: null })}
-        >
-          <div
-            className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setAssignmentModal({ isOpen: false, empId: null, dateStr: null })}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-base font-bold border-b border-gray-100 pb-3 mb-4 flex items-center justify-between">
               เลือกเวรประจำวัน
-              <button
-                onClick={() => handleAssignShift(null)}
-                className="py-1 px-3 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 font-medium transition-colors"
-              >
-                ว่าง (ลบเวร)
-              </button>
+              <button type="button" onClick={() => handleAssignShift(null)} className="py-1 px-3 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 font-medium transition-colors">ว่าง (ลบเวร)</button>
             </h3>
             <div className="grid grid-cols-3 gap-2.5 max-h-[60vh] overflow-y-auto pr-1">
               {shifts.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => handleAssignShift(s.id)}
-                  className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform"
-                  style={{ backgroundColor: s.color }}
-                >
+                <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)} className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform" style={{ backgroundColor: s.color }}>
                   {s.name}
                 </button>
               ))}
@@ -926,40 +763,20 @@ function EmployeesManager() {
   const [shifts] = useFirebaseSync('ph_shift_types', []);
   const [employees, setEmployees] = useFirebaseSync('ph_employees', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    role: 'pharmacist',
-    offShifts: [],
-    specificShifts: [],
-  });
+  const [formData, setFormData] = useState({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] });
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อ');
-    if (formData.id)
-      setEmployees(employees.map((e) => (e.id === formData.id ? formData : e)));
-    else
-      setEmployees([...employees, { ...formData, id: Date.now().toString() }]);
+    if (formData.id) setEmployees(employees.map((e) => (e.id === formData.id ? formData : e)));
+    else setEmployees([...employees, { ...formData, id: Date.now().toString() }]);
     setIsModalOpen(false);
   };
 
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-center mb-5">
-        <h2 className="text-xl font-bold text-gray-800">
-          จัดการรายชื่อเภสัชกร
-        </h2>
-        <button
-          onClick={() => {
-            setFormData({
-              name: '',
-              role: 'pharmacist',
-              offShifts: [],
-              specificShifts: [],
-            });
-            setIsModalOpen(true);
-          }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm"
-        >
+        <h2 className="text-xl font-bold text-gray-800">จัดการรายชื่อเภสัชกร</h2>
+        <button type="button" onClick={() => { setFormData({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] }); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <UserPlus className="w-4 h-4" /> เพิ่มเภสัชกร
         </button>
       </div>
@@ -975,87 +792,32 @@ function EmployeesManager() {
             </tr>
           </thead>
           <tbody className="text-sm">
-            {employees.length === 0 && (
-              <tr>
-                <td colSpan="5" className="text-center p-8 text-gray-400">
-                  ยังไม่มีข้อมูลพนักงาน
-                </td>
-              </tr>
-            )}
+            {employees.length === 0 && (<tr><td colSpan="5" className="text-center p-8 text-gray-400">ยังไม่มีข้อมูลพนักงาน</td></tr>)}
             {employees.map((emp) => (
-              <tr
-                key={emp.id}
-                className="border-b border-gray-100 hover:bg-gray-50 transition-colors"
-              >
+              <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                 <td className="p-4 font-bold text-gray-900">{emp.name}</td>
-                <td className="p-4 text-gray-600 font-medium">
-                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">
-                    เภสัชกร
-                  </span>
-                </td>
+                <td className="p-4 text-gray-600 font-medium"><span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">เภสัชกร</span></td>
                 <td className="p-4">
                   <div className="flex flex-wrap gap-1.5">
-                    {(!emp.specificShifts ||
-                      emp.specificShifts.length === 0) && (
-                      <span className="text-gray-400 text-xs">-</span>
-                    )}
+                    {(!emp.specificShifts || emp.specificShifts.length === 0) && <span className="text-gray-400 text-xs">-</span>}
                     {emp.specificShifts?.map((id) => {
                       const s = shifts.find((x) => x.id === id);
-                      return s ? (
-                        <span
-                          key={id}
-                          className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm"
-                          style={{ backgroundColor: s.color }}
-                        >
-                          {s.name}
-                        </span>
-                      ) : null;
+                      return s ? <span key={id} className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
                     })}
                   </div>
                 </td>
                 <td className="p-4">
                   <div className="flex flex-wrap gap-1.5">
-                    {(!emp.offShifts || emp.offShifts.length === 0) && (
-                      <span className="text-gray-400 text-xs">-</span>
-                    )}
+                    {(!emp.offShifts || emp.offShifts.length === 0) && <span className="text-gray-400 text-xs">-</span>}
                     {emp.offShifts?.map((id) => {
                       const s = shifts.find((x) => x.id === id);
-                      return s ? (
-                        <span
-                          key={id}
-                          className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm opacity-80"
-                          style={{ backgroundColor: s.color }}
-                        >
-                          {s.name}
-                        </span>
-                      ) : null;
+                      return s ? <span key={id} className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm opacity-80" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
                     })}
                   </div>
                 </td>
                 <td className="p-4 text-center">
-                  <button
-                    onClick={() => {
-                      setFormData({
-                        ...emp,
-                        role: 'pharmacist',
-                        offShifts: emp.offShifts || [],
-                        specificShifts: emp.specificShifts || [],
-                      });
-                      setIsModalOpen(true);
-                    }}
-                    className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1 transition-colors"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (confirm('ยืนยันลบพนักงาน?'))
-                        setEmployees(employees.filter((e) => e.id !== emp.id));
-                    }}
-                    className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <button type="button" onClick={() => { setFormData({ ...emp, role: 'pharmacist', offShifts: emp.offShifts || [], specificShifts: emp.specificShifts || [] }); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1 transition-colors"><Edit2 className="w-4 h-4" /></button>
+                  <button type="button" onClick={() => { if (confirm('ยืนยันลบพนักงาน?')) setEmployees(employees.filter((e) => e.id !== emp.id)); }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
                 </td>
               </tr>
             ))}
@@ -1066,95 +828,29 @@ function EmployeesManager() {
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[90vh]">
-            <h3 className="text-xl font-bold mb-5 border-b border-gray-100 pb-3">
-              {formData.id ? 'แก้ไขข้อมูล' : 'เพิ่มรายชื่อใหม่'}
-            </h3>
+            <h3 className="text-xl font-bold mb-5 border-b border-gray-100 pb-3">{formData.id ? 'แก้ไขข้อมูล' : 'เพิ่มรายชื่อใหม่'}</h3>
             <div className="space-y-5 overflow-y-auto flex-1 pr-2 custom-scrollbar">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  ชื่อพนักงาน *
-                </label>
-                <input
-                  type="text"
-                  placeholder="ระบุชื่อพนักงาน"
-                  className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none transition-shadow"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">ชื่อพนักงาน *</label>
+                <input type="text" placeholder="ระบุชื่อพนักงาน" className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                <label className="block text-sm font-bold text-blue-800 mb-1">
-                  เวรเฉพาะ (บังคับลงแค่เวรเหล่านี้)
-                </label>
+                <label className="block text-sm font-bold text-blue-800 mb-1">เวรเฉพาะ (บังคับลงแค่เวรเหล่านี้)</label>
                 <div className="flex flex-wrap gap-2">
                   {shifts.map((s) => (
-                    <label
-                      key={s.id}
-                      className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                        formData.specificShifts?.includes(s.id)
-                          ? 'bg-white border-blue-400 shadow-sm'
-                          : 'bg-white/50 border-gray-200 hover:bg-white'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-blue-600 rounded"
-                        checked={formData.specificShifts?.includes(s.id)}
-                        onChange={(e) => {
-                          const newSpecific = e.target.checked
-                            ? [...(formData.specificShifts || []), s.id]
-                            : (formData.specificShifts || []).filter(
-                                (id) => id !== s.id
-                              );
-                          const newOff = (formData.offShifts || []).filter(
-                            (id) => id !== s.id
-                          );
-                          setFormData({
-                            ...formData,
-                            specificShifts: newSpecific,
-                            offShifts: newOff,
-                          });
-                        }}
-                      />
+                    <label key={s.id} className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${formData.specificShifts?.includes(s.id) ? 'bg-white border-blue-400 shadow-sm' : 'bg-white/50 border-gray-200 hover:bg-white'}`}>
+                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={formData.specificShifts?.includes(s.id)} onChange={(e) => { const newSpecific = e.target.checked ? [...(formData.specificShifts || []), s.id] : (formData.specificShifts || []).filter((id) => id !== s.id); const newOff = (formData.offShifts || []).filter((id) => id !== s.id); setFormData({ ...formData, specificShifts: newSpecific, offShifts: newOff }); }} />
                       <span style={{ color: s.color }}>{s.name}</span>
                     </label>
                   ))}
                 </div>
               </div>
               <div className="bg-red-50/50 p-4 rounded-xl border border-red-100">
-                <label className="block text-sm font-bold text-red-800 mb-1">
-                  งดรับเวร (เวรที่ไม่ต้องการขึ้น)
-                </label>
+                <label className="block text-sm font-bold text-red-800 mb-1">งดรับเวร (เวรที่ไม่ต้องการขึ้น)</label>
                 <div className="flex flex-wrap gap-2">
                   {shifts.map((s) => (
-                    <label
-                      key={s.id}
-                      className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${
-                        formData.offShifts?.includes(s.id)
-                          ? 'bg-white border-red-300 shadow-sm'
-                          : 'bg-white/50 border-gray-200 hover:bg-white'
-                      } ${
-                        formData.specificShifts?.includes(s.id)
-                          ? 'opacity-50 pointer-events-none'
-                          : ''
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        className="w-4 h-4 text-red-500 rounded"
-                        disabled={formData.specificShifts?.includes(s.id)}
-                        checked={formData.offShifts?.includes(s.id)}
-                        onChange={(e) => {
-                          const newOff = e.target.checked
-                            ? [...(formData.offShifts || []), s.id]
-                            : (formData.offShifts || []).filter(
-                                (id) => id !== s.id
-                              );
-                          setFormData({ ...formData, offShifts: newOff });
-                        }}
-                      />
+                    <label key={s.id} className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${formData.offShifts?.includes(s.id) ? 'bg-white border-red-300 shadow-sm' : 'bg-white/50 border-gray-200 hover:bg-white'} ${formData.specificShifts?.includes(s.id) ? 'opacity-50 pointer-events-none' : ''}`}>
+                      <input type="checkbox" className="w-4 h-4 text-red-500 rounded" disabled={formData.specificShifts?.includes(s.id)} checked={formData.offShifts?.includes(s.id)} onChange={(e) => { const newOff = e.target.checked ? [...(formData.offShifts || []), s.id] : (formData.offShifts || []).filter((id) => id !== s.id); setFormData({ ...formData, offShifts: newOff }); }} />
                       <span style={{ color: s.color }}>{s.name}</span>
                     </label>
                   ))}
@@ -1162,18 +858,8 @@ function EmployeesManager() {
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-gray-100 shrink-0">
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleSave}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors"
-              >
-                บันทึกพนักงาน
-              </button>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">ยกเลิก</button>
+              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors">บันทึกพนักงาน</button>
             </div>
           </div>
         </div>
@@ -1188,14 +874,7 @@ function EmployeesManager() {
 function ShiftTypesManager() {
   const [shifts, setShifts] = useFirebaseSync('ph_shift_types', []);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({
-    name: '',
-    color: '#3b82f6',
-    start: '',
-    end: '',
-    min: 1,
-    allowedDays: 'all',
-  });
+  const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
 
   const colorOptions = [
     '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316',
@@ -1204,8 +883,7 @@ function ShiftTypesManager() {
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อเวร');
-    if (formData.id)
-      setShifts(shifts.map((s) => (s.id === formData.id ? formData : s)));
+    if (formData.id) setShifts(shifts.map((s) => (s.id === formData.id ? formData : s)));
     else setShifts([...shifts, { ...formData, id: Date.now().toString() }]);
     setIsModalOpen(false);
   };
@@ -1224,77 +902,27 @@ function ShiftTypesManager() {
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold">จัดการประเภทเวร (เภสัชกร)</h2>
-        <button
-          onClick={() => {
-            setFormData({
-              name: '',
-              color: '#3b82f6',
-              start: '',
-              end: '',
-              min: 1,
-              allowedDays: 'all',
-            });
-            setIsModalOpen(true);
-          }}
-          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm"
-        >
+        <button type="button" onClick={() => { setFormData({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' }); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <Plus className="w-4 h-4" /> เพิ่มเวร
         </button>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 overflow-y-auto pr-2 pb-4">
         {shifts.map((s) => (
-          <div
-            key={s.id}
-            className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group"
-          >
-            <div
-              className="absolute top-0 left-0 w-full h-1.5"
-              style={{ backgroundColor: s.color }}
-            ></div>
+          <div key={s.id} className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group">
+            <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.color }}></div>
             <div className="flex justify-between items-start mb-4 mt-1">
-              <span className="font-bold text-xl text-gray-800 truncate pr-2">
-                {s.name}
-              </span>
+              <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button
-                  onClick={() => {
-                    setFormData(s);
-                    setIsModalOpen(true);
-                  }}
-                  className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"
-                >
-                  <Edit2 className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => {
-                    if (confirm('ลบเวรนี้?'))
-                      setShifts(shifts.filter((x) => x.id !== s.id));
-                  }}
-                  className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <button type="button" onClick={() => { setFormData(s); setIsModalOpen(true); }} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
+                <button type="button" onClick={() => { if (confirm('ลบเวรนี้?')) setShifts(shifts.filter((x) => x.id !== s.id)); }} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
               </div>
             </div>
             <div className="space-y-3 text-sm text-gray-600">
-              <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 text-gray-400" /> {s.start || '--:--'} - {s.end || '--:--'}
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Users className="w-4 h-4 text-gray-400" /> รับ:{' '}
-                <span className="font-bold text-gray-800">{s.min}</span> คน
-              </div>
-              <div className="flex items-center gap-2.5">
-                <CalendarDays className="w-4 h-4 text-gray-400" />{' '}
-                {getAllowedDaysText(s.allowedDays)}
-              </div>
-              <div className="flex items-center gap-2.5 border-t pt-3 mt-3">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />{' '}
-                <span className="text-emerald-600 font-bold">
-                  {getShiftValue(s).toLocaleString('th-TH')} บ.
-                </span>
-              </div>
+              <div className="flex items-center gap-2.5"><Clock className="w-4 h-4 text-gray-400" /> {s.start || '--:--'} - {s.end || '--:--'}</div>
+              <div className="flex items-center gap-2.5"><Users className="w-4 h-4 text-gray-400" /> รับ: <span className="font-bold text-gray-800">{s.min}</span> คน</div>
+              <div className="flex items-center gap-2.5"><CalendarDays className="w-4 h-4 text-gray-400" /> {getAllowedDaysText(s.allowedDays)}</div>
+              <div className="flex items-center gap-2.5 border-t pt-3 mt-3"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> <span className="text-emerald-600 font-bold">{getShiftValue(s).toLocaleString('th-TH')} บ.</span></div>
             </div>
           </div>
         ))}
@@ -1303,128 +931,48 @@ function ShiftTypesManager() {
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-md p-7 shadow-2xl">
-            <h3 className="text-xl font-bold mb-6 border-b border-gray-100 pb-3">
-              {formData.id ? 'แก้ไขเวร' : 'เพิ่มเวรใหม่'}
-            </h3>
+            <h3 className="text-xl font-bold mb-6 border-b border-gray-100 pb-3">{formData.id ? 'แก้ไขเวร' : 'เพิ่มเวรใหม่'}</h3>
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  ชื่อเวร *
-                </label>
-                <input
-                  type="text"
-                  placeholder="เช่น เช้า, บ่าย, ดึก, T2"
-                  className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.name}
-                  onChange={(e) =>
-                    setFormData({ ...formData, name: e.target.value })
-                  }
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">ชื่อเวร *</label>
+                <input type="text" placeholder="เช่น เช้า, บ่าย, ดึก, T2" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-2">
-                  สีป้ายเวร
-                </label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">สีป้ายเวร</label>
                 <div className="flex gap-2 flex-wrap p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  {colorOptions.map((color) => (
-                    <button
-                      key={color}
-                      onClick={() => setFormData({ ...formData, color })}
-                      className={`w-8 h-8 rounded-lg transition-all ${
-                        formData.color === color
-                          ? 'ring-2 ring-offset-2 ring-gray-800 scale-110'
-                          : 'hover:scale-110 shadow-sm border border-black/10'
-                      }`}
-                      style={{ backgroundColor: color }}
-                    />
-                  ))}
+                  {colorOptions.map((color) => (<button key={color} type="button" onClick={() => setFormData({ ...formData, color })} className={`w-8 h-8 rounded-lg transition-all ${formData.color === color ? 'ring-2 ring-offset-2 ring-gray-800 scale-110' : 'hover:scale-110 shadow-sm border border-black/10'}`} style={{ backgroundColor: color }} />))}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                    เวลาเริ่ม
-                  </label>
-                  <input
-                    type="time"
-                    className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.start}
-                    onChange={(e) =>
-                      setFormData({ ...formData, start: e.target.value })
-                    }
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">เวลาเริ่ม</label>
+                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.start} onChange={(e) => setFormData({ ...formData, start: e.target.value })} />
                 </div>
                 <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                    เวลาสิ้นสุด
-                  </label>
-                  <input
-                    type="time"
-                    className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
-                    value={formData.end}
-                    onChange={(e) =>
-                      setFormData({ ...formData, end: e.target.value })
-                    }
-                  />
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">เวลาสิ้นสุด</label>
+                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.end} onChange={(e) => setFormData({ ...formData, end: e.target.value })} />
                 </div>
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  จำนวนคนต้องการ / วัน
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
-                  value={formData.min}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      min: parseInt(e.target.value) || 1,
-                    })
-                  }
-                />
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">จำนวนคนต้องการ / วัน</label>
+                <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.min} onChange={(e) => setFormData({ ...formData, min: parseInt(e.target.value) || 1, })} />
               </div>
               <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                  เงื่อนไขวันที่จัดได้
-                </label>
-                <select
-                  className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none bg-white"
-                  value={formData.allowedDays}
-                  onChange={(e) =>
-                    setFormData({ ...formData, allowedDays: e.target.value })
-                  }
-                >
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">เงื่อนไขวันที่จัดได้</label>
+                <select className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none bg-white" value={formData.allowedDays} onChange={(e) => setFormData({ ...formData, allowedDays: e.target.value })}>
                   <option value="all">ลงได้ทุกวัน (รวมวันหยุด)</option>
                   <option value="weekdays">เฉพาะวันธรรมดา (จ.-ศ.)</option>
-                  <option value="weekends_holidays">
-                    เฉพาะวันหยุด (ส.-อา. และนักขัตฤกษ์)
-                  </option>
+                  <option value="weekends_holidays">เฉพาะวันหยุด (ส.-อา. และนักขัตฤกษ์)</option>
                   <option value="saturdays_only">เฉพาะวันเสาร์</option>
                   <option value="mon_tue_only">เฉพาะ จันทร์-อังคาร</option>
-                  <option value="holidays_except_saturday">
-                    เฉพาะวันหยุด (ยกเว้นเสาร์)
-                  </option>
-                  <option value="first_day_of_holidays">
-                    วันแรกของช่วงหยุดยาว/ส.-อา. (สำหรับ T2)
-                  </option>
+                  <option value="holidays_except_saturday">เฉพาะวันหยุด (ยกเว้นเสาร์)</option>
+                  <option value="first_day_of_holidays">วันแรกของช่วงหยุดยาว/ส.-อา. (สำหรับ T2)</option>
                 </select>
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleSave}
-                className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md hover:shadow-lg transition-all"
-              >
-                บันทึกเวร
-              </button>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">ยกเลิก</button>
+              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md hover:shadow-lg transition-all">บันทึกเวร</button>
             </div>
           </div>
         </div>
