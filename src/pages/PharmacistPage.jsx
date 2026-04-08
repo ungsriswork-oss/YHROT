@@ -19,10 +19,10 @@ import {
 } from 'lucide-react';
 
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { db } from '../firebase';
 
 // ==========================================
-// Custom Hook: จัดการ Firebase Sync (แก้บั๊ก Undefined)
+// Custom Hook: จัดการ Firebase Sync (แก้บั๊กกันแอปพัง 100%)
 // ==========================================
 function useFirebaseSync(key, initialValue) {
   const [storedValue, setStoredValue] = useState(initialValue);
@@ -31,25 +31,19 @@ function useFirebaseSync(key, initialValue) {
     const docRef = doc(db, 'shift_data', key);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        const docData = docSnap.data();
+        let data = docSnap.data().value;
         
-        // 🛠️ ป้องกันค่าว่าง (undefined) ทำให้ระบบพัง
-        let data = docData.value;
+        // 🛠️ ดักจับกรณีข้อมูลจาก Firebase เพี้ยนหรือเป็นค่าว่าง
         if (data === undefined || data === null) {
           data = initialValue;
-        }
-
-        // 🛠️ บังคับโครงสร้าง Array ป้องกัน Firebase เพี้ยน
-        if (Array.isArray(initialValue) && !Array.isArray(data)) {
+        } else if (Array.isArray(initialValue) && !Array.isArray(data)) {
           data = initialValue;
+        } else if (typeof initialValue === 'object' && !Array.isArray(initialValue)) {
+          // ถ้าเป็น Object ให้ผสมค่าเดิมเข้าไป ป้องกันคีย์หาย
+          data = { ...initialValue, ...data };
         }
-
-        const isObj = (val) => val && typeof val === 'object' && !Array.isArray(val);
-        if (isObj(data) && isObj(initialValue)) {
-          setStoredValue({ ...initialValue, ...data });
-        } else {
-          setStoredValue(data);
-        }
+        
+        setStoredValue(data);
       } else {
         setDoc(docRef, { value: initialValue });
       }
@@ -60,7 +54,6 @@ function useFirebaseSync(key, initialValue) {
   const setValue = (value) => {
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
-      // 🛠️ ป้องกันการโยนค่า undefined กลับไปเซฟใน Firebase
       if (valueToStore !== undefined) {
         setStoredValue(valueToStore); 
         const docRef = doc(db, 'shift_data', key);
@@ -141,13 +134,13 @@ const CATEGORIZED_RULES = {
     label: 'เภสัชกร',
     rules: [
       { id: 'rule_1', label: '1. เวรต้องไม่ติดกัน 2 วัน' },
-      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อกัน และต้องได้ บe เสมอ หากได้บ่าย 2 เวรขึ้นไป' },
+      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อ และต้องได้ บe เสมอ หากได้บ่าย >= 2 เวร' },
       { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ' },
       { id: 'rule_4', label: '4. คนที่มี R1 จะไม่มีเวรตัว T1 และ T2' },
       { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
-      { id: 'rule_6', label: '6. เวร As/4 หรือ A จะมีได้แค่เวรใดเวรหนึ่ง และคนละ 1 เวร/เดือน' },
-      { id: 'rule_7', label: '7. เวรแต่ละประเภทต้องกระจายเท่ากัน เวรเช้าต้องไม่ซ้ำตำแหน่งกัน' },
-      { id: 'rule_8', label: '8. คนงดเวรดึก จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
+      { id: 'rule_6', label: '6. เวร As/4 หรือ A มีได้แค่เวรใดเวรหนึ่ง และคนละ 1 เวร/เดือน' },
+      { id: 'rule_7', label: '7. เวรกระจายเท่ากัน เวรเช้าห้ามซ้ำตำแหน่งกัน' },
+      { id: 'rule_8', label: '8. คนที่งดรับเวรดึก (ดi,ดe) จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
     ],
   },
 };
@@ -187,11 +180,7 @@ export default function PharmacistPage() {
 
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-          >
+          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
             <ArrowLeft className="w-4 h-4" /> กลับหน้าหลัก
           </button>
           <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
@@ -230,22 +219,19 @@ export default function PharmacistPage() {
 // 1. Component: จัดการตารางเวร (เภสัชกร)
 // ==========================================
 function ScheduleManager() {
-  const [employeesRaw] = useFirebaseSync('ph_employees', []);
-  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
-  const [schedulesRaw, setSchedules] = useFirebaseSync('ph_schedules', []);
+  const [rawEmployees] = useFirebaseSync('ph_employees', []);
+  const [rawShifts] = useFirebaseSync('ph_shift_types', []);
+  const [rawSchedules, setSchedules] = useFirebaseSync('ph_schedules', []);
   const [activeScheduleId, setActiveScheduleId] = useFirebaseSync('ph_active_schedule', null);
 
-  // 🛠️ รับประกันว่าจะเป็น Array แน่นอน ป้องกันแอปพัง
-  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
-  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
-  const schedules = Array.isArray(schedulesRaw) ? schedulesRaw : [];
+  // การันตีความเป็น Array ป้องกันโค้ดพังเวลา Map
+  const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
+  const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+  const schedules = Array.isArray(rawSchedules) ? rawSchedules : [];
 
-  const [rules, setRules] = useFirebaseSync('ph_rules', {
-    rule_1: true, rule_2: true, rule_3: true, rule_4: true,
-    rule_5: true, rule_6: true, rule_7: true, rule_8: true,
-  });
-  // 🛠️ รับประกันว่ากฎจะเป็น Object เสมอ
-  const safeRules = (rules && typeof rules === 'object' && !Array.isArray(rules)) ? rules : {};
+  const defaultRules = { rule_1: true, rule_2: true, rule_3: true, rule_4: true, rule_5: true, rule_6: true, rule_7: true, rule_8: true };
+  const [rawRules, setRules] = useFirebaseSync('ph_rules', defaultRules);
+  const safeRules = (rawRules && typeof rawRules === 'object') ? rawRules : defaultRules;
 
   const [selectedRuleRole] = useState('pharmacist');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -254,10 +240,7 @@ function ScheduleManager() {
   const [assignmentModal, setAssignmentModal] = useState({ isOpen: false, empId: null, dateStr: null });
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
 
-  const thaiMonths = [
-    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
-    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
-  ];
+  const thaiMonths = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
   const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
   const activeSchedule = schedules.find((s) => s.id === activeScheduleId);
@@ -322,7 +305,16 @@ function ScheduleManager() {
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
-      const optOutNight = nightShiftIds.length > 0 && nightShiftIds.every(id => e.offShifts && e.offShifts.includes(id));
+      // เช็คว่าพนักงานคนนี้ตั้งค่างดเวรดึก 100% หรือไม่
+      let isOptOutNight = false;
+      if (nightShiftIds.length > 0) {
+        if (e.specificShifts && e.specificShifts.length > 0) {
+          isOptOutNight = !nightShiftIds.some(id => e.specificShifts.includes(id));
+        } else {
+          isOptOutNight = nightShiftIds.every(id => e.offShifts && e.offShifts.includes(id));
+        }
+      }
+
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0, counts: {},
         catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
@@ -335,7 +327,7 @@ function ScheduleManager() {
         hasR1: false,
         hasG: false,
         hasT1_T2: false,
-        optOutNight: optOutNight,
+        isOptOutNight: isOptOutNight,
       };
     });
 
@@ -381,29 +373,29 @@ function ScheduleManager() {
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // กฎ 1
+              // กฎ 1. ห้ามติดกัน 2 วัน
               if (safeRules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // กฎ 2
+              // กฎ 2. เวรบ่ายห้ามซ้ำชื่อ
               if (safeRules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              // กฎ 4 และ 5
+              // กฎ 4 และ 5. R1 ห้ามชน T1,T2
               if (safeRules.rule_4 || safeRules.rule_5) {
                 if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
-              // กฎ 6
+              // กฎ 6. As/4, A ได้แค่คนละ 1 เวร
               if (safeRules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // กฎ 7
+              // กฎ 7. เช้าห้ามซ้ำตำแหน่ง
               if (safeRules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -421,7 +413,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // กฎ 3
+                // กฎ 3. คนมี R1 ต้องได้ G ด้วย (ดึงคนมี R1 มารับ G)
                 if (safeRules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -429,14 +421,16 @@ function ScheduleManager() {
                    if (!aNeedsG && bNeedsG) return 1;
                 }
 
-                // กฎ 2
+                // กฎ 2. บ่าย 2 เวร ต้องมี บe เสมอ
                 if (safeRules.rule_2 && cat === 'บ่าย') {
-                   if (shiftNameUpper === 'บE' || shiftNameUpper === 'บe') {
+                   const isShiftBe = shiftNameUpper.includes('E'); // รับเคส บe, บE
+                   if (isShiftBe) {
                        const aNeedsBe = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
                        const bNeedsBe = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
                        if (aNeedsBe && !bNeedsBe) return -1;
                        if (!aNeedsBe && bNeedsBe) return 1;
                    } else {
+                       // ถ้าไม่ใช่ บe ให้ลดระดับคนที่มีบ่าย 1 เวรแล้วออกไปก่อน เพื่อกันที่ว่างไปลง บe วันอื่น
                        const aHasNoBeAndHasAfternoon = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
                        const bHasNoBeAndHasAfternoon = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
                        if (aHasNoBeAndHasAfternoon && !bHasNoBeAndHasAfternoon) return 1;
@@ -444,10 +438,11 @@ function ScheduleManager() {
                    }
                 }
 
-                // กฎ 7 และ กฎ 8
+                // กฎ 7 และ กฎ 8. กระจายเท่ากัน และ คนงดดึกชั่วโมงน้อยกว่า
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
-                   if (safeRules.rule_8 && empStats[empId].optOutNight) hrs += 14; 
+                   // จำลองให้คนงดเวรดึก เสมือนมีชั่วโมงทำงานตุนไว้แล้ว 14 ชม. เพื่อให้ระบบหยุดสุ่มให้เร็วขึ้น
+                   if (safeRules.rule_8 && empStats[empId].isOptOutNight) hrs += 14; 
                    return hrs;
                 };
 
@@ -486,7 +481,7 @@ function ScheduleManager() {
               if (cat === 'บ่าย') {
                 empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
                 empStats[chosen.id].afternoonCount += 1;
-                if (assignedNameUpper === 'บE' || assignedNameUpper === 'บe') empStats[chosen.id].hasBe = true;
+                if (assignedNameUpper.includes('E')) empStats[chosen.id].hasBe = true;
               }
             }
           }
@@ -635,7 +630,10 @@ function ScheduleManager() {
                 <span className="truncate whitespace-normal">{rule.label}</span>
                 <button
                   type="button"
-                  onClick={() => setRules({ ...safeRules, [rule.id]: false })}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRules({ ...safeRules, [rule.id]: false });
+                  }}
                   className="ml-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -778,12 +776,12 @@ function ScheduleManager() {
 // 2. Component: จัดการพนักงาน (เภสัชกร)
 // ==========================================
 function EmployeesManager() {
-  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
-  const [employeesRaw, setEmployees] = useFirebaseSync('ph_employees', []);
+  const [rawShifts] = useFirebaseSync('ph_shift_types', []);
+  const [rawEmployees, setEmployees] = useFirebaseSync('ph_employees', []);
   
-  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
-  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
-  
+  const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+  const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] });
 
@@ -894,9 +892,9 @@ function EmployeesManager() {
 // 3. Component: จัดการประเภทเวร (เภสัชกร)
 // ==========================================
 function ShiftTypesManager() {
-  const [shiftsRaw, setShifts] = useFirebaseSync('ph_shift_types', []);
-  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
-  
+  const [rawShifts, setShifts] = useFirebaseSync('ph_shift_types', []);
+  const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
 
