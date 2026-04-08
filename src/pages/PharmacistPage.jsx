@@ -115,38 +115,20 @@ const getShiftCategory = (shift) => {
 };
 
 // ==========================================
-// ข้อมูลตั้งต้นสำหรับเงื่อนไข (เภสัชกร)
+// ข้อมูลตั้งต้นสำหรับเงื่อนไข (เภสัชกร) ชุดใหม่
 // ==========================================
 const CATEGORIZED_RULES = {
   pharmacist: {
     label: 'เภสัชกร',
     rules: [
-      { id: 'ph_noConsecutive', label: '1. ต้องไม่ได้รับเวรติดกัน 2 วัน' },
-      { id: 'ph_balanceTypes', label: '2. เวรแต่ละประเภทต้องกระจายเท่ากัน' },
-      {
-        id: 'ph_balanceMoneyHours',
-        label: '3. เงินรวมและชั่วโมงต้องเฉลี่ยให้เท่ากันมากที่สุด',
-      },
-      {
-        id: 'ph_limitSpecial',
-        label: '4. เวร R1, T1, T2 มีได้คนละ 1 เวร/เดือน',
-      },
-      {
-        id: 'ph_limitA_As1',
-        label: '5. เวร A และ As/4 จะมีได้คนละ 1 เวร/เดือน',
-      },
-      {
-        id: 'ph_uniqueMorning',
-        label: '6. เวรเช้าต้องไม่ซ้ำกัน (B, C, D, E, F, G)',
-      },
-      {
-        id: 'ph_uniqueNightMax2',
-        label: '7. เวรดึกห้ามซ้ำชื่อกัน และไม่เกิน 2 เวร/คน',
-      },
-      {
-        id: 'ph_uniqueAfternoonMustHaveBe',
-        label: '8. เวรบ่ายห้ามซ้ำชื่อกัน (ต้องได้ บe เสมอ)',
-      },
+      { id: 'rule_1', label: '1. เวรต้องไม่ติดกัน 2 วัน' },
+      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อกัน และต้องได้ บe เสมอ หากได้บ่าย 2 เวรขึ้นไป' },
+      { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ' },
+      { id: 'rule_4', label: '4. คนที่มี R1 จะไม่มีเวรตัว T1 และ T2' },
+      { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
+      { id: 'rule_6', label: '6. เวร As/4 หรือ A จะมีได้แค่เวรใดเวรหนึ่ง และคนละ 1 เวร/เดือน' },
+      { id: 'rule_7', label: '7. เวรแต่ละประเภทต้องกระจายเท่ากัน เวรเช้าต้องไม่ซ้ำตำแหน่งกัน' },
+      { id: 'rule_8', label: '8. คนที่งดรับเวรดึก (0.00-8.00) จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
     ],
   },
 };
@@ -166,13 +148,13 @@ export default function PharmacistPage() {
         @media print {
           @page { 
             size: A4 landscape; 
-            margin: 3mm; /* ลดขอบกระดาษให้เหลือน้อยที่สุด */
+            margin: 3mm; 
           }
           html, body { 
             background-color: white !important; 
             -webkit-print-color-adjust: exact; 
             print-color-adjust: exact; 
-            zoom: 0.82; /* ทริคสำคัญ: สั่งย่อส่วนตารางลง 18% เพื่อให้ยัดลงหน้าเดียวพอดี */
+            zoom: 0.82; 
           }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
@@ -185,16 +167,11 @@ export default function PharmacistPage() {
             table-layout: fixed; 
           }
           
-          /* ป้องกันไม่ให้รายชื่อโดนหั่นครึ่งบรรทัดเวลาขึ้นหน้าใหม่ (ในกรณีที่พนักงานเยอะ) */
           tr { page-break-inside: avoid; }
-          
-          /* ยกเลิกการล็อกความกว้างขั้นต่ำ */
           .min-w-\[1300px\] { min-width: 0px !important; }
-          
-          /* บีบความกว้างคอลัมน์เฉพาะตอนพิมพ์ */
-          th.w-\[120px\] { width: 70px !important; } /* คอลัมน์ชื่อพนักงาน */
-          th.w-\[30px\] { width: 22px !important; }  /* คอลัมน์วันที่และสรุปเวร */
-          th.w-\[70px\] { width: 45px !important; }  /* คอลัมน์รวมเงิน */
+          th.w-\[120px\] { width: 70px !important; } 
+          th.w-\[30px\] { width: 22px !important; }  
+          th.w-\[70px\] { width: 45px !important; }  
 
           th, td { 
             padding: 1px 0px !important; 
@@ -203,7 +180,6 @@ export default function PharmacistPage() {
             overflow: hidden;
           }
           
-          /* ปรับขนาดฟอนต์ให้สมดุลกับการย่อ */
           .text-xs { font-size: 7px !important; line-height: 1 !important; }
           .text-\[11px\] { font-size: 7px !important; }
           .text-\[10px\] { font-size: 6px !important; }
@@ -212,7 +188,7 @@ export default function PharmacistPage() {
         }
       `}</style>
 
-      {/* Header พร้อมปุ่มย้อนกลับ */}
+      {/* Header */}
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
           <button
@@ -261,20 +237,18 @@ function ScheduleManager() {
   const [employees] = useFirebaseSync('ph_employees', []);
   const [shifts] = useFirebaseSync('ph_shift_types', []);
   const [schedules, setSchedules] = useFirebaseSync('ph_schedules', []);
-  const [activeScheduleId, setActiveScheduleId] = useFirebaseSync(
-    'ph_active_schedule',
-    null
-  );
+  const [activeScheduleId, setActiveScheduleId] = useFirebaseSync('ph_active_schedule', null);
 
+  // อัปเดต State กฎใหม่
   const [rules, setRules] = useFirebaseSync('ph_rules', {
-    ph_noConsecutive: true,
-    ph_balanceTypes: true,
-    ph_balanceMoneyHours: true,
-    ph_limitSpecial: true,
-    ph_limitA_As1: true,
-    ph_uniqueMorning: true,
-    ph_uniqueNightMax2: true,
-    ph_uniqueAfternoonMustHaveBe: true,
+    rule_1: true,
+    rule_2: true,
+    rule_3: true,
+    rule_4: true,
+    rule_5: true,
+    rule_6: true,
+    rule_7: true,
+    rule_8: true,
   });
 
   const [selectedRuleRole] = useState('pharmacist');
@@ -289,18 +263,8 @@ function ScheduleManager() {
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
 
   const thaiMonths = [
-    'มกราคม',
-    'กุมภาพันธ์',
-    'มีนาคม',
-    'เมษายน',
-    'พฤษภาคม',
-    'มิถุนายน',
-    'กรกฎาคม',
-    'สิงหาคม',
-    'กันยายน',
-    'ตุลาคม',
-    'พฤศจิกายน',
-    'ธันวาคม',
+    'มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน',
+    'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม',
   ];
   const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
 
@@ -324,13 +288,7 @@ function ScheduleManager() {
 
   const handleDeleteSchedule = () => {
     if (!activeSchedule) return;
-    if (
-      confirm(
-        `ต้องการลบตารางเดือน ${thaiMonths[activeSchedule.month]} ${
-          activeSchedule.year + 543
-        } ใช่หรือไม่?`
-      )
-    ) {
+    if (confirm(`ต้องการลบตารางเดือน ${thaiMonths[activeSchedule.month]} ${activeSchedule.year + 543} ใช่หรือไม่?`)) {
       const updated = schedules.filter((s) => s.id !== activeScheduleId);
       setSchedules(updated);
       setActiveScheduleId(updated.length > 0 ? updated[0].id : null);
@@ -339,11 +297,7 @@ function ScheduleManager() {
 
   const handleExportExcel = () => {
     if (!activeSchedule) return;
-    const daysInMonth = new Date(
-      activeSchedule.year,
-      activeSchedule.month + 1,
-      0
-    ).getDate();
+    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csvContent = '\uFEFFพนักงาน,หมวดหมู่,';
     for (let i = 1; i <= daysInMonth; i++) csvContent += i + ',';
     csvContent += 'เช้า,บ่าย,ดึก,As/4,A,SMC,4o,2o,รวมชั่วโมง,รวมเงิน\n'; 
@@ -352,24 +306,11 @@ function ScheduleManager() {
       let row = [`"${emp.name}"`, `"เภสัชกร"`];
       let totalMoney = 0;
       let totalHours = 0; 
-      let counts = {
-        A: 0,
-        เช้า: 0,
-        บ่าย: 0,
-        ดึก: 0,
-        'As/4': 0,
-        SMC: 0,
-        '4o': 0,
-        '2o': 0,
-      };
+      let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
 
       for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const sData = shifts.find(
-          (s) => s.id === activeSchedule.assignments[`${emp.id}_${dateStr}`]
-        );
+        const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const sData = shifts.find((s) => s.id === activeSchedule.assignments[`${emp.id}_${dateStr}`]);
         row.push(sData ? `"${sData.name}"` : '');
         if (sData) {
           totalMoney += getShiftValue(sData);
@@ -379,209 +320,117 @@ function ScheduleManager() {
         }
       }
       row.push(
-        counts['เช้า'],
-        counts['บ่าย'],
-        counts['ดึก'],
-        counts['As/4'],
-        counts['A'],
-        counts['SMC'],
-        counts['4o'],
-        counts['2o'],
-        totalHours, 
-        totalMoney
+        counts['เช้า'], counts['บ่าย'], counts['ดึก'], counts['As/4'],
+        counts['A'], counts['SMC'], counts['4o'], counts['2o'],
+        totalHours, totalMoney
       );
       csvContent += row.join(',') + '\n';
     });
 
     const link = document.createElement('a');
-    link.href = URL.createObjectURL(
-      new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    );
+    link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
     link.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}.csv`;
     link.click();
   };
 
   const handleAutoGenerate = () => {
     if (!activeSchedule) return;
-    const daysInMonth = new Date(
-      activeSchedule.year,
-      activeSchedule.month + 1,
-      0
-    ).getDate();
+    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     const newAssignments = {};
     const empStats = {};
 
+    // ค้นหาเวรดึกเพื่อเช็คคนที่งดดึก
+    const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
+
     employees.forEach((e) => {
+      // ตรวจสอบว่าคนนี้งดเวรดึกทั้งหมดหรือไม่
+      const optOutNight = nightShiftIds.length > 0 && nightShiftIds.every(id => e.offShifts && e.offShifts.includes(id));
+
       empStats[e.id] = {
-        money: 0,
-        hours: 0,
-        totalShifts: 0,
-        counts: {},
-        catCounts: {
-          A: 0,
-          เช้า: 0,
-          บ่าย: 0,
-          ดึก: 0,
-          SMC: 0,
-          'As/4': 0,
-          '4o': 0,
-          '2o': 0,
-          อื่นๆ: 0,
-        },
-        specialGroupShift: null,
-        specialCount: 0,
+        money: 0, hours: 0, totalShifts: 0, counts: {},
+        catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
+        
+        // ข้อมูลสำหรับกฎใหม่
         countA_As4: 0,
         assignedUniqueMornings: new Set(),
         assignedNights: new Set(),
         assignedAfternoons: new Set(),
+        afternoonCount: 0,
+        hasBe: false,
+        hasR1: false,
+        hasG: false,
+        hasT1_T2: false,
+        optOutNight: optOutNight,
       };
     });
 
     const assignShiftsForPass = (shiftsToProcess, isFillerPass) => {
       for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        
-        const prevDateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
-        
-        // 🛠️ [แก้ไข] เพิ่มตัวแปร nextDateStr สำหรับเช็ควันพรุ่งนี้
-        const nextDateStr = `${activeSchedule.year}-${String(
-          activeSchedule.month + 1
-        ).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
+        const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+        const prevDateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d - 1).padStart(2, '0')}`;
+        const nextDateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d + 1).padStart(2, '0')}`;
 
-        const dayOfWeek = new Date(
-          activeSchedule.year,
-          activeSchedule.month,
-          d
-        ).getDay();
+        const dayOfWeek = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
         const isSaturday = dayOfWeek === 6;
-        const isHoliday =
-          dayOfWeek === 0 ||
-          dayOfWeek === 6 ||
-          !!activeSchedule.holidays[dateStr];
+        const isHoliday = dayOfWeek === 0 || dayOfWeek === 6 || !!activeSchedule.holidays[dateStr];
 
         shiftsToProcess.forEach((shift) => {
           const allowed = shift.allowedDays || 'all';
           if (allowed === 'weekdays' && isHoliday) return;
           if (allowed === 'weekends_holidays' && !isHoliday) return;
           if (allowed === 'saturdays_only' && !isSaturday) return;
-          if (
-            allowed === 'mon_tue_only' &&
-            (![1, 2].includes(dayOfWeek) || isHoliday)
-          )
-            return;
-          if (
-            allowed === 'holidays_except_saturday' &&
-            (!isHoliday || isSaturday)
-          )
-            return;
+          if (allowed === 'mon_tue_only' && (![1, 2].includes(dayOfWeek) || isHoliday)) return;
+          if (allowed === 'holidays_except_saturday' && (!isHoliday || isSaturday)) return;
 
-          // =========================================================
-          // ลอจิกใหม่: ตรวจสอบ "วันแรกของช่วงหยุดยาว" (สำหรับ T2)
-          // =========================================================
           if (allowed === 'first_day_of_holidays') {
-            if (!isHoliday) return; // ต้องเป็นวันหยุดเท่านั้นถึงจะลงได้
+            if (!isHoliday) return; 
+            const prevDate = new Date(activeSchedule.year, activeSchedule.month, d - 1);
+            const prevDateString = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
+            let isPrevHoliday = prevDate.getDay() === 0 || prevDate.getDay() === 6;
 
-            // หาวันที่ของ "เมื่อวาน"
-            const prevDate = new Date(
-              activeSchedule.year,
-              activeSchedule.month,
-              d - 1
-            );
-            const prevDayOfWeek = prevDate.getDay();
-            const isPrevWeekend = prevDayOfWeek === 0 || prevDayOfWeek === 6;
-
-            const prevDateString = `${prevDate.getFullYear()}-${String(
-              prevDate.getMonth() + 1
-            ).padStart(2, '0')}-${String(prevDate.getDate()).padStart(2, '0')}`;
-
-            let isPrevHoliday = isPrevWeekend;
-
-            // ตรวจสอบวันหยุดพิเศษของเมื่อวาน (เช็คย้อนข้ามเดือนได้ด้วย)
             if (activeSchedule.month === prevDate.getMonth()) {
               if (activeSchedule.holidays[prevDateString]) isPrevHoliday = true;
             } else {
-              const prevMonthSchedule = schedules.find(
-                (s) =>
-                  s.year === prevDate.getFullYear() &&
-                  s.month === prevDate.getMonth()
-              );
-              if (
-                prevMonthSchedule &&
-                prevMonthSchedule.holidays[prevDateString]
-              ) {
-                isPrevHoliday = true;
-              }
+              const prevMonthSchedule = schedules.find((s) => s.year === prevDate.getFullYear() && s.month === prevDate.getMonth());
+              if (prevMonthSchedule && prevMonthSchedule.holidays[prevDateString]) isPrevHoliday = true;
             }
-
-            // ถ้าเมื่อวานก็เป็นวันหยุด แปลว่าวันนี้ "ไม่ใช่วันแรก" ของการหยุดต่อเนื่อง -> ห้ามลง T2
             if (isPrevHoliday) return;
           }
-          // =========================================================
 
           for (let i = 0; i < shift.min; i++) {
             let eligible = employees.filter((emp) => {
               if (newAssignments[`${emp.id}_${dateStr}`]) return false;
-              if (emp.offShifts && emp.offShifts.includes(shift.id))
-                return false;
-              if (
-                emp.specificShifts &&
-                emp.specificShifts.length > 0 &&
-                !emp.specificShifts.includes(shift.id)
-              )
-                return false;
+              if (emp.offShifts && emp.offShifts.includes(shift.id)) return false;
+              if (emp.specificShifts && emp.specificShifts.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
 
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // 🛠️ [แก้ไข] ปรับปรุงลอจิกห้ามเวรติดกัน ให้เช็คทั้งเมื่อวาน(prev) และ พรุ่งนี้(next)
-              if (rules.ph_noConsecutive) {
-                if (newAssignments[`${emp.id}_${prevDateStr}`]) return false; // เช็คว่าเมื่อวานมีเวรไหม
-                if (newAssignments[`${emp.id}_${nextDateStr}`]) return false; // เช็คว่าพรุ่งนี้มีเวรรออยู่แล้วไหม
+              // กฎ 1. เวรต้องไม่ติดกัน 2 วัน
+              if (rules.rule_1) {
+                if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
+                if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              if (rules.ph_limitSpecial) {
-                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
-                  upperName.includes(n)
-                );
-                if (specialMatch) {
-                  if (
-                    empStats[emp.id].specialGroupShift &&
-                    empStats[emp.id].specialGroupShift !== specialMatch
-                  )
-                    return false;
-                  if (empStats[emp.id].specialCount >= 1) return false;
-                }
+              // กฎ 2. เวรบ่าย ห้ามซ้ำชื่อกัน
+              if (rules.rule_2 && cat === 'บ่าย') {
+                if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              if (
-                rules.ph_limitA_As1 &&
-                (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')
-              ) {
+              // กฎ 4 และ 5. คนมี R1 ห้ามมี T1, T2 และสลับกัน
+              if (rules.rule_4 || rules.rule_5) {
+                if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
+                if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
+              }
+
+              // กฎ 6. As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน
+              if (rules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              if (rules.ph_uniqueMorning) {
-                const uniqueMorningSet = ['B', 'C', 'D', 'E', 'F', 'G'];
-                if (
-                  uniqueMorningSet.includes(upperName) &&
-                  empStats[emp.id].assignedUniqueMornings.has(upperName)
-                )
-                  return false;
-              }
-
-              if (rules.ph_uniqueNightMax2 && cat === 'ดึก') {
-                if (empStats[emp.id].catCounts['ดึก'] >= 2) return false;
-                if (empStats[emp.id].assignedNights.has(upperName))
-                  return false;
-              }
-
-              if (rules.ph_uniqueAfternoonMustHaveBe && cat === 'บ่าย') {
-                if (empStats[emp.id].assignedAfternoons.has(upperName))
-                  return false;
+              // กฎ 7. เวรเช้าต้องไม่ซ้ำตำแหน่งกัน (ซ้ำชื่อไม่ได้)
+              if (rules.rule_7 && cat === 'เช้า') {
+                if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
 
               return true;
@@ -597,82 +446,81 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                if (
-                  rules.ph_uniqueAfternoonMustHaveBe &&
-                  (shiftNameUpper === 'บE' || shiftNameUpper === 'บe')
-                ) {
-                  const aHasBe =
-                    empStats[a.id].assignedAfternoons.has('บE') ||
-                    empStats[a.id].assignedAfternoons.has('บe');
-                  const bHasBe =
-                    empStats[b.id].assignedAfternoons.has('บE') ||
-                    empStats[b.id].assignedAfternoons.has('บe');
-                  if (aHasBe !== bHasBe) return aHasBe ? 1 : -1;
+                // กฎ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ (ดึงคนที่มี R1 มารับ G ก่อน)
+                if (rules.rule_3 && shiftNameUpper === 'G') {
+                   const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
+                   const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
+                   if (aNeedsG && !bNeedsG) return -1;
+                   if (!aNeedsG && bNeedsG) return 1;
                 }
 
-                if (isFillerPass || !rules.ph_balanceTypes) {
-                  if (rules.ph_balanceMoneyHours) {
-                    if (empStats[a.id].money !== empStats[b.id].money)
-                      return empStats[a.id].money - empStats[b.id].money;
-                    if (empStats[a.id].hours !== empStats[b.id].hours)
-                      return empStats[a.id].hours - empStats[b.id].hours;
-                  }
-                  return (
-                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
-                  );
-                } else {
-                  if (
-                    empStats[a.id].catCounts[cat] !==
-                    empStats[b.id].catCounts[cat]
-                  ) {
-                    return (
-                      empStats[a.id].catCounts[cat] -
-                      empStats[b.id].catCounts[cat]
-                    );
-                  }
-                  if (rules.ph_balanceMoneyHours) {
-                    if (empStats[a.id].money !== empStats[b.id].money)
-                      return empStats[a.id].money - empStats[b.id].money;
-                    if (empStats[a.id].hours !== empStats[b.id].hours)
-                      return empStats[a.id].hours - empStats[b.id].hours;
-                  }
-                  return (
-                    empStats[a.id].totalShifts - empStats[b.id].totalShifts
-                  );
+                // กฎ 2. เวรบ่าย >=2 ต้องได้ บe เสมอ
+                if (rules.rule_2 && cat === 'บ่าย') {
+                   if (shiftNameUpper === 'บE' || shiftNameUpper === 'บe') {
+                       const aNeedsBe = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
+                       const bNeedsBe = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
+                       if (aNeedsBe && !bNeedsBe) return -1;
+                       if (!aNeedsBe && bNeedsBe) return 1;
+                   } else {
+                       // ถ้าไม่ใช่เวร บE ให้ลดความสำคัญของคนที่มีบ่าย 1 เวรแล้วแต่ยังไม่มี บE เพื่อเก็บช่องว่างไว้ให้ไปรับ บE 
+                       const aHasNoBeAndHasAfternoon = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
+                       const bHasNoBeAndHasAfternoon = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
+                       if (aHasNoBeAndHasAfternoon && !bHasNoBeAndHasAfternoon) return 1;
+                       if (!aHasNoBeAndHasAfternoon && bHasNoBeAndHasAfternoon) return -1;
+                   }
                 }
+
+                // กฎ 7 และ กฎ 8. กระจายชั่วโมงและจำนวนเวรให้เท่ากัน + ลดชั่วโมงคนงดดึก
+                const getEffectiveHours = (empId) => {
+                   let hrs = empStats[empId].hours;
+                   // กฎ 8: คนงดดึก บวกคะแนนชั่วโมงเสมือน +14 เข้าไป ให้ระบบเห็นว่าทำชั่วโมงไปเยอะแล้ว เพื่อให้หยุดให้เวรเร็วขึ้น
+                   if (rules.rule_8 && empStats[empId].optOutNight) {
+                       hrs += 14; 
+                   }
+                   return hrs;
+                };
+
+                if (rules.rule_7 || rules.rule_8) {
+                   const effHoursA = getEffectiveHours(a.id);
+                   const effHoursB = getEffectiveHours(b.id);
+                   if (effHoursA !== effHoursB) return effHoursA - effHoursB;
+                   if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
+                       return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+                }
+
+                return 0;
               });
 
               const chosen = eligible[0];
               newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
+              // อัปเดตสถิติ
               empStats[chosen.id].money += getShiftValue(shift);
               empStats[chosen.id].hours += getShiftHours(shift);
               empStats[chosen.id].totalShifts += 1;
               empStats[chosen.id].catCounts[cat]++;
-              if (!empStats[chosen.id].counts[shift.id])
-                empStats[chosen.id].counts[shift.id] = 0;
+              if (!empStats[chosen.id].counts[shift.id]) empStats[chosen.id].counts[shift.id] = 0;
               empStats[chosen.id].counts[shift.id]++;
 
               const assignedNameUpper = shift.name.toUpperCase();
-              if (rules.ph_limitSpecial) {
-                const specialMatch = ['R1', 'T1', 'T2'].find((n) =>
-                  assignedNameUpper.includes(n)
-                );
-                if (specialMatch) {
-                  empStats[chosen.id].specialGroupShift = specialMatch;
-                  empStats[chosen.id].specialCount += 1;
-                }
-              }
               if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1' || assignedNameUpper === 'AS/4')
                 empStats[chosen.id].countA_As4 += 1;
-              if (['B', 'C', 'D', 'E', 'F', 'G'].includes(assignedNameUpper))
-                empStats[chosen.id].assignedUniqueMornings.add(
-                  assignedNameUpper
-                );
-              if (cat === 'ดึก')
-                empStats[chosen.id].assignedNights.add(assignedNameUpper);
-              if (cat === 'บ่าย')
+              
+              if (cat === 'เช้า') {
+                empStats[chosen.id].assignedUniqueMornings.add(assignedNameUpper);
+                if (assignedNameUpper === 'R1') empStats[chosen.id].hasR1 = true;
+                if (assignedNameUpper === 'G') empStats[chosen.id].hasG = true;
+                if (assignedNameUpper === 'T1' || assignedNameUpper === 'T2') empStats[chosen.id].hasT1_T2 = true;
+              }
+              if (cat === 'ดึก') empStats[chosen.id].assignedNights.add(assignedNameUpper);
+              
+              if (cat === 'บ่าย') {
                 empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
+                empStats[chosen.id].afternoonCount += 1;
+                if (assignedNameUpper === 'บE' || assignedNameUpper === 'บe') {
+                   empStats[chosen.id].hasBe = true;
+                }
+              }
             }
           }
         });
@@ -683,20 +531,8 @@ function ScheduleManager() {
     const fillerShifts = shifts.filter((s) => getShiftCategory(s) === '2o');
 
     mainShifts.sort((a, b) => {
-      const priority = {
-        ดึก: 1,
-        บ่าย: 2,
-        SMC: 3,
-        'As/4': 4,
-        เช้า: 5,
-        A: 6,
-        '4o': 7,
-        อื่นๆ: 8,
-      };
-      return (
-        (priority[getShiftCategory(a)] || 9) -
-        (priority[getShiftCategory(b)] || 9)
-      );
+      const priority = { ดึก: 1, บ่าย: 2, SMC: 3, 'As/4': 4, เช้า: 5, A: 6, '4o': 7, อื่นๆ: 8 };
+      return (priority[getShiftCategory(a)] || 9) - (priority[getShiftCategory(b)] || 9);
     });
 
     assignShiftsForPass(mainShifts, false);
@@ -739,24 +575,15 @@ function ScheduleManager() {
 
   let monthDates = [];
   if (activeSchedule) {
-    const daysInMonth = new Date(
-      activeSchedule.year,
-      activeSchedule.month + 1,
-      0
-    ).getDate();
+    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     monthDates = Array.from({ length: daysInMonth }, (_, i) => {
       const d = new Date(activeSchedule.year, activeSchedule.month, i + 1);
-      const dateStr = `${activeSchedule.year}-${String(
-        activeSchedule.month + 1
-      ).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+      const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
       return {
         dateNum: i + 1,
         dayStr: thaiDays[d.getDay()],
         dateStr,
-        isHoliday:
-          d.getDay() === 0 ||
-          d.getDay() === 6 ||
-          !!activeSchedule.holidays[dateStr],
+        isHoliday: d.getDay() === 0 || d.getDay() === 6 || !!activeSchedule.holidays[dateStr],
       };
     });
   }
@@ -817,7 +644,7 @@ function ScheduleManager() {
               <Plus className="w-3.5 h-3.5" /> เพิ่มเงื่อนไข
             </button>
             {showRuleDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-72 bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2">
+              <div className="absolute right-0 top-full mt-2 w-[350px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2">
                 <div className="px-4 py-1.5 bg-gray-50 text-xs font-bold text-gray-700 mb-1 border-b border-gray-100">
                   เงื่อนไขของ: {CATEGORIZED_RULES[selectedRuleRole].label}
                 </div>
@@ -849,13 +676,13 @@ function ScheduleManager() {
             currentlyActiveRules.map((rule) => (
               <div
                 key={rule.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-xs font-medium border border-gray-200 shadow-sm"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm max-w-full"
               >
-                <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-                {rule.label}
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
+                <span className="truncate whitespace-normal">{rule.label}</span>
                 <button
                   onClick={() => setRules({ ...rules, [rule.id]: false })}
-                  className="ml-1 text-gray-400 hover:text-red-500 transition-colors"
+                  className="ml-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -901,9 +728,7 @@ function ScheduleManager() {
         ) : (
           <div className="overflow-auto flex-1 custom-scrollbar">
             <div className="hidden print:block text-center font-bold text-sm text-black mb-2 pb-1">
-              ตารางปฏิบัติงาน เภสัชกร ประจำเดือน{' '}
-              {thaiMonths[activeSchedule.month]} พ.ศ.{' '}
-              {activeSchedule.year + 543}
+              ตารางปฏิบัติงาน เภสัชกร ประจำเดือน {thaiMonths[activeSchedule.month]} พ.ศ. {activeSchedule.year + 543}
             </div>
             <table
               className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0"
@@ -932,76 +757,39 @@ function ScheduleManager() {
                       </div>
                     </th>
                   ))}
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-blue-50/50">
-                    เช้า
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-orange-50/50">
-                    บ่าย
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-purple-50/50">
-                    ดึก
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-teal-50/50">
-                    As/4
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-indigo-50/50">
-                    A
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-rose-50/50">
-                    SMC
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-yellow-50/50">
-                    4o
-                  </th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-lime-50/50">
-                    2o
-                  </th>
-                  {/* เพิ่มคอลัมน์รวมชั่วโมงตรงนี้ */}
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-gray-100/80">
-                    ช.ม.
-                  </th>
-                  <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold print:text-black">
-                    รวม(บ.)
-                  </th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-blue-50/50">เช้า</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-orange-50/50">บ่าย</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-purple-50/50">ดึก</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-teal-50/50">As/4</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-indigo-50/50">A</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-rose-50/50">SMC</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-yellow-50/50">4o</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-lime-50/50">2o</th>
+                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-gray-100/80">ช.ม.</th>
+                  <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold print:text-black">รวม(บ.)</th>
                 </tr>
               </thead>
               <tbody>
                 {employees.map((emp) => {
                   let totalMoney = 0;
-                  let totalHours = 0; // <-- เพิ่มตัวแปรเก็บชั่วโมงตรงนี้
-                  let counts = {
-                    A: 0,
-                    เช้า: 0,
-                    บ่าย: 0,
-                    ดึก: 0,
-                    'As/4': 0,
-                    SMC: 0,
-                    '4o': 0,
-                    '2o': 0,
-                  };
+                  let totalHours = 0;
+                  let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
 
                   return (
-                    <tr
-                      key={emp.id}
-                      className="hover:bg-gray-50 transition-colors h-8"
-                    >
+                    <tr key={emp.id} className="hover:bg-gray-50 transition-colors h-8">
                       <td className="sticky left-0 bg-white group-hover:bg-gray-50 px-2 py-1 border-b border-r border-gray-200 text-left text-xs font-bold text-gray-800 truncate print:static print:text-[10px]">
                         <div className="flex flex-col">
                           <span>{emp.name}</span>
-                          <span className="text-[9px] font-normal text-gray-400">
-                            เภสัชกร
-                          </span>
+                          <span className="text-[9px] font-normal text-gray-400">เภสัชกร</span>
                         </div>
                       </td>
                       {monthDates.map((d) => {
                         const sData = shifts.find(
-                          (s) =>
-                            s.id ===
-                            activeSchedule.assignments[`${emp.id}_${d.dateStr}`]
+                          (s) => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]
                         );
                         if (sData) {
                           totalMoney += getShiftValue(sData);
-                          totalHours += getShiftHours(sData); // <-- บวกชั่วโมงสะสม
+                          totalHours += getShiftHours(sData);
                           const cat = getShiftCategory(sData);
                           if (counts[cat] !== undefined) counts[cat]++;
                         }
@@ -1016,9 +804,7 @@ function ScheduleManager() {
                               })
                             }
                             className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${
-                              d.isHoliday
-                                ? 'bg-red-50/30 print:bg-gray-100'
-                                : ''
+                              d.isHoliday ? 'bg-red-50/30 print:bg-gray-100' : ''
                             }`}
                           >
                             {sData && (
@@ -1032,37 +818,16 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-blue-700 bg-blue-50/30">
-                        {counts['เช้า'] > 0 ? counts['เช้า'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-orange-700 bg-orange-50/30">
-                        {counts['บ่าย'] > 0 ? counts['บ่าย'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-purple-700 bg-purple-50/30">
-                        {counts['ดึก'] > 0 ? counts['ดึก'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-teal-700 bg-teal-50/30">
-                        {counts['As/4'] > 0 ? counts['As/4'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-indigo-700 bg-indigo-50/30">
-                        {counts['A'] > 0 ? counts['A'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-rose-700 bg-rose-50/30">
-                        {counts['SMC'] > 0 ? counts['SMC'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-yellow-700 bg-yellow-50/30">
-                        {counts['4o'] > 0 ? counts['4o'] : '-'}
-                      </td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-lime-700 bg-lime-50/30">
-                        {counts['2o'] > 0 ? counts['2o'] : '-'}
-                      </td>
-                      {/* แทรกช่องแสดงผลชั่วโมงรวมตรงนี้ */}
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700 bg-gray-50/80">
-                        {totalHours > 0 ? totalHours : '-'}
-                      </td>
-                      <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right print:text-black">
-                        {totalMoney.toLocaleString()}
-                      </td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-blue-700 bg-blue-50/30">{counts['เช้า'] > 0 ? counts['เช้า'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-orange-700 bg-orange-50/30">{counts['บ่าย'] > 0 ? counts['บ่าย'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-purple-700 bg-purple-50/30">{counts['ดึก'] > 0 ? counts['ดึก'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-teal-700 bg-teal-50/30">{counts['As/4'] > 0 ? counts['As/4'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-indigo-700 bg-indigo-50/30">{counts['A'] > 0 ? counts['A'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-rose-700 bg-rose-50/30">{counts['SMC'] > 0 ? counts['SMC'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-yellow-700 bg-yellow-50/30">{counts['4o'] > 0 ? counts['4o'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-lime-700 bg-lime-50/30">{counts['2o'] > 0 ? counts['2o'] : '-'}</td>
+                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700 bg-gray-50/80">{totalHours > 0 ? totalHours : '-'}</td>
+                      <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right print:text-black">{totalMoney.toLocaleString()}</td>
                     </tr>
                   );
                 })}
@@ -1078,25 +843,19 @@ function ScheduleManager() {
             <h3 className="text-xl font-bold mb-5">สร้างตารางเวรใหม่</h3>
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  เดือน
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">เดือน</label>
                 <select
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500"
                   value={createMonth}
                   onChange={(e) => setCreateMonth(Number(e.target.value))}
                 >
                   {thaiMonths.map((m, i) => (
-                    <option key={i} value={i}>
-                      {m}
-                    </option>
+                    <option key={i} value={i}>{m}</option>
                   ))}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">
-                  ปี (ค.ศ.)
-                </label>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">ปี (ค.ศ.)</label>
                 <input
                   type="number"
                   className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500"
@@ -1126,9 +885,7 @@ function ScheduleManager() {
       {assignmentModal.isOpen && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
-          onClick={() =>
-            setAssignmentModal({ isOpen: false, empId: null, dateStr: null })
-          }
+          onClick={() => setAssignmentModal({ isOpen: false, empId: null, dateStr: null })}
         >
           <div
             className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl"
@@ -1441,22 +1198,8 @@ function ShiftTypesManager() {
   });
 
   const colorOptions = [
-    '#3b82f6',
-    '#ef4444',
-    '#10b981',
-    '#f59e0b',
-    '#8b5cf6',
-    '#ec4899',
-    '#14b8a6',
-    '#f97316',
-    '#6366f1',
-    '#06b6d4',
-    '#84cc16',
-    '#f43f5e',
-    '#d946ef',
-    '#0ea5e9',
-    '#eab308',
-    '#64748b',
+    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316',
+    '#6366f1', '#06b6d4', '#84cc16', '#f43f5e', '#d946ef', '#0ea5e9', '#eab308', '#64748b',
   ];
 
   const handleSave = () => {
@@ -1473,7 +1216,7 @@ function ShiftTypesManager() {
     if (val === 'saturdays_only') return 'วันเสาร์';
     if (val === 'mon_tue_only') return 'จันทร์-อังคาร';
     if (val === 'holidays_except_saturday') return 'วันหยุด (ยกเว้นเสาร์)';
-    if (val === 'first_day_of_holidays') return 'วันแรกของช่วงหยุด (T2)'; // เพิ่มข้อความของเงื่อนไขใหม่
+    if (val === 'first_day_of_holidays') return 'วันแรกของช่วงหยุด (T2)'; 
     return 'ทุกวัน';
   };
 
@@ -1536,8 +1279,7 @@ function ShiftTypesManager() {
             </div>
             <div className="space-y-3 text-sm text-gray-600">
               <div className="flex items-center gap-2.5">
-                <Clock className="w-4 h-4 text-gray-400" /> {s.start || '--:--'}{' '}
-                - {s.end || '--:--'}
+                <Clock className="w-4 h-4 text-gray-400" /> {s.start || '--:--'} - {s.end || '--:--'}
               </div>
               <div className="flex items-center gap-2.5">
                 <Users className="w-4 h-4 text-gray-400" /> รับ:{' '}
