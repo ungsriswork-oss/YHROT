@@ -18,11 +18,12 @@ import {
   ArrowLeft,
 } from 'lucide-react';
 
-// --- นำเข้าคำสั่งของ Firebase ---
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase'; // ชี้ไปที่ไฟล์ firebase.js ของคุณ
+import { db } from '../firebase'; 
 
-// --- Custom Hook สำหรับจัดการ Firebase Sync (แทน Local Storage) ---
+// ==========================================
+// Custom Hook: จัดการ Firebase Sync
+// ==========================================
 function useFirebaseSync(key, initialValue) {
   const [storedValue, setStoredValue] = useState(initialValue);
 
@@ -30,10 +31,21 @@ function useFirebaseSync(key, initialValue) {
     const docRef = doc(db, 'shift_data', key);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        setStoredValue(docSnap.data().value);
+        const docData = docSnap.data();
+        let data = docData?.value;
+        
+        if (data === undefined || data === null) {
+          data = initialValue;
+        } else if (typeof initialValue === 'object' && !Array.isArray(initialValue)) {
+          data = { ...initialValue, ...data };
+        }
+        setStoredValue(data);
       } else {
-        setDoc(docRef, { value: initialValue });
+        setDoc(docRef, { value: initialValue }).catch(console.error);
+        setStoredValue(initialValue);
       }
+    }, (error) => {
+      console.error("Firebase Sync Error:", error);
     });
     return () => unsubscribe();
   }, [key]);
@@ -41,19 +53,21 @@ function useFirebaseSync(key, initialValue) {
   const setValue = (value) => {
     try {
       const valueToStore = value instanceof Function ? value(storedValue) : value;
-      setStoredValue(valueToStore); 
-      const docRef = doc(db, 'shift_data', key);
-      setDoc(docRef, { value: valueToStore });
+      if (valueToStore !== undefined) {
+        setStoredValue(valueToStore); 
+        const docRef = doc(db, 'shift_data', key);
+        setDoc(docRef, { value: valueToStore }).catch(console.error);
+      }
     } catch (error) {
-      console.error("Firebase Sync Error:", error);
+      console.error("Firebase Save Error:", error);
     }
   };
 
-  return [storedValue, setValue];
+  return [storedValue !== undefined ? storedValue : initialValue, setValue];
 }
 
 // ==========================================
-// ฟังก์ชันคำนวณมูลค่าเวร
+// ฟังก์ชันคำนวณมูลค่าและชั่วโมงเวร
 // ==========================================
 const getShiftValue = (shift) => {
   if (!shift || !shift.name) return 0;
@@ -70,9 +84,6 @@ const getShiftValue = (shift) => {
   return hrs * 100;
 };
 
-// ==========================================
-// ฟังก์ชันคำนวณชั่วโมงการทำงาน
-// ==========================================
 const getShiftHours = (shift) => {
   if (!shift || !shift.start || !shift.end) return 0;
   const [h1, m1] = shift.start.split(':').map(Number);
@@ -122,13 +133,13 @@ const CATEGORIZED_RULES = {
     label: 'เภสัชกร',
     rules: [
       { id: 'rule_1', label: '1. เวรต้องไม่ติดกัน 2 วัน' },
-      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อ และต้องได้ บe เสมอ ในคนที่ได้บ่าย >=2 เวร' },
+      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อกัน และต้องได้ บe เสมอ ในคนที่ได้บ่าย >= 2 เวร' },
       { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ' },
       { id: 'rule_4', label: '4. คนที่มี R1 จะไม่มีเวรตัว T1 และ T2' },
       { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
-      { id: 'rule_6', label: '6. เวร As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)' },
+      { id: 'rule_6', label: '6. เวร As/4 หรือ A จะมีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)' },
       { id: 'rule_7', label: '7. เวรประเภทต่างๆ กระจายเท่ากัน และเวรเช้าห้ามซ้ำตำแหน่ง' },
-      { id: 'rule_8', label: '8. คนงดรับดึก จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
+      { id: 'rule_8', label: '8. คนงดรับเวรดึก (ดi, ดe) จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
     ],
   },
 };
@@ -151,7 +162,6 @@ export default function PharmacistPage() {
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
-          
           table { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\[1300px\] { min-width: 0px !important; }
@@ -167,7 +177,6 @@ export default function PharmacistPage() {
         }
       `}</style>
 
-      {/* Header พร้อมปุ่มย้อนกลับ */}
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
           <button
@@ -189,9 +198,7 @@ export default function PharmacistPage() {
               type="button"
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === tab.id
-                  ? 'bg-white text-indigo-700 shadow-sm'
-                  : 'text-gray-500 hover:text-gray-700'
+                activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
               }`}
             >
               <tab.icon className="w-4 h-4" /> {tab.name}
@@ -215,17 +222,15 @@ export default function PharmacistPage() {
 // 1. Component: จัดการตารางเวร (เภสัชกร)
 // ==========================================
 function ScheduleManager() {
-  const [employeesRaw] = useFirebaseSync('ph_employees', []);
-  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
-  const [schedulesRaw, setSchedules] = useFirebaseSync('ph_schedules', []);
+  const [rawEmployees] = useFirebaseSync('ph_employees', []);
+  const [rawShifts] = useFirebaseSync('ph_shift_types', []);
+  const [rawSchedules, setSchedules] = useFirebaseSync('ph_schedules', []);
   const [activeScheduleId, setActiveScheduleId] = useFirebaseSync('ph_active_schedule', null);
 
-  // ป้องกันค่า Undefined ทำแอปพัง
-  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
-  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
-  const schedules = Array.isArray(schedulesRaw) ? schedulesRaw : [];
+  const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
+  const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+  const schedules = Array.isArray(rawSchedules) ? rawSchedules : [];
 
-  // รวมค่ากฎเก่า(ถ้ามี) เข้ากับกฎใหม่ทั้งหมด กันคีย์พัง
   const defaultRules = { rule_1: true, rule_2: true, rule_3: true, rule_4: true, rule_5: true, rule_6: true, rule_7: true, rule_8: true };
   const [rawRules, setRawRules] = useFirebaseSync('ph_rules', defaultRules);
   const rules = { ...defaultRules, ...(rawRules || {}) };
@@ -303,11 +308,9 @@ function ScheduleManager() {
     const newAssignments = {};
     const empStats = {};
 
-    // ดึงรายชื่อเวรดึก เพื่อนำไปตรวจสอบคนที่งดรับเวรดึก
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
-      // เช็คว่าพนักงานคนนี้ตั้งค่างดเวรดึกหรือไม่
       let isOptOutNight = false;
       if (nightShiftIds.length > 0) {
         if (e.specificShifts && e.specificShifts.length > 0) {
@@ -375,29 +378,29 @@ function ScheduleManager() {
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // 🔴 กฎข้อ 1. เวรต้องไม่ติดกัน 2 วัน
+              // กฎ 1. ห้ามติดกัน 2 วัน
               if (rules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // 🔴 กฎข้อ 2. เวรบ่ายห้ามซ้ำชื่อกัน
+              // กฎ 2. เวรบ่ายห้ามซ้ำชื่อ
               if (rules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              // 🔴 กฎข้อ 4 และ 5. คนที่มี R1 ไม่มี T1,T2 (และสลับกัน)
+              // กฎ 4 และ 5. R1 ห้ามชน T1,T2
               if (rules.rule_4 || rules.rule_5) {
                 if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
-              // 🔴 กฎข้อ 6. As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)
+              // กฎ 6. As/4, A ได้แค่คนละ 1 เวร
               if (rules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // 🔴 กฎข้อ 7. เวรเช้าต้องไม่ซ้ำตำแหน่งกัน
+              // กฎ 7. เช้าห้ามซ้ำตำแหน่ง
               if (rules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -415,7 +418,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // 🔴 กฎข้อ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ (ดึงคนมี R1 มารับ G ก่อน)
+                // กฎ 3. คนมี R1 ต้องได้ G ด้วย (ดึงคนมี R1 มารับ G)
                 if (rules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -429,7 +432,7 @@ function ScheduleManager() {
                    if (!aNeedsR1 && bNeedsR1) return 1;
                 }
 
-                // 🔴 กฎข้อ 2. ต้องได้ บe เสมอ ในคนที่สุ่มได้เวรบ่าย 2 เวรขึ้นไป
+                // กฎ 2. บ่าย 2 เวร ต้องมี บe เสมอ
                 if (rules.rule_2 && cat === 'บ่าย') {
                    const isShiftBe = shiftNameUpper === 'บE' || shiftNameUpper === 'บe';
                    if (isShiftBe) {
@@ -440,15 +443,22 @@ function ScheduleManager() {
                    } else {
                        const aSavingForBe = empStats[a.id].afternoonCount >= 1 && !empStats[a.id].hasBe;
                        const bSavingForBe = empStats[b.id].afternoonCount >= 1 && !empStats[b.id].hasBe;
-                       if (aSavingForBe && !bSavingForBe) return 1; // ผลักให้รอไปลง บe
+                       if (aSavingForBe && !bSavingForBe) return 1; 
                        if (!aSavingForBe && bSavingForBe) return -1;
                    }
                 }
 
-                // 🔴 กฎข้อ 7 และ 8. กระจายชั่วโมงและเวรเท่ากัน + ให้คนงดดึกชั่วโมงน้อยกว่า 12-16 ชม.
+                // 🛠️ [แก้ไขใหม่] กฎ 7. กระจายจำนวนเวร **ในแต่ละหมวดหมู่ (เช้า/บ่าย/ดึก)** ให้เท่ากันก่อน!
+                // สิ่งนี้จะป้องกันปัญหา "บางคนดึกเยอะเช้าน้อย บางคนบ่ายเยอะเช้าน้อย" อย่างตรงจุด
+                if (rules.rule_7) {
+                  if (empStats[a.id].catCounts[cat] !== empStats[b.id].catCounts[cat]) {
+                    return empStats[a.id].catCounts[cat] - empStats[b.id].catCounts[cat];
+                  }
+                }
+
+                // กฎ 7 และ 8. หลังจากหมวดหมู่สมดุลแล้ว ค่อยบาลานซ์ชั่วโมงรวม + ลดชั่วโมงคนงดดึก
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
-                   // จำลองให้คนงดดึกเหมือนทำงานไปแล้ว 14 ชม. เพื่อให้ระบบหยุดให้เวรเร็วกว่าปกติ
                    if (rules.rule_8 && empStats[empId].isOptOutNight) {
                        hrs += 14; 
                    }
@@ -617,13 +627,16 @@ function ScheduleManager() {
           <div className="relative">
             <button
               type="button"
-              onClick={() => setShowRuleDropdown(!showRuleDropdown)}
+              onClick={(e) => {
+                e.preventDefault();
+                setShowRuleDropdown(!showRuleDropdown);
+              }}
               className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium transition-colors"
             >
               <Plus className="w-3.5 h-3.5" /> เพิ่มเงื่อนไข
             </button>
             {showRuleDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2">
+              <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2 max-h-[50vh] overflow-y-auto">
                 <div className="px-4 py-1.5 bg-gray-50 text-xs font-bold text-gray-700 mb-1 border-b border-gray-100">
                   เงื่อนไขของ: {CATEGORIZED_RULES[selectedRuleRole].label}
                 </div>
@@ -632,7 +645,8 @@ function ScheduleManager() {
                     <button
                       key={rule.id}
                       type="button"
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
                         setRules({ ...rules, [rule.id]: true });
                         setShowRuleDropdown(false);
                       }}
@@ -659,10 +673,13 @@ function ScheduleManager() {
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm"
               >
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                <span>{rule.label}</span>
+                <span className="truncate max-w-[280px]">{rule.label}</span>
                 <button
                   type="button"
-                  onClick={() => setRules({ ...rules, [rule.id]: false })}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setRules({ ...rules, [rule.id]: false });
+                  }}
                   className="ml-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -807,10 +824,10 @@ function ScheduleManager() {
 // 2. Component: จัดการพนักงาน (เภสัชกร)
 // ==========================================
 function EmployeesManager() {
-  const [shiftsRaw] = useFirebaseSync('ph_shift_types', []);
-  const [employeesRaw, setEmployees] = useFirebaseSync('ph_employees', []);
-  const shifts = Array.isArray(shiftsRaw) ? shiftsRaw : [];
-  const employees = Array.isArray(employeesRaw) ? employeesRaw : [];
+  const [rawShifts] = useFirebaseSync('ph_shift_types', []);
+  const [rawEmployees, setEmployees] = useFirebaseSync('ph_employees', []);
+  const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+  const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] });
@@ -924,7 +941,7 @@ function EmployeesManager() {
 function ShiftTypesManager() {
   const [rawShifts, setShifts] = useFirebaseSync('ph_shift_types', []);
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
-  
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
 
