@@ -139,7 +139,7 @@ const CATEGORIZED_RULES = {
       { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
       { id: 'rule_6', label: '6. เวร As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)' },
       { id: 'rule_7', label: '7. เวรประเภทต่างๆ กระจายเท่ากัน และเวรเช้าห้ามซ้ำตำแหน่ง' },
-      { id: 'rule_8', label: '8. คนงดรับเวรดึก (ดi, ดe) จะมีชั่วโมงน้อยกว่าคนรับดึก 12-16 ชม.' },
+      { id: 'rule_8', label: '8. คนงดรับเวรดึก (ดi, ดe) จะมีชั่วโมงน้อยกว่าคนรับดึก (ไม่ชดเชยเวรเช้า/บ่ายให้)' },
       { id: 'rule_9', label: '9. จะมี T1 หรือ T2 ได้แค่ตัวใดตัวหนึ่งเท่านั้น' },
     ],
   },
@@ -303,22 +303,18 @@ function ScheduleManager() {
     const newAssignments = {};
     const empStats = {};
 
-    // ระบุไอดีของเวรดึก เพื่อประเมินคนที่งดรับเวรดึก (ดi, ดe ฯลฯ)
-    const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
-
     employees.forEach((e) => {
-      let isOptOutNight = false;
-      if (nightShiftIds.length > 0) {
-        if (e.specificShifts && e.specificShifts.length > 0) {
-          isOptOutNight = !nightShiftIds.some(id => e.specificShifts.includes(id));
-        } else if (e.offShifts && e.offShifts.length > 0) {
-          isOptOutNight = nightShiftIds.every(id => e.offShifts.includes(id));
-        }
-      }
-
       empStats[e.id] = {
-        money: 0, hours: 0, totalShifts: 0, counts: {},
+        money: 0, 
+        hours: 0, 
+        totalShifts: 0, 
+        counts: {},
         catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
+        
+        // 🌟 ตัวแปรพิเศษสำหรับกฎข้อ 8 เพื่อแยกคำนวณเวรดึกออกไปต่างหาก
+        nonNightHours: 0,
+        nonNightShifts: 0,
+
         countA_As4: 0,
         assignedUniqueMornings: new Set(),
         assignedNights: new Set(),
@@ -329,7 +325,6 @@ function ScheduleManager() {
         hasG: false,
         hasT1: false,
         hasT2: false,
-        isOptOutNight: isOptOutNight,
       };
     });
 
@@ -403,7 +398,7 @@ function ScheduleManager() {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // 🔴 กฎ 7. เช้าห้ามซ้ำตำแหน่ง (ห้ามซ้ำชื่อ)
+              // 🔴 กฎ 7. เช้าห้ามซ้ำตำแหน่ง (ห้ามซ้ำชื่อเวร)
               if (rules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -421,7 +416,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // 🔴 กฎ 3. R1 ต้องคู่ G 
+                // 🔴 กฎ 3. R1 คู่ G
                 if (rules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -451,39 +446,57 @@ function ScheduleManager() {
                    }
                 }
 
-                // 🌟 [อัลกอริทึมคะแนนถ่วงน้ำหนัก] 🌟
-                // ช่วยบาลานซ์หมวดหมู่(กฎ 7) และ รักษาระยะห่างชั่วโมง(กฎ 8) ไปพร้อมๆ กัน
-                const getEffectiveHours = (empId) => {
-                   let hrs = empStats[empId].hours;
-                   // จำลองบวกชั่วโมงล่วงหน้า 14 ชม. ให้คนที่งดดึก เพื่อให้ถูกเตะไปท้ายคิวได้ง่ายขึ้น
-                   if (rules.rule_8 && empStats[empId].isOptOutNight) hrs += 14; 
-                   return hrs;
-                };
-
-                let scoreA = getEffectiveHours(a.id);
-                let scoreB = getEffectiveHours(b.id);
-
+                // 🌟 ระบบบาลานซ์ใหม่: สนใจแค่ยอดเวรในหมวดหมู่ที่กำลังจัด! 🌟
                 if (rules.rule_7) {
-                   // นำจำนวนเวรในหมวดหมู่นี้ มาคูณ 15 ชั่วโมง เพื่อถ่วงน้ำหนักไม่ให้ใครได้เวรหมวดหมู่นั้นล้ำหน้าเพื่อนเกินไป
-                   scoreA += (empStats[a.id].catCounts[cat] * 15);
-                   scoreB += (empStats[b.id].catCounts[cat] * 15);
+                    if (empStats[a.id].catCounts[cat] !== empStats[b.id].catCounts[cat]) {
+                        return empStats[a.id].catCounts[cat] - empStats[b.id].catCounts[cat];
+                    }
                 }
 
-                // ใครคะแนนรวมน้อยกว่า แปลว่ายังขาดเวร/ขาดชั่วโมง จะได้คิวรับเวรก่อน
-                if (scoreA !== scoreB) return scoreA - scoreB;
-                
+                // 🌟 ระบบตัดขาดเวรดึก (สำหรับกฎ 8): เวลาสู้กันในเวรที่ไม่ใช่เวรดึก ห้ามเอาชั่วโมงเวรดึกมานับรวมเด็ดขาด!
+                if (rules.rule_8) {
+                    if (cat !== 'ดึก') {
+                        // เทียบเฉพาะชั่วโมงกลางวัน ใครน้อยกว่าได้เวรไป (ไม่สนชั่วโมงรวมทั้งหมด)
+                        if (empStats[a.id].nonNightHours !== empStats[b.id].nonNightHours) {
+                            return empStats[a.id].nonNightHours - empStats[b.id].nonNightHours;
+                        }
+                        if (empStats[a.id].nonNightShifts !== empStats[b.id].nonNightShifts) {
+                            return empStats[a.id].nonNightShifts - empStats[b.id].nonNightShifts;
+                        }
+                    } else {
+                        // ถ้ากำลังสุ่มเวรดึก ค่อยเอาชั่วโมงรวมทั้งหมดมาคิด
+                        if (empStats[a.id].hours !== empStats[b.id].hours) {
+                            return empStats[a.id].hours - empStats[b.id].hours;
+                        }
+                    }
+                } else {
+                    // หากไม่ได้เปิดกฎ 8 ให้คิดชั่วโมงรวมแบบปกติ
+                    if (empStats[a.id].hours !== empStats[b.id].hours) {
+                        return empStats[a.id].hours - empStats[b.id].hours;
+                    }
+                }
+
                 return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
               });
 
               const chosen = eligible[0];
               newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
+              // อัปเดตสถิติทั้งหมด
+              const shiftHrs = getShiftHours(shift);
               empStats[chosen.id].money += getShiftValue(shift);
-              empStats[chosen.id].hours += getShiftHours(shift);
+              empStats[chosen.id].hours += shiftHrs;
               empStats[chosen.id].totalShifts += 1;
               empStats[chosen.id].catCounts[cat]++;
+              
               if (!empStats[chosen.id].counts[shift.id]) empStats[chosen.id].counts[shift.id] = 0;
               empStats[chosen.id].counts[shift.id]++;
+
+              // 🌟 บันทึกชั่วโมงแยก (เฉพาะที่ไม่ใช่เวรดึก) เพื่อป้องกันการชดเชยเวรข้ามหมวด
+              if (cat !== 'ดึก') {
+                  empStats[chosen.id].nonNightHours += shiftHrs;
+                  empStats[chosen.id].nonNightShifts += 1;
+              }
 
               const assignedNameUpper = shift.name.toUpperCase();
               if (assignedNameUpper === 'A' || assignedNameUpper === 'AS1' || assignedNameUpper === 'AS/4')
@@ -501,7 +514,7 @@ function ScheduleManager() {
               if (cat === 'บ่าย') {
                 empStats[chosen.id].assignedAfternoons.add(assignedNameUpper);
                 empStats[chosen.id].afternoonCount += 1;
-                if (assignedNameUpper === 'บE' || assignedNameUpper === 'บe') {
+                if (assignedNameUpper.includes('E')) {
                    empStats[chosen.id].hasBe = true;
                 }
               }
