@@ -67,7 +67,7 @@ function useFirebaseSync(key, initialValue) {
 }
 
 // ==========================================
-// ฟังก์ชันคำนวณมูลค่าและชั่วโมงเวร
+// ฟังก์ชันคำนวณมูลค่าและชั่วโมง
 // ==========================================
 const getShiftValue = (shift) => {
   if (!shift || !shift.name) return 0;
@@ -303,6 +303,7 @@ function ScheduleManager() {
     const newAssignments = {};
     const empStats = {};
 
+    // ระบุไอดีของเวรดึก เพื่อประเมินคนที่งดรับเวรดึก (ดi, ดe ฯลฯ)
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
@@ -374,35 +375,35 @@ function ScheduleManager() {
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // 🔴 กฎข้อ 1. เวรต้องไม่ติดกัน 2 วัน
+              // 🔴 กฎ 1. ห้ามติดกัน 2 วัน
               if (rules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // 🔴 กฎข้อ 2. เวรบ่ายห้ามซ้ำชื่อกัน
+              // 🔴 กฎ 2. เวรบ่ายห้ามซ้ำชื่อ
               if (rules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              // 🔴 กฎข้อ 4 และ 5. คนที่มี R1 ไม่มี T1,T2 (และสลับกัน)
+              // 🔴 กฎ 4 และ 5. R1 ห้ามมี T1, T2 และสลับกัน
               if (rules.rule_4 || rules.rule_5) {
                 if (upperName === 'R1' && (empStats[emp.id].hasT1 || empStats[emp.id].hasT2)) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
-              // 🔴 กฎข้อ 9. จะมี T1 หรือ T2 ได้แค่ตัวใดตัวหนึ่งเท่านั้น
+              // 🔴 กฎ 9. มี T1 หรือ T2 ได้แค่ตัวใดตัวหนึ่งเท่านั้น
               if (rules.rule_9) {
                 if (upperName === 'T1' && empStats[emp.id].hasT2) return false;
                 if (upperName === 'T2' && empStats[emp.id].hasT1) return false;
               }
 
-              // 🔴 กฎข้อ 6. As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)
+              // 🔴 กฎ 6. As/4, A ได้แค่เวรใดเวรหนึ่ง (1 ครั้ง)
               if (rules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // 🔴 กฎข้อ 7. เวรเช้าห้ามซ้ำตำแหน่งกัน
+              // 🔴 กฎ 7. เช้าห้ามซ้ำตำแหน่ง (ห้ามซ้ำชื่อ)
               if (rules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -420,7 +421,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // 🔴 กฎข้อ 3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ (ดึงคนมี R1 มารับ G ก่อน)
+                // 🔴 กฎ 3. R1 ต้องคู่ G 
                 if (rules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -434,7 +435,7 @@ function ScheduleManager() {
                    if (!aNeedsR1 && bNeedsR1) return 1;
                 }
 
-                // 🔴 กฎข้อ 2. ต้องได้ บe เสมอ ในคนที่สุ่มได้เวรบ่าย 2 เวรขึ้นไป
+                // 🔴 กฎ 2. บ่ายต้องมี บe
                 if (rules.rule_2 && cat === 'บ่าย') {
                    const isShiftBe = shiftNameUpper === 'บE' || shiftNameUpper === 'บe';
                    if (isShiftBe) {
@@ -450,36 +451,28 @@ function ScheduleManager() {
                    }
                 }
 
-                // 🌟 การกระจายเวรให้เท่าเทียม (สำคัญที่สุดเพื่อแก้ปัญหา ดึกเยอะ/เช้าน้อย) 🌟
-                // บังคับเช็คจำนวนเวรในหมวดหมู่นั้นๆ ก่อน ใครมีน้อยกว่าจะได้สิทธิ์รับเวรก่อน
-                if (rules.rule_7) {
-                  let catCountA = empStats[a.id].catCounts[cat];
-                  let catCountB = empStats[b.id].catCounts[cat];
-                  if (catCountA !== catCountB) {
-                    return catCountA - catCountB;
-                  }
-                }
-
-                // หลังจากหมวดหมู่เท่ากันแล้ว ค่อยมาบาลานซ์ชั่วโมงรวม (กฎข้อ 8)
+                // 🌟 [อัลกอริทึมคะแนนถ่วงน้ำหนัก] 🌟
+                // ช่วยบาลานซ์หมวดหมู่(กฎ 7) และ รักษาระยะห่างชั่วโมง(กฎ 8) ไปพร้อมๆ กัน
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
-                   // จำลอง +14 ชม. ให้คนงดดึก เพื่อให้ระบบหยุดสุ่มให้เร็วขึ้นกว่าปกติ
-                   if (rules.rule_8 && empStats[empId].isOptOutNight) {
-                       hrs += 14; 
-                   }
+                   // จำลองบวกชั่วโมงล่วงหน้า 14 ชม. ให้คนที่งดดึก เพื่อให้ถูกเตะไปท้ายคิวได้ง่ายขึ้น
+                   if (rules.rule_8 && empStats[empId].isOptOutNight) hrs += 14; 
                    return hrs;
                 };
 
-                if (rules.rule_7 || rules.rule_8) {
-                   const effHoursA = getEffectiveHours(a.id);
-                   const effHoursB = getEffectiveHours(b.id);
-                   if (effHoursA !== effHoursB) return effHoursA - effHoursB;
-                   
-                   if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
-                       return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+                let scoreA = getEffectiveHours(a.id);
+                let scoreB = getEffectiveHours(b.id);
+
+                if (rules.rule_7) {
+                   // นำจำนวนเวรในหมวดหมู่นี้ มาคูณ 15 ชั่วโมง เพื่อถ่วงน้ำหนักไม่ให้ใครได้เวรหมวดหมู่นั้นล้ำหน้าเพื่อนเกินไป
+                   scoreA += (empStats[a.id].catCounts[cat] * 15);
+                   scoreB += (empStats[b.id].catCounts[cat] * 15);
                 }
 
-                return 0;
+                // ใครคะแนนรวมน้อยกว่า แปลว่ายังขาดเวร/ขาดชั่วโมง จะได้คิวรับเวรก่อน
+                if (scoreA !== scoreB) return scoreA - scoreB;
+                
+                return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
               });
 
               const chosen = eligible[0];
