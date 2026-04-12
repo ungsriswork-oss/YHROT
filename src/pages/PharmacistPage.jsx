@@ -33,7 +33,6 @@ function useFirebaseSync(key, initialValue) {
       if (docSnap.exists()) {
         const docData = docSnap.data();
         let data = docData?.value;
-        
         if (data === undefined || data === null) {
           data = initialValue;
         } else if (typeof initialValue === 'object' && !Array.isArray(initialValue)) {
@@ -67,7 +66,7 @@ function useFirebaseSync(key, initialValue) {
 }
 
 // ==========================================
-// ฟังก์ชันคำนวณมูลค่าและชั่วโมงเวร
+// ฟังก์ชันคำนวณมูลค่าและชั่วโมง
 // ==========================================
 const getShiftValue = (shift) => {
   if (!shift || !shift.name) return 0;
@@ -179,11 +178,7 @@ export default function PharmacistPage() {
 
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-          >
+          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
             <ArrowLeft className="w-4 h-4" /> กลับหน้าหลัก
           </button>
           <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
@@ -235,9 +230,7 @@ function ScheduleManager() {
   const [rawRules, setRawRules] = useFirebaseSync('ph_rules', defaultRules);
   const rules = { ...defaultRules, ...(rawRules || {}) };
 
-  const setRules = (newRules) => {
-    setRawRules(newRules);
-  };
+  const setRules = (newRules) => { setRawRules(newRules); };
 
   const [selectedRuleRole] = useState('pharmacist');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -308,9 +301,11 @@ function ScheduleManager() {
     const newAssignments = {};
     const empStats = {};
 
+    // ระบุเวรดึก เพื่อใช้ประเมินคนที่งดรับดึก
     const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
 
     employees.forEach((e) => {
+      // ตรวจสอบว่าพนักงานงดเวรดึกทั้งหมดหรือไม่
       let isOptOutNight = false;
       if (nightShiftIds.length > 0) {
         if (e.specificShifts && e.specificShifts.length > 0) {
@@ -378,29 +373,24 @@ function ScheduleManager() {
               const upperName = shift.name.toUpperCase();
               const cat = getShiftCategory(shift);
 
-              // กฎ 1. ห้ามติดกัน 2 วัน
               if (rules.rule_1) {
                 if (newAssignments[`${emp.id}_${prevDateStr}`]) return false;
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // กฎ 2. เวรบ่ายห้ามซ้ำชื่อ
               if (rules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
 
-              // กฎ 4 และ 5. R1 ห้ามชน T1,T2
               if (rules.rule_4 || rules.rule_5) {
                 if (upperName === 'R1' && empStats[emp.id].hasT1_T2) return false;
                 if ((upperName === 'T1' || upperName === 'T2') && empStats[emp.id].hasR1) return false;
               }
 
-              // กฎ 6. As/4, A ได้แค่คนละ 1 เวร
               if (rules.rule_6 && (upperName === 'A' || upperName === 'AS1' || upperName === 'AS/4')) {
                 if (empStats[emp.id].countA_As4 >= 1) return false;
               }
 
-              // กฎ 7. เช้าห้ามซ้ำตำแหน่ง
               if (rules.rule_7 && cat === 'เช้า') {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
@@ -409,6 +399,7 @@ function ScheduleManager() {
             });
 
             if (eligible.length > 0) {
+              // สลับตำแหน่งแบบสุ่มเบื้องต้น
               for (let k = eligible.length - 1; k > 0; k--) {
                 const j = Math.floor(Math.random() * (k + 1));
                 [eligible[k], eligible[j]] = [eligible[j], eligible[k]];
@@ -418,7 +409,7 @@ function ScheduleManager() {
               const shiftNameUpper = shift.name.toUpperCase();
 
               eligible.sort((a, b) => {
-                // กฎ 3. คนมี R1 ต้องได้ G ด้วย (ดึงคนมี R1 มารับ G)
+                // กฎข้อ 3. บังคับ G ให้คนที่มี R1
                 if (rules.rule_3 && shiftNameUpper === 'G') {
                    const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
                    const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
@@ -432,7 +423,7 @@ function ScheduleManager() {
                    if (!aNeedsR1 && bNeedsR1) return 1;
                 }
 
-                // กฎ 2. บ่าย 2 เวร ต้องมี บe เสมอ
+                // กฎข้อ 2. บังคับ บe ให้คนที่ลงบ่ายมาแล้ว >= 1 ครั้ง (และยังไม่มี บe)
                 if (rules.rule_2 && cat === 'บ่าย') {
                    const isShiftBe = shiftNameUpper === 'บE' || shiftNameUpper === 'บe';
                    if (isShiftBe) {
@@ -448,38 +439,33 @@ function ScheduleManager() {
                    }
                 }
 
-                // 🛠️ [แก้ไขใหม่] กฎ 7. กระจายจำนวนเวร **ในแต่ละหมวดหมู่ (เช้า/บ่าย/ดึก)** ให้เท่ากันก่อน!
-                // สิ่งนี้จะป้องกันปัญหา "บางคนดึกเยอะเช้าน้อย บางคนบ่ายเยอะเช้าน้อย" อย่างตรงจุด
-                if (rules.rule_7) {
-                  if (empStats[a.id].catCounts[cat] !== empStats[b.id].catCounts[cat]) {
-                    return empStats[a.id].catCounts[cat] - empStats[b.id].catCounts[cat];
-                  }
-                }
-
-                // กฎ 7 และ 8. หลังจากหมวดหมู่สมดุลแล้ว ค่อยบาลานซ์ชั่วโมงรวม + ลดชั่วโมงคนงดดึก
+                // 🌟 [ระบบ Score Algorithm] 🌟 
+                // บาลานซ์ระหว่าง "ความเท่าเทียมของประเภทเวร" กับ "ยอดชั่วโมงรวม"
                 const getEffectiveHours = (empId) => {
                    let hrs = empStats[empId].hours;
-                   if (rules.rule_8 && empStats[empId].isOptOutNight) {
-                       hrs += 14; 
-                   }
+                   // จำลอง +14 ชม. ให้คนงดดึก เพื่อให้หยุดสุ่มให้เขาเร็วกว่าปกติ (กฎข้อ 8)
+                   if (rules.rule_8 && empStats[empId].isOptOutNight) hrs += 14; 
                    return hrs;
                 };
 
-                if (rules.rule_7 || rules.rule_8) {
-                   const effHoursA = getEffectiveHours(a.id);
-                   const effHoursB = getEffectiveHours(b.id);
-                   if (effHoursA !== effHoursB) return effHoursA - effHoursB;
-                   
-                   if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
-                       return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+                let scoreA = getEffectiveHours(a.id);
+                let scoreB = getEffectiveHours(b.id);
+
+                // ให้น้ำหนัก 'ประเภทเวร' = 12 ชั่วโมง/เวร (บังคับให้ระบบสนใจบาลานซ์ประเภทเวรเช้า,บ่าย,ดึก ก่อนเสมอ)
+                if (rules.rule_7) {
+                   scoreA += (empStats[a.id].catCounts[cat] * 12);
+                   scoreB += (empStats[b.id].catCounts[cat] * 12);
                 }
 
-                return 0;
+                // ใครคะแนนน้อยกว่า (แปลว่ายังขาดเวร/ชั่วโมง) จะได้สิทธิก่อน
+                if (scoreA !== scoreB) return scoreA - scoreB;
+                return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
               });
 
               const chosen = eligible[0];
               newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
+              // อัปเดตสถิติ
               empStats[chosen.id].money += getShiftValue(shift);
               empStats[chosen.id].hours += getShiftHours(shift);
               empStats[chosen.id].totalShifts += 1;
@@ -515,6 +501,7 @@ function ScheduleManager() {
     const mainShifts = shifts.filter((s) => getShiftCategory(s) !== '2o');
     const fillerShifts = shifts.filter((s) => getShiftCategory(s) === '2o');
 
+    // ลำดับการแจกเวร
     mainShifts.sort((a, b) => {
       const priority = { ดึก: 1, บ่าย: 2, SMC: 3, 'As/4': 4, เช้า: 5, A: 6, '4o': 7, อื่นๆ: 8 };
       return (priority[getShiftCategory(a)] || 9) - (priority[getShiftCategory(b)] || 9);
@@ -523,11 +510,7 @@ function ScheduleManager() {
     assignShiftsForPass(mainShifts, false);
     assignShiftsForPass(fillerShifts, true);
 
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
   };
 
   const handleAssignShift = (shiftId) => {
@@ -536,13 +519,7 @@ function ScheduleManager() {
     const updatedAssignments = { ...activeSchedule.assignments };
     if (shiftId === null) delete updatedAssignments[`${empId}_${dateStr}`];
     else updatedAssignments[`${empId}_${dateStr}`] = shiftId;
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId
-          ? { ...s, assignments: updatedAssignments }
-          : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: updatedAssignments } : s));
     setAssignmentModal({ isOpen: false, empId: null, dateStr: null });
   };
 
@@ -551,11 +528,7 @@ function ScheduleManager() {
     const updatedHolidays = { ...activeSchedule.holidays };
     if (updatedHolidays[dateStr]) delete updatedHolidays[dateStr];
     else updatedHolidays[dateStr] = 'วันหยุดพิเศษ';
-    setSchedules(
-      schedules.map((s) =>
-        s.id === activeScheduleId ? { ...s, holidays: updatedHolidays } : s
-      )
-    );
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, holidays: updatedHolidays } : s));
   };
 
   let monthDates = [];
@@ -565,9 +538,7 @@ function ScheduleManager() {
       const d = new Date(activeSchedule.year, activeSchedule.month, i + 1);
       const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
       return {
-        dateNum: i + 1,
-        dayStr: thaiDays[d.getDay()],
-        dateStr,
+        dateNum: i + 1, dayStr: thaiDays[d.getDay()], dateStr,
         isHoliday: d.getDay() === 0 || d.getDay() === 6 || !!activeSchedule.holidays[dateStr],
       };
     });
@@ -588,9 +559,7 @@ function ScheduleManager() {
                 type="button"
                 onClick={() => setActiveScheduleId(sch.id)}
                 className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${
-                  activeScheduleId === sch.id
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-transparent text-gray-600 hover:bg-gray-100'
+                  activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'
                 }`}
               >
                 {thaiMonths[sch.month]} {sch.year + 543}
@@ -668,12 +637,9 @@ function ScheduleManager() {
         <div className="flex items-center gap-2 flex-wrap min-h-[30px]">
           {currentlyActiveRules.length > 0 ? (
             currentlyActiveRules.map((rule) => (
-              <div
-                key={rule.id}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm"
-              >
+              <div key={rule.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                <span className="truncate max-w-[280px]">{rule.label}</span>
+                <span className="truncate max-w-[300px]">{rule.label}</span>
                 <button
                   type="button"
                   onClick={(e) => {
@@ -687,9 +653,7 @@ function ScheduleManager() {
               </div>
             ))
           ) : (
-            <span className="text-xs text-gray-400 italic">
-              ไม่มีเงื่อนไขที่ถูกเปิดใช้งาน
-            </span>
+            <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่ถูกเปิดใช้งาน</span>
           )}
         </div>
       </div>
