@@ -440,27 +440,30 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: กฎ 7 กระจายเวรหมวดหมู่ให้เท่ากัน (คงเดิม — ถูกต้อง)
-                if (rules.rule_7) {
-                    const catCountA = empStats[a.id].catCounts[cat];
-                    const catCountB = empStats[b.id].catCounts[cat];
-                    if (catCountA !== catCountB) return catCountA - catCountB; 
-                }
-
-                // ✅ Priority 4 (แก้ไข): กฎ 8 — เปรียบ totalShifts เฉพาะภายในกลุ่มเดียวกัน
-                // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 คง shuffle order ไว้
-                // ป้องกันระบบ "ชดเชย" เวรให้คนงดดึกโดยไม่ตั้งใจ
+                // ─── ดึง opt-out flag ไว้ใช้ Priority 3-5 ───
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
+
+                // Priority 3: กฎ 7 + กฎ 8 รวมกัน
+                // บวก virtual +1 ให้ catCounts ของคนงดดึก
+                // ทำให้คนรับดึกได้ shift ทุก category ก่อนเสมอ
+                // แต่เมื่อคนรับดึกมี catCount สูงกว่ามากพอ คนงดดึกก็จะได้บ้าง (ไม่ถึงกับ 0)
+                if (rules.rule_7) {
+                  const optPenalty = rules.rule_8 ? 1 : 0;
+                  const catA = empStats[a.id].catCounts[cat] + (aIsOptOut ? optPenalty : 0);
+                  const catB = empStats[b.id].catCounts[cat] + (bIsOptOut ? optPenalty : 0);
+                  if (catA !== catB) return catA - catB;
+                }
+
+                // Priority 4: บาลานซ์เวรรวม เฉพาะภายในกลุ่มเดียวกัน
                 if (aIsOptOut === bIsOptOut) {
-                  // กลุ่มเดียวกัน: บาลานซ์ปกติ
                   if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts) {
                     return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
                   }
-                  // Priority 5: ชั่วโมงรวม (เฉพาะกลุ่มเดียวกัน — ไม่ต้องบวก +14 แล้ว)
+                  // Priority 5: ชั่วโมงรวม เฉพาะภายในกลุ่มเดียวกัน
                   return empStats[a.id].hours - empStats[b.id].hours;
                 }
-                // ต่างกลุ่ม: ไม่เปรียบกัน → คง order จาก shuffle ไว้
+                // ต่างกลุ่ม + catCounts เท่ากัน → คง shuffle random ไว้
                 return 0;
               });
 
