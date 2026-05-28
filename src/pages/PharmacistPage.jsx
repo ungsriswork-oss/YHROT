@@ -440,28 +440,28 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // ✅ Priority 3 (แก้ไข): กฎ 8 — คนงดดึกไปต่อท้ายก่อน catCounts เสมอ
-                // ทำให้ได้เวรต่อเมื่อไม่มีใครรับได้จริงๆ ไม่มีเวรอื่นชดเชยให้
-                if (rules.rule_8) {
-                  const aIsOptOut = empStats[a.id].isOptOutNight;
-                  const bIsOptOut = empStats[b.id].isOptOutNight;
-                  if (aIsOptOut !== bIsOptOut) return aIsOptOut ? 1 : -1;
-                }
-
-                // Priority 4: กฎ 7 กระจายเวรหมวดหมู่นี้ให้เท่ากัน
+                // Priority 3: กฎ 7 กระจายเวรหมวดหมู่ให้เท่ากัน (คงเดิม — ถูกต้อง)
                 if (rules.rule_7) {
                     const catCountA = empStats[a.id].catCounts[cat];
                     const catCountB = empStats[b.id].catCounts[cat];
                     if (catCountA !== catCountB) return catCountA - catCountB; 
                 }
 
-                // Priority 5: บาลานซ์จำนวนเวรรวม
-                if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts) {
+                // ✅ Priority 4 (แก้ไข): กฎ 8 — เปรียบ totalShifts เฉพาะภายในกลุ่มเดียวกัน
+                // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 คง shuffle order ไว้
+                // ป้องกันระบบ "ชดเชย" เวรให้คนงดดึกโดยไม่ตั้งใจ
+                const aIsOptOut = empStats[a.id].isOptOutNight;
+                const bIsOptOut = empStats[b.id].isOptOutNight;
+                if (aIsOptOut === bIsOptOut) {
+                  // กลุ่มเดียวกัน: บาลานซ์ปกติ
+                  if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts) {
                     return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+                  }
+                  // Priority 5: ชั่วโมงรวม (เฉพาะกลุ่มเดียวกัน — ไม่ต้องบวก +14 แล้ว)
+                  return empStats[a.id].hours - empStats[b.id].hours;
                 }
-
-                // Priority 6: ชั่วโมงรวม (ไม่ต้องบวก +14 แล้ว เพราะ Priority 3 จัดการแล้ว)
-                return empStats[a.id].hours - empStats[b.id].hours;
+                // ต่างกลุ่ม: ไม่เปรียบกัน → คง order จาก shuffle ไว้
+                return 0;
               });
 
               const chosen = eligible[0];
