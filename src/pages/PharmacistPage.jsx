@@ -318,6 +318,7 @@ function ScheduleManager() {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0, counts: {},
         catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
+        catHours: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
         countA_As4: 0,
         assignedUniqueMornings: new Set(),
         assignedNights: new Set(),
@@ -449,15 +450,21 @@ function ScheduleManager() {
                 }
 
                 // Priority 3: กฎ 8 + เงินเท่ากัน (MAIN)
-                // เปรียบ hours เฉพาะกลุ่มเดียวกัน → hours น้อยได้ก่อน → เงินเท่ากัน
+                // ใช้ catHours (hours ของ category นี้โดยตรง) ก่อน
+                // → ป้องกันคนได้ night shift ยาว 2 ครั้ง ทั้งที่คนอื่นได้แค่ 1 ครั้ง
                 // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
+                  // Priority 3a: catHours ของ category นี้ (ป้องกัน 2 long nights)
+                  const catHrsA = empStats[a.id].catHours[cat] || 0;
+                  const catHrsB = empStats[b.id].catHours[cat] || 0;
+                  if (catHrsA !== catHrsB) return catHrsA - catHrsB;
+                  // Priority 3b: total hours (ป้องกัน hours รวมต่างกัน)
                   if (empStats[a.id].hours !== empStats[b.id].hours) {
                     return empStats[a.id].hours - empStats[b.id].hours;
                   }
-                  // Priority 4: กฎ 7 catCounts (tiebreaker เมื่อ hours เท่ากัน)
+                  // Priority 4: catCounts tiebreaker
                   if (rules.rule_7) {
                     const catCountA = empStats[a.id].catCounts[cat];
                     const catCountB = empStats[b.id].catCounts[cat];
@@ -471,10 +478,12 @@ function ScheduleManager() {
               const chosen = eligible[0];
               newAssignments[`${chosen.id}_${dateStr}`] = shift.id;
 
+              const shiftHrs = getShiftHours(shift);
               empStats[chosen.id].money += getShiftValue(shift);
-              empStats[chosen.id].hours += getShiftHours(shift);
+              empStats[chosen.id].hours += shiftHrs;
               empStats[chosen.id].totalShifts += 1;
               empStats[chosen.id].catCounts[cat]++;
+              empStats[chosen.id].catHours[cat] = (empStats[chosen.id].catHours[cat] || 0) + shiftHrs;
               if (!empStats[chosen.id].counts[shift.id]) empStats[chosen.id].counts[shift.id] = 0;
               empStats[chosen.id].counts[shift.id]++;
 
