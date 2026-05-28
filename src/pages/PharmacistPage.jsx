@@ -440,30 +440,21 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // ─── ดึง opt-out flag ไว้ใช้ Priority 3-5 ───
+                // Priority 3: กฎ 7 กระจาย catCounts (คงเดิม)
+                if (rules.rule_7) {
+                  const catCountA = empStats[a.id].catCounts[cat];
+                  const catCountB = empStats[b.id].catCounts[cat];
+                  if (catCountA !== catCountB) return catCountA - catCountB;
+                }
+
+                // ✅ Priority 4: กฎ 8 + เงินเท่ากัน (แก้ไข)
+                // เปรียบ hours เฉพาะกลุ่มเดียวกัน → hours น้อยได้ก่อน → hours/เงินเท่ากัน
+                // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
-
-                // Priority 3: กฎ 7 + กฎ 8 รวมกัน
-                // บวก virtual +1 ให้ catCounts ของคนงดดึก
-                // ทำให้คนรับดึกได้ shift ทุก category ก่อนเสมอ
-                // แต่เมื่อคนรับดึกมี catCount สูงกว่ามากพอ คนงดดึกก็จะได้บ้าง (ไม่ถึงกับ 0)
-                if (rules.rule_7) {
-                  const optPenalty = rules.rule_8 ? 1 : 0;
-                  const catA = empStats[a.id].catCounts[cat] + (aIsOptOut ? optPenalty : 0);
-                  const catB = empStats[b.id].catCounts[cat] + (bIsOptOut ? optPenalty : 0);
-                  if (catA !== catB) return catA - catB;
-                }
-
-                // Priority 4: บาลานซ์เวรรวม เฉพาะภายในกลุ่มเดียวกัน
                 if (aIsOptOut === bIsOptOut) {
-                  if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts) {
-                    return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
-                  }
-                  // Priority 5: ชั่วโมงรวม เฉพาะภายในกลุ่มเดียวกัน
                   return empStats[a.id].hours - empStats[b.id].hours;
                 }
-                // ต่างกลุ่ม + catCounts เท่ากัน → คง shuffle random ไว้
                 return 0;
               });
 
