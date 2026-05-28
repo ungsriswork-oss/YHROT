@@ -443,20 +443,29 @@ function ScheduleManager() {
                 }
 
                 // ✅ Priority 3: Hybrid catCounts + money
-                // ดึก: threshold=0 (strict) → ป้องกัน ด=3
-                // อื่นๆ: threshold=1 → อนุญาต ช=3 หรือ บ=3 เพื่อชดเชยดึกที่ขาด
-                // เมื่อ catCount diff ≤ threshold → money ตัดสิน (คนเงินน้อยกว่าได้ก่อน)
+                //
+                // Regular vs Regular:
+                //   - ดึก: tolerance=0 (strict) → ป้องกัน ด=3
+                //   - เช้า/บ่าย/อื่น: tolerance=1 → อนุญาต ช=3/บ=3 ชดเชยดึกที่ขาด
+                //   - เมื่อ diff ≤ tolerance → money ตัดสิน
+                //
+                // Opt-out vs Opt-out:
+                //   - tolerance=0 เสมอ (strict) → ไม่มีชดเชย เช้า/บ่าย เท่ากันพอดี
+                //   - ไม่ใช้ money → random (shuffle)
+                //
+                // ต่างกลุ่ม: return 0
+                const aIsOptOut = empStats[a.id].isOptOutNight;
+                const bIsOptOut = empStats[b.id].isOptOutNight;
+
                 if (rules.rule_7) {
                   const diff = empStats[a.id].catCounts[cat] - empStats[b.id].catCounts[cat];
-                  const tolerance = (cat === 'ดึก') ? 0 : 1;
+                  // tolerance=1 เฉพาะ regular ทั้งคู่ + ไม่ใช่เวรดึก
+                  const tolerance = (!aIsOptOut && !bIsOptOut && cat !== 'ดึก') ? 1 : 0;
                   if (Math.abs(diff) > tolerance) return diff;
                 }
 
-                // Priority 4: money เฉพาะกลุ่มเดียวกัน
-                // คนเงินน้อยกว่าได้ก่อน → เงินเท่ากัน / ต่างกลุ่ม → return 0
-                const aIsOptOut = empStats[a.id].isOptOutNight;
-                const bIsOptOut = empStats[b.id].isOptOutNight;
-                if (aIsOptOut === bIsOptOut) {
+                // Priority 4: money เฉพาะ regular ทั้งคู่ (opt-out ไม่ชดเชย)
+                if (!aIsOptOut && !bIsOptOut) {
                   return empStats[a.id].money - empStats[b.id].money;
                 }
                 return 0;
