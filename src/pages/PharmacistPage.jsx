@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Calendar,
@@ -239,6 +239,7 @@ function ScheduleManager() {
   const [createYear, setCreateYear] = useState(new Date().getFullYear());
   const [assignmentModal, setAssignmentModal] = useState({ isOpen: false, empId: null, dateStr: null });
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
+  const [sortByMoney, setSortByMoney] = useState(false);
 
   const thaiMonths = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
   const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
@@ -406,6 +407,13 @@ function ScheduleManager() {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
 
+              // 🔴 กฎ 7 hard cap: ป้องกัน catCount สูงกว่าคนอื่นเกิน 1
+              // ทำให้ไม่มีใครได้เวรประเภทนี้มากกว่าคนอื่น > 1 เวร
+              if (rules.rule_7) {
+                const minCatCount = Math.min(...employees.map(e => empStats[e.id].catCounts[cat] ?? 0));
+                if (empStats[emp.id].catCounts[cat] > minCatCount + 1) return false;
+              }
+
               return true;
             });
 
@@ -440,20 +448,22 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: กฎ 7 กระจาย catCounts (คงเดิม)
-                if (rules.rule_7) {
-                  const catCountA = empStats[a.id].catCounts[cat];
-                  const catCountB = empStats[b.id].catCounts[cat];
-                  if (catCountA !== catCountB) return catCountA - catCountB;
-                }
-
-                // ✅ Priority 4: กฎ 8 + เงินเท่ากัน (แก้ไข)
-                // เปรียบ hours เฉพาะกลุ่มเดียวกัน → hours น้อยได้ก่อน → hours/เงินเท่ากัน
+                // Priority 3: กฎ 8 + เงินเท่ากัน (MAIN)
+                // เปรียบ hours เฉพาะกลุ่มเดียวกัน → hours น้อยได้ก่อน → เงินเท่ากัน
                 // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
-                  return empStats[a.id].hours - empStats[b.id].hours;
+                  if (empStats[a.id].hours !== empStats[b.id].hours) {
+                    return empStats[a.id].hours - empStats[b.id].hours;
+                  }
+                  // Priority 4: กฎ 7 catCounts (tiebreaker เมื่อ hours เท่ากัน)
+                  if (rules.rule_7) {
+                    const catCountA = empStats[a.id].catCounts[cat];
+                    const catCountB = empStats[b.id].catCounts[cat];
+                    if (catCountA !== catCountB) return catCountA - catCountB;
+                  }
+                  return 0;
                 }
                 return 0;
               });
@@ -538,6 +548,36 @@ function ScheduleManager() {
       };
     });
   }
+
+  // เรียงพนักงานตามเงิน (3 กลุ่ม: regular → R2 → งดดึก)
+  const sortedEmployees = useMemo(() => {
+    if (!sortByMoney || !activeSchedule) return employees;
+    const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
+    const r2ShiftIds = shifts.filter(s => s.name.toUpperCase() === 'R2').map(s => s.id);
+    const empData = {};
+    employees.forEach(emp => {
+      let money = 0;
+      monthDates.forEach(d => {
+        const sData = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+        if (sData) money += getShiftValue(sData);
+      });
+      const isOptOut = nightShiftIds.length > 0 && (
+        (emp.specificShifts?.length > 0 && !nightShiftIds.some(id => emp.specificShifts.includes(id))) ||
+        (emp.offShifts?.length > 0 && nightShiftIds.every(id => emp.offShifts.includes(id)))
+      );
+      const hasR2 = r2ShiftIds.length > 0 && monthDates.some(d =>
+        r2ShiftIds.includes(activeSchedule.assignments[`${emp.id}_${d.dateStr}`])
+      );
+      const group = isOptOut ? 3 : hasR2 ? 2 : 1;
+      empData[emp.id] = { money, group };
+    });
+    return [...employees].sort((a, b) => {
+      const da = empData[a.id] ?? { money: 0, group: 1 };
+      const db = empData[b.id] ?? { money: 0, group: 1 };
+      if (da.group !== db.group) return da.group - db.group;
+      return db.money - da.money;
+    });
+  }, [sortByMoney, employees, activeSchedule, shifts, monthDates]);
 
   const activeCategoryRules = CATEGORIZED_RULES[selectedRuleRole].rules;
   const inactiveRules = activeCategoryRules.filter((r) => !rules[r.id]);
@@ -656,6 +696,13 @@ function ScheduleManager() {
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3">
           <button type="button" onClick={handleDeleteSchedule} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"><Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้</button>
+          <button
+            type="button"
+            onClick={() => setSortByMoney(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600' : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}
+          >
+            <span className="text-sm">฿</span> {sortByMoney ? 'เรียงตามเงิน ✓' : 'เรียงตามเงิน'}
+          </button>
           <button type="button" onClick={handleExportExcel} className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"><Download className="w-4 h-4" /> Excel</button>
           <button type="button" onClick={() => window.print()} className="text-slate-700 bg-white border border-slate-200 shadow-sm px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50 transition-colors"><Printer className="w-4 h-4" /> PDF</button>
         </div>
@@ -695,7 +742,7 @@ function ScheduleManager() {
                 </tr>
               </thead>
               <tbody>
-                {employees.map((emp) => {
+                {sortedEmployees.map((emp) => {
                   let totalMoney = 0; let totalHours = 0;
                   let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
 
