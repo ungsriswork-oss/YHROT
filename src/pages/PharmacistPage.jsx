@@ -408,13 +408,6 @@ function ScheduleManager() {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
 
-              // 🔴 กฎ 7 hard cap: ป้องกัน catCount สูงกว่าคนอื่นเกิน 1
-              // ทำให้ไม่มีใครได้เวรประเภทนี้มากกว่าคนอื่น > 1 เวร
-              if (rules.rule_7) {
-                const minCatCount = Math.min(...employees.map(e => empStats[e.id].catCounts[cat] ?? 0));
-                if (empStats[emp.id].catCounts[cat] > minCatCount) return false;
-              }
-
               return true;
             });
 
@@ -449,13 +442,22 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: กฎ 8 + เงินเท่ากัน
-                // เปรียบ total hours เฉพาะกลุ่มเดียวกัน → คนมี hours น้อยได้ก่อน
+                // Priority 3: กฎ 7 — catCounts (กระจาย shift type ให้เท่ากัน)
+                // ต้องมาก่อน money เพื่อให้แน่ใจว่าแต่ละประเภทถูกกระจายเท่าๆกัน
+                if (rules.rule_7) {
+                  const catCountA = empStats[a.id].catCounts[cat];
+                  const catCountB = empStats[b.id].catCounts[cat];
+                  if (catCountA !== catCountB) return catCountA - catCountB;
+                }
+
+                // Priority 4: กฎ 8 — เปรียบ money เฉพาะกลุ่มเดียวกัน
+                // ใช้ money (ไม่ใช่ hours) เพราะ 4s = 720บ./4ชม. ≠ เช้า/บ่าย/ดึก = 800บ./8ชม.
+                // การ sort ด้วย money จึงทำให้เงินเท่ากันได้ตรงกว่า
                 // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
-                  return empStats[a.id].hours - empStats[b.id].hours;
+                  return empStats[a.id].money - empStats[b.id].money;
                 }
                 return 0;
               });
