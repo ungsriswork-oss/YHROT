@@ -412,7 +412,7 @@ function ScheduleManager() {
               // ทำให้ไม่มีใครได้เวรประเภทนี้มากกว่าคนอื่น > 1 เวร
               if (rules.rule_7) {
                 const minCatCount = Math.min(...employees.map(e => empStats[e.id].catCounts[cat] ?? 0));
-                if (empStats[emp.id].catCounts[cat] > minCatCount + 1) return false;
+                if (empStats[emp.id].catCounts[cat] > minCatCount) return false;
               }
 
               return true;
@@ -449,28 +449,13 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: กฎ 8 + เงินเท่ากัน (MAIN)
-                // ใช้ catHours (hours ของ category นี้โดยตรง) ก่อน
-                // → ป้องกันคนได้ night shift ยาว 2 ครั้ง ทั้งที่คนอื่นได้แค่ 1 ครั้ง
+                // Priority 3: กฎ 8 + เงินเท่ากัน
+                // เปรียบ total hours เฉพาะกลุ่มเดียวกัน → คนมี hours น้อยได้ก่อน
                 // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
-                  // Priority 3a: catHours ของ category นี้ (ป้องกัน 2 long nights)
-                  const catHrsA = empStats[a.id].catHours[cat] || 0;
-                  const catHrsB = empStats[b.id].catHours[cat] || 0;
-                  if (catHrsA !== catHrsB) return catHrsA - catHrsB;
-                  // Priority 3b: total hours (ป้องกัน hours รวมต่างกัน)
-                  if (empStats[a.id].hours !== empStats[b.id].hours) {
-                    return empStats[a.id].hours - empStats[b.id].hours;
-                  }
-                  // Priority 4: catCounts tiebreaker
-                  if (rules.rule_7) {
-                    const catCountA = empStats[a.id].catCounts[cat];
-                    const catCountB = empStats[b.id].catCounts[cat];
-                    if (catCountA !== catCountB) return catCountA - catCountB;
-                  }
-                  return 0;
+                  return empStats[a.id].hours - empStats[b.id].hours;
                 }
                 return 0;
               });
