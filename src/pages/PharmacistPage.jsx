@@ -442,10 +442,18 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // ✅ Priority 3: money equalization (เหมือน manual schedule)
-                // manual schedule ชดเชย ด=1 ด้วย ช=3 เพราะเช้า=ดึก=800บ.
-                // catCounts ถูกเอาออกจาก sort เพราะมัน BLOCK การชดเชยนี้
-                // eligible filter (assignedUniqueMornings, rule_1 ฯลฯ) จัดการ distribution แทน
+                // ✅ Priority 3: Hybrid catCounts + money
+                // ดึก: threshold=0 (strict) → ป้องกัน ด=3
+                // อื่นๆ: threshold=1 → อนุญาต ช=3 หรือ บ=3 เพื่อชดเชยดึกที่ขาด
+                // เมื่อ catCount diff ≤ threshold → money ตัดสิน (คนเงินน้อยกว่าได้ก่อน)
+                if (rules.rule_7) {
+                  const diff = empStats[a.id].catCounts[cat] - empStats[b.id].catCounts[cat];
+                  const tolerance = (cat === 'ดึก') ? 0 : 1;
+                  if (Math.abs(diff) > tolerance) return diff;
+                }
+
+                // Priority 4: money เฉพาะกลุ่มเดียวกัน
+                // คนเงินน้อยกว่าได้ก่อน → เงินเท่ากัน / ต่างกลุ่ม → return 0
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
