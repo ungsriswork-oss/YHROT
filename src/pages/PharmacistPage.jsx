@@ -164,15 +164,15 @@ export default function PharmacistPage() {
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
           table { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
-          .min-w-\[1300px\] { min-width: 0px !important; }
-          th.w-\[120px\] { width: 70px !important; } 
-          th.w-\[30px\] { width: 22px !important; }  
-          th.w-\[70px\] { width: 45px !important; }  
+          .min-w-\\[1300px\\] { min-width: 0px !important; }
+          th.w-\\[120px\\] { width: 70px !important; } 
+          th.w-\\[30px\\] { width: 22px !important; }  
+          th.w-\\[70px\\] { width: 45px !important; }  
           th, td { padding: 1px 0px !important; font-size: 7.5px !important; word-wrap: break-word; overflow: hidden; }
           .text-xs { font-size: 7px !important; line-height: 1 !important; }
-          .text-\[11px\] { font-size: 7px !important; }
-          .text-\[10px\] { font-size: 6px !important; }
-          .text-\[9px\] { font-size: 6px !important; }
+          .text-\\[11px\\] { font-size: 7px !important; }
+          .text-\\[10px\\] { font-size: 6px !important; }
+          .text-\\[9px\\] { font-size: 6px !important; }
           .h-8 { height: auto !important; }
         }
       `}</style>
@@ -379,7 +379,7 @@ function ScheduleManager() {
                 if (newAssignments[`${emp.id}_${nextDateStr}`]) return false;
               }
 
-              // 🔴 กฎ 2. ห้ามบ่ายซ้ำชื่อ (ลบเงื่อนไขบล็อค บE ออกไปเลย ให้ไปจัดการที่ Priority แทน)
+              // 🔴 กฎ 2. ห้ามบ่ายซ้ำชื่อ
               if (rules.rule_2 && cat === 'บ่าย') {
                 if (empStats[emp.id].assignedAfternoons.has(upperName)) return false;
               }
@@ -437,34 +437,31 @@ function ScheduleManager() {
                 if (rules.rule_2 && cat === 'บ่าย' && (shiftNameUpper === 'บE' || shiftNameUpper === 'บe')) {
                    const aNeedBe = !empStats[a.id].hasBe ? empStats[a.id].afternoonCount : -1;
                    const bNeedBe = !empStats[b.id].hasBe ? empStats[b.id].afternoonCount : -1;
-                   if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe; // มากกว่า(ต้องการกว่า) ได้ไป
+                   if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: 🌟 กฎ 7 กระจายเวรหมวดหมู่นี้ให้เท่ากัน "เป๊ะๆ" (สำคัญที่สุดในการแก้ปัญหา) 🌟
+                // ✅ Priority 3 (แก้ไข): กฎ 8 — คนงดดึกไปต่อท้ายก่อน catCounts เสมอ
+                // ทำให้ได้เวรต่อเมื่อไม่มีใครรับได้จริงๆ ไม่มีเวรอื่นชดเชยให้
+                if (rules.rule_8) {
+                  const aIsOptOut = empStats[a.id].isOptOutNight;
+                  const bIsOptOut = empStats[b.id].isOptOutNight;
+                  if (aIsOptOut !== bIsOptOut) return aIsOptOut ? 1 : -1;
+                }
+
+                // Priority 4: กฎ 7 กระจายเวรหมวดหมู่นี้ให้เท่ากัน
                 if (rules.rule_7) {
                     const catCountA = empStats[a.id].catCounts[cat];
                     const catCountB = empStats[b.id].catCounts[cat];
                     if (catCountA !== catCountB) return catCountA - catCountB; 
                 }
 
-                // Priority 4: บาลานซ์จำนวนเวรรวม
+                // Priority 5: บาลานซ์จำนวนเวรรวม
                 if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts) {
                     return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
                 }
 
-                // Priority 5: 🌟 กฎ 8 คนงดดึก ต้องได้เปรียบ (ชั่วโมงน้อยกว่า) 🌟
-                // โดยการจำลองว่าเขาทำไปแล้ว 14 ชม. ทำให้ระบบสุ่มข้ามพวกเขาไปได้อย่างนุ่มนวล
-                const getEffectiveHours = (empId) => {
-                   let hrs = empStats[empId].hours;
-                   if (rules.rule_8 && empStats[empId].isOptOutNight) {
-                       hrs += 14; 
-                   }
-                   return hrs;
-                };
-
-                const hrsA = getEffectiveHours(a.id);
-                const hrsB = getEffectiveHours(b.id);
-                return hrsA - hrsB;
+                // Priority 6: ชั่วโมงรวม (ไม่ต้องบวก +14 แล้ว เพราะ Priority 3 จัดการแล้ว)
+                return empStats[a.id].hours - empStats[b.id].hours;
               });
 
               const chosen = eligible[0];
