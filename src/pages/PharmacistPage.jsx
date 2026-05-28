@@ -408,6 +408,18 @@ function ScheduleManager() {
                 if (empStats[emp.id].assignedUniqueMornings.has(upperName)) return false;
               }
 
+              // 🔴 กฎ 8 Hard Cap สำหรับ opt-out:
+              // opt-out ห้ามได้ shift ประเภทนี้มากกว่า opt-out คนอื่น
+              // ป้องกัน บ=3 / ช=3 สำหรับคนที่งดดึก
+              if (rules.rule_8 && empStats[emp.id].isOptOutNight) {
+                const minOptoutCat = Math.min(
+                  ...employees
+                    .filter(e => empStats[e.id].isOptOutNight)
+                    .map(e => empStats[e.id].catCounts[cat] ?? 0)
+                );
+                if (empStats[emp.id].catCounts[cat] > minOptoutCat) return false;
+              }
+
               return true;
             });
 
