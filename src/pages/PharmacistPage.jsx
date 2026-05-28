@@ -442,18 +442,10 @@ function ScheduleManager() {
                    if (aNeedBe !== bNeedBe) return bNeedBe - aNeedBe;
                 }
 
-                // Priority 3: กฎ 7 — catCounts (กระจาย shift type ให้เท่ากัน)
-                // ต้องมาก่อน money เพื่อให้แน่ใจว่าแต่ละประเภทถูกกระจายเท่าๆกัน
-                if (rules.rule_7) {
-                  const catCountA = empStats[a.id].catCounts[cat];
-                  const catCountB = empStats[b.id].catCounts[cat];
-                  if (catCountA !== catCountB) return catCountA - catCountB;
-                }
-
-                // Priority 4: กฎ 8 — เปรียบ money เฉพาะกลุ่มเดียวกัน
-                // ใช้ money (ไม่ใช่ hours) เพราะ 4s = 720บ./4ชม. ≠ เช้า/บ่าย/ดึก = 800บ./8ชม.
-                // การ sort ด้วย money จึงทำให้เงินเท่ากันได้ตรงกว่า
-                // ต่างกลุ่ม (งดดึก vs รับดึก) → return 0 ไม่ชดเชยข้ามกลุ่ม
+                // ✅ Priority 3: money equalization (เหมือน manual schedule)
+                // manual schedule ชดเชย ด=1 ด้วย ช=3 เพราะเช้า=ดึก=800บ.
+                // catCounts ถูกเอาออกจาก sort เพราะมัน BLOCK การชดเชยนี้
+                // eligible filter (assignedUniqueMornings, rule_1 ฯลฯ) จัดการ distribution แทน
                 const aIsOptOut = empStats[a.id].isOptOutNight;
                 const bIsOptOut = empStats[b.id].isOptOutNight;
                 if (aIsOptOut === bIsOptOut) {
