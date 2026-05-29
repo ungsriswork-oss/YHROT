@@ -515,6 +515,8 @@ function ScheduleManager() {
         }
       }
     }
+
+    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
   };
 
   const handleAssignShift = (shiftId) => {
