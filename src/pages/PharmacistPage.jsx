@@ -415,6 +415,8 @@ function ScheduleManager() {
         if ((empStats[emp.id].catCounts[cat] || 0) >= MAX_PER_CAT) return false;
         // Rule As/4: คนที่ได้ As/4 แล้ว → จำกัด SMC ไม่เกิน 1 เวร
         if (cat === 'SMC' && empStats[emp.id].countA_As4 >= 1 && (empStats[emp.id].catCounts['SMC'] || 0) >= 1) return false;
+        // Hours cap: ป้องกัน total hours เกิน 60 ชม. (เป้าหมายจาก file ตัวอย่าง)
+        if (empStats[emp.id].hours + getShiftHours(shift) > 60) return false;
         return true;
       });
     };
