@@ -413,6 +413,8 @@ function ScheduleManager() {
         if (rules.rule_7 && cat === 'เช้า' && empStats[emp.id].assignedUniqueMornings.has(upper)) return false;
         // Hard cap: max MAX_PER_CAT per category
         if ((empStats[emp.id].catCounts[cat] || 0) >= MAX_PER_CAT) return false;
+        // Rule As/4: คนที่ได้ As/4 แล้ว → จำกัด SMC ไม่เกิน 1 เวร
+        if (cat === 'SMC' && empStats[emp.id].countA_As4 >= 1 && (empStats[emp.id].catCounts['SMC'] || 0) >= 1) return false;
         return true;
       });
     };
