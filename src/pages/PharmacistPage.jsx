@@ -429,38 +429,8 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Hard cap ชั่วโมง แยกตามกลุ่ม:
-      // - กลุ่มปกติ/r2: คำนวณ avg เฉพาะกลุ่มที่ขึ้นดึกได้
-      // - กลุ่ม off_night/r2_off_night: คำนวณ avg เฉพาะกลุ่มงดดึก
-      // R2 shift ไม่ apply hour cap (ต้องได้ทุกวันหยุด)
-      if (u !== 'R2') {
-        const sameGroupEmps = employees.filter(e => {
-          const eg = getGroup(e);
-          const myg = getGroup(emp);
-          // จัดกลุ่ม: ขึ้นดึกได้ vs งดดึก
-          const empCanNight = eg === 'normal' || eg === 'r2';
-          const myCanNight  = myg === 'normal' || myg === 'r2';
-          return empCanNight === myCanNight;
-        });
-        const groupAvg = sameGroupEmps.length > 0
-          ? sameGroupEmps.reduce((s, e) => s + empStats[e.id].hours, 0) / sameGroupEmps.length
-          : 0;
-        const shiftHrs = getShiftHours(shift);
-        const HOUR_BUFFER = 8;
-        if (st.hours + shiftHrs > groupAvg + HOUR_BUFFER) {
-          const hasLowerHourPerson = sameGroupEmps.some(e =>
-            e.id !== emp.id &&
-            empStats[e.id].hours < st.hours &&
-            !newAssignments[`${e.id}_${dateStr}`] &&
-            !e.offShifts?.includes(shift.id) &&
-            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-            !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
-            (canDoNight(e) || cat !== 'ดึก') &&
-            (cat !== 'ดึก' || u === 'R2' || !empStats[e.id].assignedNights.has(u))
-          );
-          if (hasLowerHourPerson) return false;
-        }
-      }
+      // Soft hour balance: sort เท่านั้น ไม่ block (ป้องกันเวรไม่ครบ)
+      // การกระจายชั่วโมงทำผ่าน sortEligible แทน
 
       return true;
     };
@@ -497,8 +467,16 @@ function ScheduleManager() {
           if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
         }
 
-        // Primary: กระจายตาม hours รวม (คนชั่วโมงน้อยได้ก่อน)
-        if (sa.hours !== sb.hours) return sa.hours - sb.hours;
+        // Primary: กระจายชั่วโมงภายในกลุ่มเดียวกัน (ขึ้นดึกได้ vs งดดึก)
+        // เปรียบเทียบเฉพาะคนกลุ่มเดียวกัน ไม่ข้ามกลุ่ม
+        const aCanNight = canDoNight(a), bCanNight = canDoNight(b);
+        if (aCanNight === bCanNight) {
+          // กลุ่มเดียวกัน → คนชั่วโมงน้อยได้ก่อน
+          if (sa.hours !== sb.hours) return sa.hours - sb.hours;
+        } else {
+          // ต่างกลุ่ม → ใช้ totalShifts แทน (ไม่เปรียบชั่วโมงข้ามกลุ่ม)
+          if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
+        }
 
         // Secondary: catCounts ของประเภทนี้
         const cd = (sa.catCounts[cat] || 0) - (sb.catCounts[cat] || 0);
