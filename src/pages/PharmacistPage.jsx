@@ -1,149 +1,117 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Calendar,
-  Users,
-  Clock,
-  Plus,
-  Edit2,
-  Trash2,
-  UserPlus,
-  Wand2,
-  Settings,
-  CalendarDays,
-  CheckCircle2,
-  X,
-  Printer,
-  Download,
-  ArrowLeft,
+  Calendar, Users, Clock, Plus, Edit2, Trash2, UserPlus,
+  Wand2, Settings, CalendarDays, CheckCircle2, X, Printer,
+  Download, ArrowLeft, ChevronDown,
 } from 'lucide-react';
-
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { db } from '../firebase'; 
+import { db } from '../firebase';
 
-// ==========================================
-// Custom Hook: จัดการ Firebase Sync
-// ==========================================
+// ─── กลุ่มเภสัชกร 5 กลุ่ม ───
+export const PHARMACIST_GROUPS = [
+  { id: 'normal',       label: 'ปกติ',           color: '#6366f1', desc: 'ขึ้นเวรได้ทุกประเภท รวมดึก' },
+  { id: 'r2',           label: 'R2',              color: '#0ea5e9', desc: 'มีเวร R2, ขึ้นดึกได้' },
+  { id: 'r2_off_night', label: 'R2 + งดดึก',     color: '#f59e0b', desc: 'มีเวร R2, งดเวรดึก' },
+  { id: 'off_night',    label: 'งดดึก',           color: '#10b981', desc: 'งดเวรดึก (di, de) แต่ขึ้นได้ทุกอย่างอื่น' },
+  { id: 'off_special',  label: 'Off พิเศษ',       color: '#ef4444', desc: 'งดดึก + งด 4s, บe, บr, R1, T1, T2, G, A — ขึ้นเฉพาะที่กำหนด' },
+];
+
+// ─── Firebase Sync Hook ───
 function useFirebaseSync(key, initialValue) {
   const [storedValue, setStoredValue] = useState(initialValue);
-
   useEffect(() => {
     const docRef = doc(db, 'shift_data', key);
     const unsubscribe = onSnapshot(docRef, (docSnap) => {
       if (docSnap.exists()) {
-        const docData = docSnap.data();
-        let data = docData?.value;
-        if (data === undefined || data === null) {
-          data = initialValue;
-        } else if (typeof initialValue === 'object' && !Array.isArray(initialValue)) {
+        let data = docSnap.data()?.value;
+        if (data === undefined || data === null) data = initialValue;
+        else if (typeof initialValue === 'object' && !Array.isArray(initialValue))
           data = { ...initialValue, ...data };
-        }
         setStoredValue(data);
       } else {
         setDoc(docRef, { value: initialValue }).catch(console.error);
         setStoredValue(initialValue);
       }
-    }, (error) => {
-      console.error("Firebase Sync Error:", error);
-    });
+    }, console.error);
     return () => unsubscribe();
   }, [key]);
 
   const setValue = (value) => {
-    try {
-      const valueToStore = value instanceof Function ? value(storedValue) : value;
-      if (valueToStore !== undefined) {
-        setStoredValue(valueToStore); 
-        const docRef = doc(db, 'shift_data', key);
-        setDoc(docRef, { value: valueToStore }).catch(console.error);
-      }
-    } catch (error) {
-      console.error("Firebase Save Error:", error);
+    const v = value instanceof Function ? value(storedValue) : value;
+    if (v !== undefined) {
+      setStoredValue(v);
+      setDoc(doc(db, 'shift_data', key), { value: v }).catch(console.error);
     }
   };
-
   return [storedValue !== undefined ? storedValue : initialValue, setValue];
 }
 
-// ==========================================
-// ฟังก์ชันคำนวณมูลค่าและชั่วโมง
-// ==========================================
+// ─── ค่าเวรและชั่วโมง ───
 const getShiftValue = (shift) => {
-  if (!shift || !shift.name) return 0;
-  const name = shift.name.trim();
-
-  if (['4s1', '4s2', '4s3', '4s4'].includes(name.toLowerCase())) return 720;
-  if (['as1', 'as/4'].includes(name.toLowerCase())) return 1840;
-
+  if (!shift?.name) return 0;
+  const n = shift.name.trim().toLowerCase();
+  if (['4s1','4s2','4s3','4s4'].includes(n)) return 720;
+  if (n === 'as1' || n === 'as/4') return 1440;
   if (!shift.start || !shift.end) return 0;
-  const [h1, m1] = shift.start.split(':').map(Number);
-  const [h2, m2] = shift.end.split(':').map(Number);
+  const [h1,m1] = shift.start.split(':').map(Number);
+  const [h2,m2] = shift.end.split(':').map(Number);
   let hrs = h2 - h1 + (m2 - m1) / 60;
   if (hrs < 0) hrs += 24;
   return hrs * 100;
 };
 
 const getShiftHours = (shift) => {
-  if (!shift || !shift.start || !shift.end) return 0;
-  const [h1, m1] = shift.start.split(':').map(Number);
-  const [h2, m2] = shift.end.split(':').map(Number);
+  if (!shift?.start || !shift?.end) return 0;
+  const [h1,m1] = shift.start.split(':').map(Number);
+  const [h2,m2] = shift.end.split(':').map(Number);
   let hrs = h2 - h1 + (m2 - m1) / 60;
   if (hrs < 0) hrs += 24;
   return hrs;
 };
 
-// ==========================================
-// ฟังก์ชันจัดหมวดหมู่เวร
-// ==========================================
+// ─── หมวดเวร ───
 const getShiftCategory = (shift) => {
-  if (!shift || !shift.name) return 'อื่นๆ';
-
-  const rawName = shift.name.trim();
-  const nameUpper = rawName.toUpperCase();
-  const nameLower = rawName.toLowerCase();
-
-  if (nameUpper === 'A') return 'A';
-
-  const morningShifts = ['B', 'C', 'D', 'E', 'F', 'G', 'R1', 'R2', 'T1', 'T2'];
-  if (morningShifts.includes(nameUpper)) return 'เช้า';
-
-  const afternoonShifts = ['บI', 'บR', 'บE', 'บย', 'บ'];
-  if (afternoonShifts.includes(nameUpper)) return 'บ่าย';
-
-  const nightShifts = ['ดI', 'ดE', 'ดก', 'ด'];
-  if (nightShifts.includes(nameUpper)) return 'ดึก';
-
-  if (nameUpper === 'AS1' || nameUpper === 'AS/4') return 'As/4';
-
-  const smcShifts = ['4s1', '4s2', '4s3', '4s4'];
-  if (smcShifts.includes(nameLower)) return 'SMC';
-
-  if (nameUpper === '4O' || nameUpper === '40') return '4o';
-  if (nameUpper === '2O' || nameUpper === '20') return '2o';
-
+  if (!shift?.name) return 'อื่นๆ';
+  const u = shift.name.trim().toUpperCase();
+  const l = shift.name.trim().toLowerCase();
+  if (u === 'A') return 'A';
+  if (['B','C','D','E','F','G','R1','R2','T1','T2'].includes(u)) return 'เช้า';
+  if (['บI','บR','บE'].includes(u)) return 'บ่าย';
+  if (['ดI','ดE'].includes(u)) return 'ดึก';
+  if (u === 'AS1' || u === 'AS/4') return 'As/4';
+  if (['4s1','4s2','4s3','4s4'].includes(l)) return 'SMC';
+  if (u === '4O') return '4o';
+  if (u === '2O') return '2o';
   return 'อื่นๆ';
 };
 
-// ==========================================
-// ข้อมูลตั้งต้นสำหรับเงื่อนไข (กฎ 9 ข้อ)
-// ==========================================
-const CATEGORIZED_RULES = {
-  pharmacist: {
-    label: 'เภสัชกร',
-    rules: [
-      { id: 'rule_1', label: '1. เวรต้องไม่ติดกัน 2 วัน' },
-      { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำชื่อ และต้องได้ บe เสมอ หากได้บ่าย >= 2 เวร' },
-      { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวรตัว G ร่วมด้วยเสมอ' },
-      { id: 'rule_4', label: '4. คนที่มี R1 จะไม่มีเวรตัว T1 และ T2' },
-      { id: 'rule_5', label: '5. คนที่มี T1 หรือ T2 จะไม่มี R1' },
-      { id: 'rule_6', label: '6. เวร As/4 หรือ A มีได้แค่คนละ 1 เวร/เดือน (เวรใดเวรหนึ่ง)' },
-      { id: 'rule_7', label: '7. เวรแต่ละประเภทต้องกระจายเท่ากันเป๊ะๆ และเวรเช้าห้ามซ้ำตำแหน่ง' },
-      { id: 'rule_8', label: '8. คนงดรับเวรดึก จะมีชั่วโมงน้อยกว่าคนรับดึก (ไม่เอาเวรอื่นชดเชย)' },
-      { id: 'rule_9', label: '9. จะมี T1 หรือ T2 ได้แค่ตัวใดตัวหนึ่งเท่านั้น' },
-    ],
-  },
+// ─── เวรที่กลุ่ม Off พิเศษ งดขึ้น ───
+const OFF_SPECIAL_BANNED_CATS = new Set(['ดึก','SMC']);
+const OFF_SPECIAL_BANNED_NAMES = new Set(['บe','บr','R1','T1','T2','G','A','AS1','AS/4'].map(x=>x.toUpperCase()));
+
+const isShiftBannedForOffSpecial = (shift) => {
+  const cat = getShiftCategory(shift);
+  const u = shift.name.trim().toUpperCase();
+  return OFF_SPECIAL_BANNED_CATS.has(cat) || OFF_SPECIAL_BANNED_NAMES.has(u);
 };
 
+// ─── กฎ 9 ข้อ ───
+const RULES_LIST = [
+  { id: 'rule_1', label: '1. ห้ามเวรติดกัน 2 วัน' },
+  { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำตำแหน่ง และต้องได้ บe หากบ่าย ≥ 2' },
+  { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวร G ร่วมด้วยเสมอ' },
+  { id: 'rule_4', label: '4. R1 ≠ T1/T2 (ร่วมกันไม่ได้)' },
+  { id: 'rule_5', label: '5. T1 หรือ T2 ≠ R1' },
+  { id: 'rule_6', label: '6. As/4 หรือ A ได้แค่คนละ 1 เวร/เดือน' },
+  { id: 'rule_7', label: '7. เวรเช้าห้ามซ้ำตำแหน่ง (A,B,C...T2) กระจายเท่ากัน' },
+  { id: 'rule_8', label: '8. กลุ่มงดดึกมีค่าเวรน้อยกว่ากลุ่มปกติ' },
+  { id: 'rule_9', label: '9. T1 หรือ T2 ได้แค่อย่างใดอย่างหนึ่ง' },
+];
+
+// ══════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ══════════════════════════════════════════════════════════════
 export default function PharmacistPage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('schedule');
@@ -154,7 +122,7 @@ export default function PharmacistPage() {
   ];
 
   return (
-    <div className="min-h-screen w-full bg-slate-50 font-sans text-slate-800 flex flex-col p-0 m-0">
+    <div className="min-h-screen w-full bg-slate-50 font-sans text-slate-800 flex flex-col">
       <style>{`
         @media print {
           @page { size: A4 landscape; margin: 3mm; }
@@ -162,21 +130,13 @@ export default function PharmacistPage() {
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
-          table { width: 100% !important; max-width: 100% !important; border-collapse: collapse; table-layout: fixed; }
+          table { width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\\[1300px\\] { min-width: 0px !important; }
-          th.w-\\[120px\\] { width: 70px !important; } 
-          th.w-\\[30px\\] { width: 22px !important; }  
-          th.w-\\[70px\\] { width: 45px !important; }  
           th, td { padding: 1px 0px !important; font-size: 7.5px !important; word-wrap: break-word; overflow: hidden; }
           .text-xs { font-size: 7px !important; line-height: 1 !important; }
-          .text-\\[11px\\] { font-size: 7px !important; }
-          .text-\\[10px\\] { font-size: 6px !important; }
-          .text-\\[9px\\] { font-size: 6px !important; }
-          .h-8 { height: auto !important; }
         }
       `}</style>
-
       <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4 text-indigo-600">
           <button type="button" onClick={() => navigate('/')} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
@@ -189,20 +149,13 @@ export default function PharmacistPage() {
         </div>
         <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
           {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
+            <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
               <tab.icon className="w-4 h-4" /> {tab.name}
             </button>
           ))}
         </div>
       </header>
-
       <main className="w-full flex-1 flex flex-col p-3 print:p-0">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 flex-1 flex flex-col overflow-hidden print:border-none print:shadow-none print:p-0">
           {activeTab === 'schedule' && <ScheduleManager />}
@@ -214,9 +167,9 @@ export default function PharmacistPage() {
   );
 }
 
-// ==========================================
-// 1. Component: จัดการตารางเวร (เภสัชกร)
-// ==========================================
+// ══════════════════════════════════════════════════════════════
+// 1. ScheduleManager
+// ══════════════════════════════════════════════════════════════
 function ScheduleManager() {
   const [rawEmployees] = useFirebaseSync('ph_employees', []);
   const [rawShifts] = useFirebaseSync('ph_shift_types', []);
@@ -227,13 +180,11 @@ function ScheduleManager() {
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
   const schedules = Array.isArray(rawSchedules) ? rawSchedules : [];
 
-  const defaultRules = { rule_1: true, rule_2: true, rule_3: true, rule_4: true, rule_5: true, rule_6: true, rule_7: true, rule_8: true, rule_9: true };
+  const defaultRules = Object.fromEntries(RULES_LIST.map(r => [r.id, true]));
   const [rawRules, setRawRules] = useFirebaseSync('ph_rules', defaultRules);
   const rules = { ...defaultRules, ...(rawRules || {}) };
+  const setRules = (r) => setRawRules(r);
 
-  const setRules = (newRules) => { setRawRules(newRules); };
-
-  const [selectedRuleRole] = useState('pharmacist');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createMonth, setCreateMonth] = useState(new Date().getMonth());
   const [createYear, setCreateYear] = useState(new Date().getFullYear());
@@ -241,14 +192,29 @@ function ScheduleManager() {
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
   const [sortByMoney, setSortByMoney] = useState(false);
 
-  const thaiMonths = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-  const thaiDays = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+  const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+  const activeSchedule = schedules.find(s => s.id === activeScheduleId);
 
-  const activeSchedule = schedules.find((s) => s.id === activeScheduleId);
+  // ─── helper: is holiday ───
+  const isHoliday = (d, dow, dateStr) =>
+    dow === 0 || dow === 6 || !!(activeSchedule?.holidays?.[dateStr]);
+
+  // ─── helper: is "first day of holiday block" ───
+  const isFirstHolidayOfBlock = (d, activeSchedule, daysInMonth) => {
+    const dateStr = fmtDateFor(activeSchedule, d);
+    const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+    if (!isHolidayRaw(d, dow, dateStr, activeSchedule)) return false;
+    if (d === 1) return true;
+    const pd = d - 1;
+    const pDow = new Date(activeSchedule.year, activeSchedule.month, pd).getDay();
+    const pStr = fmtDateFor(activeSchedule, pd);
+    return !isHolidayRaw(pd, pDow, pStr, activeSchedule);
+  };
 
   const handleCreateSchedule = () => {
     const newId = `${createYear}-${createMonth}`;
-    if (schedules.find((s) => s.id === newId)) return alert('มีตารางของเดือนนี้อยู่แล้ว!');
+    if (schedules.find(s => s.id === newId)) return alert('มีตารางของเดือนนี้อยู่แล้ว!');
     const newSchedule = { id: newId, year: createYear, month: createMonth, assignments: {}, holidays: {} };
     setSchedules([...schedules, newSchedule]);
     setActiveScheduleId(newId);
@@ -257,8 +223,8 @@ function ScheduleManager() {
 
   const handleDeleteSchedule = () => {
     if (!activeSchedule) return;
-    if (confirm(`ต้องการลบตารางเดือน ${thaiMonths[activeSchedule.month]} ${activeSchedule.year + 543} ใช่หรือไม่?`)) {
-      const updated = schedules.filter((s) => s.id !== activeScheduleId);
+    if (confirm(`ลบตารางเดือน ${thaiMonths[activeSchedule.month]} ${activeSchedule.year + 543}?`)) {
+      const updated = schedules.filter(s => s.id !== activeScheduleId);
       setSchedules(updated);
       setActiveScheduleId(updated.length > 0 ? updated[0].id : null);
     }
@@ -266,90 +232,84 @@ function ScheduleManager() {
 
   const handleExportExcel = () => {
     if (!activeSchedule) return;
-    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
-    let csvContent = '\uFEFFพนักงาน,หมวดหมู่,';
-    for (let i = 1; i <= daysInMonth; i++) csvContent += i + ',';
-    csvContent += 'เช้า,บ่าย,ดึก,As/4,A,SMC,4o,2o,รวมชั่วโมง,รวมเงิน\n'; 
-
-    employees.forEach((emp) => {
-      let row = [`"${emp.name}"`, `"เภสัชกร"`];
-      let totalMoney = 0; let totalHours = 0; 
-      let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
-
-      for (let d = 1; d <= daysInMonth; d++) {
-        const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-        const sData = shifts.find((s) => s.id === activeSchedule.assignments[`${emp.id}_${dateStr}`]);
-        row.push(sData ? `"${sData.name}"` : '');
-        if (sData) {
-          totalMoney += getShiftValue(sData);
-          totalHours += getShiftHours(sData); 
-          const cat = getShiftCategory(sData);
-          if (counts[cat] !== undefined) counts[cat]++;
-        }
+    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+    let csv = '\uFEFFพนักงาน,กลุ่ม,';
+    for (let i = 1; i <= dim; i++) csv += i + ',';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
+    employees.forEach(emp => {
+      const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
+      let row = [`"${emp.name}"`, `"${grp}"`];
+      let money = 0, hours = 0;
+      let cnt = { A:0, เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+      for (let d = 1; d <= dim; d++) {
+        const ds = fmtDateFor(activeSchedule, d);
+        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
+        row.push(s ? `"${s.name}"` : '');
+        if (s) { money += getShiftValue(s); hours += getShiftHours(s); const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
       }
-      row.push(counts['เช้า'], counts['บ่าย'], counts['ดึก'], counts['As/4'], counts['A'], counts['SMC'], counts['4o'], counts['2o'], totalHours, totalMoney);
-      csvContent += row.join(',') + '\n';
+      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A'], cnt['SMC'], cnt['4o'], cnt['2o'], hours, money);
+      csv += row.join(',') + '\n';
     });
-
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }));
-    link.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}.csv`;
-    link.click();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    a.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}.csv`;
+    a.click();
   };
 
+  // ══════════════════════════════════════════════════════════════
+  // AUTO-GENERATE
+  // ══════════════════════════════════════════════════════════════
   const handleAutoGenerate = () => {
     if (!activeSchedule) return;
-    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     const newAssignments = {};
 
-    // ─── format date string ───
-    const fmtDate = (d) => {
-      if (d < 1 || d > daysInMonth) return null;
-      return `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const fmtD = (d) => {
+      if (d < 1 || d > dim) return null;
+      return `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     };
 
+    const getDow = (d) => new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+
+    const isHol = (d) => {
+      if (d < 1 || d > dim) return false;
+      const dow = getDow(d);
+      const ds = fmtD(d);
+      return dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+    };
+
+    const isFirstHol = (d) => {
+      if (!isHol(d)) return false;
+      return d === 1 || !isHol(d - 1);
+    };
+
+    // ─── กำหนดกลุ่มของแต่ละคน ───
+    // group: normal | r2 | r2_off_night | off_night | off_special
+    const getGroup = (emp) => emp.group || 'normal';
+
+    const canDoNight = (emp) => {
+      const g = getGroup(emp);
+      return g === 'normal' || g === 'r2';
+    };
+
+    const isOffSpecial = (emp) => getGroup(emp) === 'off_special';
+
     // ─── init empStats ───
-    const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
     const empStats = {};
     employees.forEach(e => {
-      let isOptOut = false;
-      if (nightShiftIds.length > 0) {
-        if (e.specificShifts?.length > 0) isOptOut = !nightShiftIds.some(id => e.specificShifts.includes(id));
-        else if (e.offShifts?.length > 0) isOptOut = nightShiftIds.every(id => e.offShifts.includes(id));
-      }
       empStats[e.id] = {
-        money: 0, hours: 0, totalShifts: 0, counts: {},
-        catCounts: { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, SMC: 0, 'As/4': 0, '4o': 0, '2o': 0, อื่นๆ: 0 },
+        money: 0, hours: 0, totalShifts: 0,
+        catCounts: { A:0, เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, '4o':0, '2o':0, อื่นๆ:0 },
+        smcHours: 0,       // ชม.ค่าเวร smc สำหรับกระจาย
         countA_As4: 0,
-        assignedUniqueMornings: new Set(),
+        assignedMornings: new Set(),   // unique morning positions
         assignedNights: new Set(),
         assignedAfternoons: new Set(),
         afternoonCount: 0,
         hasBe: false, hasR1: false, hasG: false, hasT1: false, hasT2: false,
-        isOptOutNight: isOptOut,
+        lastDay: null,     // วันล่าสุดที่มีเวร (ตรวจ rule_1 ทั้งหน้า-หลัง)
       };
     });
-
-    // ─── isApplicable: check allowedDays ───
-    const isApplicable = (shift, d, dow, isSat, isHol) => {
-      const a = shift.allowedDays || 'all';
-      if (a === 'weekdays' && isHol) return false;
-      if (a === 'weekends_holidays' && !isHol) return false;
-      if (a === 'saturdays_only' && !isSat) return false;
-      if (a === 'mon_tue_only' && (![1, 2].includes(dow) || isHol)) return false;
-      if (a === 'holidays_except_saturday' && (!isHol || isSat)) return false;
-      if (a === 'first_day_of_holidays') {
-        if (!isHol) return false;
-        const pd = d - 1;
-        if (pd < 1) return true;
-        const pDow = new Date(activeSchedule.year, activeSchedule.month, pd).getDay();
-        let prevHol = pDow === 0 || pDow === 6;
-        const pStr = fmtDate(pd);
-        if (pStr && activeSchedule.holidays[pStr]) prevHol = true;
-        return !prevHol;
-      }
-      return true;
-    };
 
     // ─── shuffle ───
     const shuffle = (arr) => {
@@ -359,368 +319,380 @@ function ScheduleManager() {
       }
     };
 
-    // ─── doAssign: record assignment + update stats ───
-    const doAssign = (emp, dateStr, shift) => {
+    // ─── doAssign ───
+    const doAssign = (emp, dateStr, d, shift) => {
       const cat = getShiftCategory(shift);
-      const upper = shift.name.toUpperCase();
+      const u = shift.name.trim().toUpperCase();
       newAssignments[`${emp.id}_${dateStr}`] = shift.id;
       const hrs = getShiftHours(shift);
       empStats[emp.id].money += getShiftValue(shift);
       empStats[emp.id].hours += hrs;
-      empStats[emp.id].totalShifts += 1;
+      empStats[emp.id].totalShifts++;
       empStats[emp.id].catCounts[cat] = (empStats[emp.id].catCounts[cat] || 0) + 1;
-      if (!empStats[emp.id].counts[shift.id]) empStats[emp.id].counts[shift.id] = 0;
-      empStats[emp.id].counts[shift.id]++;
-      if (upper === 'A' || upper === 'AS1' || upper === 'AS/4') empStats[emp.id].countA_As4++;
+      if (cat === 'SMC') empStats[emp.id].smcHours += getShiftHours(shift);
+      if (u === 'A' || u === 'AS1' || u === 'AS/4') empStats[emp.id].countA_As4++;
       if (cat === 'เช้า') {
-        empStats[emp.id].assignedUniqueMornings.add(upper);
-        if (upper === 'R1') empStats[emp.id].hasR1 = true;
-        if (upper === 'G') empStats[emp.id].hasG = true;
-        if (upper === 'T1') empStats[emp.id].hasT1 = true;
-        if (upper === 'T2') empStats[emp.id].hasT2 = true;
+        empStats[emp.id].assignedMornings.add(u);
+        if (u === 'R1') empStats[emp.id].hasR1 = true;
+        if (u === 'G')  empStats[emp.id].hasG  = true;
+        if (u === 'T1') empStats[emp.id].hasT1 = true;
+        if (u === 'T2') empStats[emp.id].hasT2 = true;
       }
-      if (cat === 'ดึก') empStats[emp.id].assignedNights.add(upper);
+      if (cat === 'ดึก') empStats[emp.id].assignedNights.add(u);
       if (cat === 'บ่าย') {
-        empStats[emp.id].assignedAfternoons.add(upper);
+        empStats[emp.id].assignedAfternoons.add(u);
         empStats[emp.id].afternoonCount++;
-        if (upper === 'บE' || upper === 'บe') empStats[emp.id].hasBe = true;
+        if (u === 'บE') empStats[emp.id].hasBe = true;
       }
+      empStats[emp.id].lastDay = d;
     };
 
-    // ─── MAX per category (hard cap = 2 for all types) ───
-    const MAX_PER_CAT = 2;
+    // ─── isApplicable: วันที่จัดได้ ───
+    const isApplicable = (shift, d) => {
+      const dow = getDow(d);
+      const isSat = dow === 6;
+      const hol = isHol(d);
+      const a = shift.allowedDays || 'all';
+      if (a === 'weekdays' && hol) return false;
+      if (a === 'weekends_holidays' && !hol) return false;
+      if (a === 'saturdays_only' && !isSat) return false;
+      if (a === 'mon_tue_only' && (![1,2].includes(dow) || hol)) return false;
+      if (a === 'holidays_except_saturday' && (!hol || isSat)) return false;
+      if (a === 'first_day_of_holidays') {
+        if (!hol) return false;
+        return isFirstHol(d);
+      }
+      return true;
+    };
 
-    // ─── getEligible: filter employees for a shift on a given day ───
-    const getEligible = (shift, dateStr, prevDateStr) => {
+    // ─── canAssign (rule checks) ───
+    const canAssign = (emp, dateStr, d, shift) => {
       const cat = getShiftCategory(shift);
-      const upper = shift.name.toUpperCase();
-      return employees.filter(emp => {
-        if (newAssignments[`${emp.id}_${dateStr}`]) return false;
-        if (emp.offShifts?.includes(shift.id)) return false;
-        if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
-        // Rule 1: no consecutive days (backward check only — forward handled by day-by-day processing)
-        if (rules.rule_1 && prevDateStr && newAssignments[`${emp.id}_${prevDateStr}`]) return false;
-        if (rules.rule_2 && cat === 'บ่าย' && empStats[emp.id].assignedAfternoons.has(upper)) return false;
-        if (rules.rule_4 || rules.rule_5) {
-          if (upper === 'R1' && (empStats[emp.id].hasT1 || empStats[emp.id].hasT2)) return false;
-          if ((upper === 'T1' || upper === 'T2') && empStats[emp.id].hasR1) return false;
-        }
-        if (rules.rule_9) {
-          if (upper === 'T1' && empStats[emp.id].hasT2) return false;
-          if (upper === 'T2' && empStats[emp.id].hasT1) return false;
-        }
-        if (rules.rule_6 && (upper === 'A' || upper === 'AS1' || upper === 'AS/4') && empStats[emp.id].countA_As4 >= 1) return false;
-        if (rules.rule_7 && cat === 'เช้า' && empStats[emp.id].assignedUniqueMornings.has(upper)) return false;
-        // Hard cap แยกตาม category:
-        // - ดึก: max 2 (ป้องกัน ด=3)
-        // - opt-out: max 2 ทุก category (ตามกฎข้อ 4)
-        // - regular อื่นๆ: max 3 (อนุญาต ช=3/บ=3 เพื่อชดเชย ด=1 → ถึง 60 ชม.)
-        const isOptOutEmp = empStats[emp.id].isOptOutNight;
-        const catMax = (cat === 'ดึก') ? 2 : (isOptOutEmp ? 2 : 3);
-        if ((empStats[emp.id].catCounts[cat] || 0) >= catMax) return false;
-        // Rule As/4: คนที่ได้ As/4 แล้ว → จำกัด SMC ไม่เกิน 1 เวร
-        if (cat === 'SMC' && empStats[emp.id].countA_As4 >= 1 && (empStats[emp.id].catCounts['SMC'] || 0) >= 1) return false;
-        // (money cap ถูกย้ายไปอยู่ใน sort แทน — ป้องกัน required shifts เช่น R2 ถูก block)
-        return true;
-      });
+      const u = shift.name.trim().toUpperCase();
+      const st = empStats[emp.id];
+
+      // งดรับเวร / เวรเฉพาะ (personal constraints)
+      if (emp.offShifts?.includes(shift.id)) return false;
+      if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
+
+      // กลุ่ม off_special: งดเวรที่ระบุ
+      if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
+
+      // กลุ่มงดดึก
+      if (!canDoNight(emp) && cat === 'ดึก') return false;
+
+      // วันนี้มีเวรแล้ว
+      if (newAssignments[`${emp.id}_${dateStr}`]) return false;
+
+      // Rule 1: ห้ามเวรติดกัน (ตรวจทั้งวันก่อนและหลัง)
+      if (rules.rule_1) {
+        if (st.lastDay !== null && d - st.lastDay === 1) return false;
+        // ตรวจวันถัดไปว่ามีเวรอยู่แล้วไหม
+        const nextDs = fmtD(d + 1);
+        if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) return false;
+      }
+
+      // Rule 2: บ่ายห้ามซ้ำตำแหน่ง
+      if (rules.rule_2 && cat === 'บ่าย' && st.assignedAfternoons.has(u)) return false;
+
+      // Rule 4+5: R1 ≠ T1/T2
+      if (rules.rule_4 || rules.rule_5) {
+        if (u === 'R1' && (st.hasT1 || st.hasT2)) return false;
+        if ((u === 'T1' || u === 'T2') && st.hasR1) return false;
+      }
+
+      // Rule 9: T1 XOR T2
+      if (rules.rule_9) {
+        if (u === 'T1' && st.hasT2) return false;
+        if (u === 'T2' && st.hasT1) return false;
+      }
+
+      // Rule 6: A/As4 ได้แค่ 1 ครั้ง
+      if (rules.rule_6 && (u === 'A' || u === 'AS1' || u === 'AS/4') && st.countA_As4 >= 1) return false;
+
+      // Rule 7: เวรเช้าห้ามซ้ำตำแหน่ง
+      if (rules.rule_7 && cat === 'เช้า' && st.assignedMornings.has(u)) return false;
+
+      // Hard cap per category
+      const nightCap = 2;
+      const morningCap = 3;
+      const otherCap = isOffSpecial(emp) ? 2 : 3;
+      if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
+      if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
+      if (!['ดึก','เช้า'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+
+      // As/4 → SMC ไม่เกิน 1
+      if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
+
+      // Rule 8: กลุ่มงดดึกต้องมีเงินน้อยกว่ากลุ่มปกติ → soft (ตรวจที่ sort)
+
+      return true;
     };
 
-    // ─── sortEligible: catCounts → totalShifts (no money in main sort) ───
+    // ─── sortEligible ───
     const sortEligible = (eligible, shift) => {
       const cat = getShiftCategory(shift);
-      const upper = shift.name.toUpperCase();
+      const u = shift.name.trim().toUpperCase();
       shuffle(eligible);
       eligible.sort((a, b) => {
-        // P1: Rule 3 — R1/G pairing
-        if (rules.rule_3 && upper === 'G') {
-          const aNeedsG = empStats[a.id].hasR1 && !empStats[a.id].hasG;
-          const bNeedsG = empStats[b.id].hasR1 && !empStats[b.id].hasG;
-          if (aNeedsG !== bNeedsG) return aNeedsG ? -1 : 1;
+        const sa = empStats[a.id], sb = empStats[b.id];
+
+        // Rule 3: R1↔G pairing priority
+        if (rules.rule_3) {
+          if (u === 'G') {
+            const aN = sa.hasR1 && !sa.hasG, bN = sb.hasR1 && !sb.hasG;
+            if (aN !== bN) return aN ? -1 : 1;
+          }
+          if (u === 'R1') {
+            const aN = sa.hasG && !sa.hasR1, bN = sb.hasG && !sb.hasR1;
+            if (aN !== bN) return aN ? -1 : 1;
+          }
         }
-        if (rules.rule_3 && upper === 'R1') {
-          const aNeedsR1 = empStats[a.id].hasG && !empStats[a.id].hasR1;
-          const bNeedsR1 = empStats[b.id].hasG && !empStats[b.id].hasR1;
-          if (aNeedsR1 !== bNeedsR1) return aNeedsR1 ? -1 : 1;
+
+        // Rule 2: บe preference
+        if (rules.rule_2 && cat === 'บ่าย' && u === 'บE') {
+          const aN = !sa.hasBe ? sa.afternoonCount : -1;
+          const bN = !sb.hasBe ? sb.afternoonCount : -1;
+          if (aN !== bN) return bN - aN;
         }
-        // P2: Rule 2 — บe preference
-        if (rules.rule_2 && cat === 'บ่าย' && (upper === 'บE' || upper === 'บe')) {
-          const aNeed = !empStats[a.id].hasBe ? empStats[a.id].afternoonCount : -1;
-          const bNeed = !empStats[b.id].hasBe ? empStats[b.id].afternoonCount : -1;
-          if (aNeed !== bNeed) return bNeed - aNeed;
+
+        // SMC: กระจายตามชั่วโมงค่าเวร smc (ตามกฎข้อ 3 ในภาพ)
+        if (cat === 'SMC') {
+          if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
         }
-        // P3: catCounts ascending (equal distribution per type)
-        const cd = (empStats[a.id].catCounts[cat] || 0) - (empStats[b.id].catCounts[cat] || 0);
+
+        // กระจายตาม catCounts
+        const cd = (sa.catCounts[cat] || 0) - (sb.catCounts[cat] || 0);
         if (cd !== 0) return cd;
-        // P4: totalShifts ascending (equal workload)
-        if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
-          return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
-        // P5: money ascending (soft preference — คนเงินน้อยได้ก่อน)
-        // เป็น soft preference ไม่ใช่ hard exclusion → R2 ยังถูก assign แม้คนเงินเยอะ
-        return empStats[a.id].money - empStats[b.id].money;
+
+        // กระจายตาม totalShifts
+        if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
+
+        // soft: money ascending
+        return sa.money - sb.money;
       });
       return eligible;
     };
 
-    // ══════════════════════════════════════════════
-    // PHASE 1: Main shifts — day by day, all types equal priority
-    // Processing day-by-day ensures nights don't block all weekdays for 4s
-    // ══════════════════════════════════════════════
+    // ─── PHASE 1: จัดเวรหลักทุกประเภท (ยกเว้น 2o) วนรายวัน ───
     const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = fmtDate(d);
-      const prevDateStr = fmtDate(d - 1);
-      const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-      const isSat = dow === 6;
-      const isHol = dow === 0 || dow === 6 || !!activeSchedule.holidays[dateStr];
+    for (let d = 1; d <= dim; d++) {
+      const dateStr = fmtD(d);
+      const hol = isHol(d);
 
-      // Get all shifts applicable today, then SHUFFLE (equal priority — no nights-first bias)
-      const todayShifts = mainShifts.filter(s => isApplicable(s, d, dow, isSat, isHol));
+      // วัน TPN (วันหยุดนักขัตฤกษ์): T1 เสมอ, T2 เฉพาะวันแรก/ไม่ติด ส-อา
+      const dow = getDow(d);
+      const isNationalHol = hol && dow !== 0 && dow !== 6;
+      if (isNationalHol) {
+        // T1: ทุกวันหยุดนักขัตฤกษ์
+        const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
+        // T2: เฉพาะวันแรกของช่วงหยุด
+        const t2Shift = isFirstHol(d) ? shifts.find(s => s.name.trim().toUpperCase() === 'T2') : null;
+        [t1Shift, t2Shift].filter(Boolean).forEach(shift => {
+          for (let slot = 0; slot < (shift.min || 1); slot++) {
+            const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
+            if (eligible.length === 0) return;
+            doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
+          }
+        });
+        // จัดเวรอื่นในวันหยุดนักขัตฤกษ์ (ยกเว้น T1/T2 ที่จัดแล้ว)
+        const otherShifts = mainShifts.filter(s => {
+          const u = s.name.trim().toUpperCase();
+          if (u === 'T1' || u === 'T2') return false;
+          return isApplicable(s, d);
+        });
+        shuffle(otherShifts);
+        for (const shift of otherShifts) {
+          for (let slot = 0; slot < (shift.min || 1); slot++) {
+            const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
+            if (eligible.length === 0) continue;
+            doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
+          }
+        }
+        continue;
+      }
+
+      // วันปกติ / ส-อา
+      const todayShifts = mainShifts.filter(s => isApplicable(s, d));
       shuffle(todayShifts);
-
       for (const shift of todayShifts) {
-        for (let slot = 0; slot < shift.min; slot++) {
-          const eligible = getEligible(shift, dateStr, prevDateStr);
+        for (let slot = 0; slot < (shift.min || 1); slot++) {
+          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
           if (eligible.length === 0) continue;
-          const sorted = sortEligible(eligible, shift);
-          doAssign(sorted[0], dateStr, shift);
+          doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
         }
       }
     }
 
-    // ══════════════════════════════════════════════
-    // PHASE 2: 2o top-up — give to regular people with money below average
-    // 2o = Mon/Tue only, 200บ./2ชม. — fills money gap without adding too many hours
-    // ══════════════════════════════════════════════
+    // ─── PHASE 2: เวร 2o (จ-อ วันทำการ, กระจายตามเงิน) ───
     const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
     const MAX_2O = 3;
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = fmtDate(d);
-      const prevDateStr = fmtDate(d - 1);
-      const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-      const isSat = dow === 6;
-      const isHol = dow === 0 || dow === 6 || !!activeSchedule.holidays[dateStr];
-
+    for (let d = 1; d <= dim; d++) {
+      const dateStr = fmtD(d);
       for (const shift of twoOShifts) {
-        if (!isApplicable(shift, d, dow, isSat, isHol)) continue;
+        if (!isApplicable(shift, d)) continue;
+        // คำนวณค่าเฉลี่ยเงินกลุ่มปกติ
+        const regEmps = employees.filter(e => canDoNight(e));
+        const avgMoney = regEmps.length > 0 ? regEmps.reduce((s,e) => s + empStats[e.id].money, 0) / regEmps.length : 0;
 
-        // Compute avg money for regular employees
-        const regEmps = employees.filter(e => !empStats[e.id].isOptOutNight);
-        const avgMoney = regEmps.length > 0 ? regEmps.reduce((s, e) => s + empStats[e.id].money, 0) / regEmps.length : 0;
-
-        for (let slot = 0; slot < shift.min; slot++) {
+        for (let slot = 0; slot < (shift.min || 1); slot++) {
           const eligible = employees.filter(emp => {
-            if (newAssignments[`${emp.id}_${dateStr}`]) return false;
-            if (emp.offShifts?.includes(shift.id)) return false;
-            if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
-            if (rules.rule_1 && prevDateStr && newAssignments[`${emp.id}_${prevDateStr}`]) return false;
-            if (empStats[emp.id].isOptOutNight) return false; // 2o top-up: regular only
+            if (!canAssign(emp, dateStr, d, shift)) return false;
             if ((empStats[emp.id].catCounts['2o'] || 0) >= MAX_2O) return false;
-            if (empStats[emp.id].money >= avgMoney - 400) return false; // only if below average
+            // 2o: ให้กลุ่มที่เงินต่ำกว่าค่าเฉลี่ย 400 บาทก่อน
+            if (empStats[emp.id].money >= avgMoney - 400) return false;
             return true;
           });
           if (eligible.length === 0) continue;
           shuffle(eligible);
-          eligible.sort((a, b) => empStats[a.id].money - empStats[b.id].money);
-          doAssign(eligible[0], dateStr, shift);
+          eligible.sort((a,b) => empStats[a.id].money - empStats[b.id].money);
+          doAssign(eligible[0], dateStr, d, shift);
         }
       }
     }
 
-    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
+    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
   };
 
   const handleAssignShift = (shiftId) => {
     if (!activeSchedule) return;
     const { empId, dateStr } = assignmentModal;
-    const updatedAssignments = { ...activeSchedule.assignments };
-    if (shiftId === null) delete updatedAssignments[`${empId}_${dateStr}`];
-    else updatedAssignments[`${empId}_${dateStr}`] = shiftId;
-    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, assignments: updatedAssignments } : s));
+    const updated = { ...activeSchedule.assignments };
+    if (shiftId === null) delete updated[`${empId}_${dateStr}`];
+    else updated[`${empId}_${dateStr}`] = shiftId;
+    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: updated } : s));
     setAssignmentModal({ isOpen: false, empId: null, dateStr: null });
   };
 
   const handleToggleHoliday = (dateStr) => {
     if (!activeSchedule) return;
-    const updatedHolidays = { ...activeSchedule.holidays };
-    if (updatedHolidays[dateStr]) delete updatedHolidays[dateStr];
-    else updatedHolidays[dateStr] = 'วันหยุดพิเศษ';
-    setSchedules(schedules.map((s) => s.id === activeScheduleId ? { ...s, holidays: updatedHolidays } : s));
+    const updated = { ...activeSchedule.holidays };
+    if (updated[dateStr]) delete updated[dateStr];
+    else updated[dateStr] = 'วันหยุดพิเศษ';
+    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, holidays: updated } : s));
   };
 
   let monthDates = [];
   if (activeSchedule) {
-    const daysInMonth = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
-    monthDates = Array.from({ length: daysInMonth }, (_, i) => {
+    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+    monthDates = Array.from({ length: dim }, (_, i) => {
       const d = new Date(activeSchedule.year, activeSchedule.month, i + 1);
-      const dateStr = `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+      const dateStr = fmtDateFor(activeSchedule, i + 1);
       return {
         dateNum: i + 1, dayStr: thaiDays[d.getDay()], dateStr,
-        isHoliday: d.getDay() === 0 || d.getDay() === 6 || !!activeSchedule.holidays[dateStr],
+        isHoliday: d.getDay() === 0 || d.getDay() === 6 || !!(activeSchedule.holidays?.[dateStr]),
       };
     });
   }
 
-  // เรียงพนักงานตามเงิน (3 กลุ่ม: regular → R2 → งดดึก)
+  // เรียงพนักงานตามกลุ่ม → เงิน
   const sortedEmployees = useMemo(() => {
     if (!sortByMoney || !activeSchedule) return employees;
-    const nightShiftIds = shifts.filter(s => getShiftCategory(s) === 'ดึก').map(s => s.id);
-    const r2ShiftIds = shifts.filter(s => s.name.toUpperCase() === 'R2').map(s => s.id);
-    const empData = {};
+    const groupOrder = { normal:1, r2:2, r2_off_night:3, off_night:4, off_special:5 };
+    const empMoney = {};
     employees.forEach(emp => {
-      let money = 0;
+      let m = 0;
       monthDates.forEach(d => {
-        const sData = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-        if (sData) money += getShiftValue(sData);
+        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+        if (s) m += getShiftValue(s);
       });
-      const isOptOut = nightShiftIds.length > 0 && (
-        (emp.specificShifts?.length > 0 && !nightShiftIds.some(id => emp.specificShifts.includes(id))) ||
-        (emp.offShifts?.length > 0 && nightShiftIds.every(id => emp.offShifts.includes(id)))
-      );
-      const hasR2 = r2ShiftIds.length > 0 && monthDates.some(d =>
-        r2ShiftIds.includes(activeSchedule.assignments[`${emp.id}_${d.dateStr}`])
-      );
-      const group = isOptOut ? 3 : hasR2 ? 2 : 1;
-      empData[emp.id] = { money, group };
+      empMoney[emp.id] = m;
     });
-    return [...employees].sort((a, b) => {
-      const da = empData[a.id] ?? { money: 0, group: 1 };
-      const db = empData[b.id] ?? { money: 0, group: 1 };
-      if (da.group !== db.group) return da.group - db.group;
-      return db.money - da.money;
+    return [...employees].sort((a,b) => {
+      const ga = groupOrder[a.group || 'normal'] || 1;
+      const gb = groupOrder[b.group || 'normal'] || 1;
+      if (ga !== gb) return ga - gb;
+      return empMoney[b.id] - empMoney[a.id];
     });
   }, [sortByMoney, employees, activeSchedule, shifts, monthDates]);
 
-  const activeCategoryRules = CATEGORIZED_RULES[selectedRuleRole].rules;
-  const inactiveRules = activeCategoryRules.filter((r) => !rules[r.id]);
-  const currentlyActiveRules = activeCategoryRules.filter((r) => rules[r.id]);
+  const activeRules = RULES_LIST.filter(r => rules[r.id]);
+  const inactiveRules = RULES_LIST.filter(r => !rules[r.id]);
 
   return (
     <div className="flex flex-col h-full w-full">
+      {/* Controls top */}
       <div className="flex justify-between items-center mb-3 shrink-0 print-hidden">
-        <div className="flex items-center gap-2">
-          <div className="flex gap-1 bg-white p-1 rounded-md border border-gray-200">
-            {schedules.map((sch) => (
-              <button
-                key={sch.id}
-                type="button"
-                onClick={() => setActiveScheduleId(sch.id)}
-                className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${
-                  activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {thaiMonths[sch.month]} {sch.year + 543}
-              </button>
-            ))}
-          </div>
+        <div className="flex gap-1 bg-white p-1 rounded-md border border-gray-200 flex-wrap">
+          {schedules.map(sch => (
+            <button key={sch.id} type="button" onClick={() => setActiveScheduleId(sch.id)}
+              className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'}`}>
+              {thaiMonths[sch.month]} {sch.year + 543}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleAutoGenerate}
-            disabled={!activeSchedule}
-            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-purple-700 active:scale-95 transition-transform shadow-sm"
-          >
+          <button type="button" onClick={handleAutoGenerate} disabled={!activeSchedule}
+            className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-purple-700 active:scale-95 shadow-sm disabled:opacity-40">
             <Wand2 className="w-4 h-4" /> สุ่มเวรอัตโนมัติ
           </button>
-          <button
-            type="button"
-            onClick={() => setIsCreateModalOpen(true)}
-            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm"
-          >
+          <button type="button" onClick={() => setIsCreateModalOpen(true)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
             <Plus className="w-4 h-4" /> สร้างใหม่
           </button>
         </div>
       </div>
 
+      {/* Rules bar */}
       <div className="flex flex-col mb-4 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 shrink-0 print-hidden">
-        <div className="flex justify-between items-center mb-3">
-          <div className="flex items-center gap-3">
-            <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-1">
-              <Settings className="w-4 h-4" /> กฎการสุ่มเวร
-            </h3>
-          </div>
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-1"><Settings className="w-4 h-4" /> กฎการสุ่มเวร</h3>
           <div className="relative">
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault();
-                setShowRuleDropdown(!showRuleDropdown);
-              }}
-              className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium transition-colors"
-            >
+            <button type="button" onClick={() => setShowRuleDropdown(!showRuleDropdown)}
+              className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium">
               <Plus className="w-3.5 h-3.5" /> เพิ่มเงื่อนไข
             </button>
             {showRuleDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-[400px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2 max-h-[50vh] overflow-y-auto">
-                <div className="px-4 py-1.5 bg-gray-50 text-xs font-bold text-gray-700 mb-1 border-b border-gray-100">
-                  เงื่อนไขของ: {CATEGORIZED_RULES[selectedRuleRole].label}
-                </div>
-                {inactiveRules.length > 0 ? (
-                  inactiveRules.map((rule) => (
-                    <button
-                      key={rule.id}
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setRules({ ...rules, [rule.id]: true });
-                        setShowRuleDropdown(false);
-                      }}
-                      className="w-full text-left px-5 py-2.5 text-xs text-gray-600 hover:bg-indigo-50 transition-colors"
-                    >
-                      {rule.label}
-                    </button>
-                  ))
-                ) : (
-                  <div className="px-5 py-4 text-xs text-gray-400 text-center">
-                    ไม่มีเงื่อนไขเพิ่มเติมให้เลือก
-                  </div>
-                )}
+              <div className="absolute right-0 top-full mt-2 w-[380px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2 max-h-[50vh] overflow-y-auto">
+                {inactiveRules.length === 0 ? (
+                  <div className="px-5 py-4 text-xs text-gray-400 text-center">ไม่มีเงื่อนไขเพิ่มเติม</div>
+                ) : inactiveRules.map(r => (
+                  <button key={r.id} type="button" onClick={() => { setRules({...rules,[r.id]:true}); setShowRuleDropdown(false); }}
+                    className="w-full text-left px-5 py-2.5 text-xs text-gray-600 hover:bg-indigo-50">{r.label}</button>
+                ))}
               </div>
             )}
           </div>
         </div>
-
         <div className="flex items-center gap-2 flex-wrap min-h-[30px]">
-          {currentlyActiveRules.length > 0 ? (
-            currentlyActiveRules.map((rule) => (
-              <div key={rule.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm">
+          {activeRules.length === 0 ? <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่เปิดใช้งาน</span>
+            : activeRules.map(r => (
+              <div key={r.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                <span className="truncate max-w-[300px]">{rule.label}</span>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setRules({ ...rules, [rule.id]: false });
-                  }}
-                  className="ml-1 text-gray-400 hover:text-red-500 transition-colors shrink-0"
-                >
+                <span className="truncate max-w-[300px]">{r.label}</span>
+                <button type="button" onClick={() => setRules({...rules,[r.id]:false})} className="ml-1 text-gray-400 hover:text-red-500">
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
-            ))
-          ) : (
-            <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่ถูกเปิดใช้งาน</span>
-          )}
+            ))}
         </div>
       </div>
 
+      {/* Action bar */}
       {activeSchedule && (
-        <div className="flex justify-end gap-2 shrink-0 items-center mb-3">
-          <button type="button" onClick={handleDeleteSchedule} className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"><Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้</button>
-          <button
-            type="button"
-            onClick={() => setSortByMoney(v => !v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600' : 'text-amber-700 bg-amber-50 border-amber-200 hover:bg-amber-100'}`}
-          >
-            <span className="text-sm">฿</span> {sortByMoney ? 'เรียงตามเงิน ✓' : 'เรียงตามเงิน'}
+        <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
+          <button type="button" onClick={handleDeleteSchedule}
+            className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 mr-2">
+            <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
           </button>
-          <button type="button" onClick={handleExportExcel} className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"><Download className="w-4 h-4" /> Excel</button>
-          <button type="button" onClick={() => window.print()} className="text-slate-700 bg-white border border-slate-200 shadow-sm px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50 transition-colors"><Printer className="w-4 h-4" /> PDF</button>
+          <button type="button" onClick={() => setSortByMoney(v => !v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
+            <span>฿</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
+          </button>
+          <button type="button" onClick={handleExportExcel}
+            className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100">
+            <Download className="w-4 h-4" /> Excel
+          </button>
+          <button type="button" onClick={() => window.print()}
+            className="text-slate-700 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50">
+            <Printer className="w-4 h-4" /> PDF
+          </button>
         </div>
       )}
 
+      {/* Table */}
       <div className="flex-1 flex flex-col overflow-hidden border border-gray-200 rounded-xl shadow-sm">
         {!activeSchedule ? (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-400">
@@ -728,63 +700,54 @@ function ScheduleManager() {
             <p className="text-base font-medium">ยังไม่มีตารางเวร</p>
           </div>
         ) : (
-          <div className="overflow-auto flex-1 custom-scrollbar">
-            <div className="hidden print:block text-center font-bold text-sm text-black mb-2 pb-1">
+          <div className="overflow-auto flex-1">
+            <div className="hidden print:block text-center font-bold text-sm mb-2">
               ตารางปฏิบัติงาน เภสัชกร ประจำเดือน {thaiMonths[activeSchedule.month]} พ.ศ. {activeSchedule.year + 543}
             </div>
-            <table className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0" id="schedule-table">
+            <table className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0">
               <thead>
                 <tr className="bg-slate-50 sticky top-0 z-20 shadow-sm">
-                  <th className="p-2 border-b border-r border-gray-200 w-[120px] text-sm text-gray-700 print:w-[80px]">พนักงาน</th>
-                  {monthDates.map((d) => (
-                    <th key={d.dateStr} onClick={() => handleToggleHoliday(d.dateStr)} className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-50 transition-colors ${d.isHoliday ? 'bg-red-50 text-red-600 font-bold print:bg-gray-100' : 'text-slate-600'}`}>
-                      <div className="text-[10px] print:text-[8px] leading-tight pt-1">{d.dayStr}</div>
-                      <div className="text-xs print:text-[10px] pb-1">{d.dateNum}</div>
+                  <th className="p-2 border-b border-r border-gray-200 w-[130px] text-sm text-gray-700">พนักงาน</th>
+                  {monthDates.map(d => (
+                    <th key={d.dateStr} onClick={() => handleToggleHoliday(d.dateStr)}
+                      className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-50 ${d.isHoliday ? 'bg-red-50 text-red-600 font-bold' : 'text-slate-600'}`}>
+                      <div className="text-[10px] leading-tight pt-1">{d.dayStr}</div>
+                      <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
                   ))}
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-blue-50/50">เช้า</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-orange-50/50">บ่าย</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-purple-50/50">ดึก</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-teal-50/50">As/4</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-indigo-50/50">A</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-rose-50/50">SMC</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-yellow-50/50">4o</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-lime-50/50">2o</th>
-                  <th className="p-1 border-b border-r border-gray-200 w-[30px] text-[10px] text-gray-600 font-bold bg-gray-100/80">ช.ม.</th>
-                  <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold print:text-black">รวม(บ.)</th>
+                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
+                    <th key={label} className={`p-1 border-b border-r border-gray-200 w-[30px] text-[10px] font-bold ${bg} ${tc}`}>{label}</th>
+                  ))}
+                  <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold">รวม(บ.)</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedEmployees.map((emp) => {
-                  let totalMoney = 0; let totalHours = 0;
-                  let counts = { A: 0, เช้า: 0, บ่าย: 0, ดึก: 0, 'As/4': 0, SMC: 0, '4o': 0, '2o': 0 };
-
+                {sortedEmployees.map(emp => {
+                  let totalMoney = 0, totalHours = 0;
+                  let cnt = { A:0, เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+                  const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group);
                   return (
-                    <tr key={emp.id} className="hover:bg-gray-50 transition-colors h-8">
-                      <td className="sticky left-0 bg-white group-hover:bg-gray-50 px-2 py-1 border-b border-r border-gray-200 text-left text-xs font-bold text-gray-800 truncate print:static print:text-[10px]">
+                    <tr key={emp.id} className="hover:bg-gray-50 h-8">
+                      <td className="sticky left-0 bg-white px-2 py-1 border-b border-r border-gray-200 text-left truncate">
                         <div className="flex flex-col">
-                          <span>{emp.name}</span><span className="text-[9px] font-normal text-gray-400">เภสัชกร</span>
+                          <span className="text-xs font-bold text-gray-800">{emp.name}</span>
+                          {grp && <span className="text-[9px] font-medium px-1 rounded" style={{ color: grp.color }}>{grp.label}</span>}
                         </div>
                       </td>
-                      {monthDates.map((d) => {
-                        const sData = shifts.find((s) => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-                        if (sData) { totalMoney += getShiftValue(sData); totalHours += getShiftHours(sData); const cat = getShiftCategory(sData); if (counts[cat] !== undefined) counts[cat]++; }
+                      {monthDates.map(d => {
+                        const sData = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                        if (sData) { totalMoney += getShiftValue(sData); totalHours += getShiftHours(sData); const c = getShiftCategory(sData); if (cnt[c] !== undefined) cnt[c]++; }
                         return (
-                          <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })} className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-50/30 print:bg-gray-100' : ''}`}>
-                            {sData && (<div className="absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white leading-none overflow-hidden print:text-black print:border print:border-gray-800 shadow-sm" style={{ backgroundColor: sData.color }}>{sData.name}</div>)}
+                          <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })}
+                            className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-50/30' : ''}`}>
+                            {sData && <div className="absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm" style={{ backgroundColor: sData.color }}>{sData.name}</div>}
                           </td>
                         );
                       })}
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-blue-700 bg-blue-50/30">{counts['เช้า'] > 0 ? counts['เช้า'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-orange-700 bg-orange-50/30">{counts['บ่าย'] > 0 ? counts['บ่าย'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-purple-700 bg-purple-50/30">{counts['ดึก'] > 0 ? counts['ดึก'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-teal-700 bg-teal-50/30">{counts['As/4'] > 0 ? counts['As/4'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-indigo-700 bg-indigo-50/30">{counts['A'] > 0 ? counts['A'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-rose-700 bg-rose-50/30">{counts['SMC'] > 0 ? counts['SMC'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-yellow-700 bg-yellow-50/30">{counts['4o'] > 0 ? counts['4o'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-lime-700 bg-lime-50/30">{counts['2o'] > 0 ? counts['2o'] : '-'}</td>
-                      <td className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700 bg-gray-50/80">{totalHours > 0 ? totalHours : '-'}</td>
-                      <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right print:text-black">{totalMoney.toLocaleString()}</td>
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
+                        <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
+                      ))}
+                      <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right">{totalMoney.toLocaleString()}</td>
                     </tr>
                   );
                 })}
@@ -794,6 +757,7 @@ function ScheduleManager() {
         )}
       </div>
 
+      {/* Create modal */}
       {isCreateModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl w-full max-w-sm p-6 shadow-2xl">
@@ -801,33 +765,35 @@ function ScheduleManager() {
             <div className="grid grid-cols-2 gap-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">เดือน</label>
-                <select className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createMonth} onChange={(e) => setCreateMonth(Number(e.target.value))}>
-                  {thaiMonths.map((m, i) => (<option key={i} value={i}>{m}</option>))}
+                <select className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createMonth} onChange={e => setCreateMonth(Number(e.target.value))}>
+                  {thaiMonths.map((m,i) => <option key={i} value={i}>{m}</option>)}
                 </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">ปี (ค.ศ.)</label>
-                <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createYear} onChange={(e) => setCreateYear(Number(e.target.value))} />
+                <input type="number" className="w-full border border-gray-300 rounded-lg p-2.5 text-base outline-none focus:ring-2 focus:ring-blue-500" value={createYear} onChange={e => setCreateYear(Number(e.target.value))} />
               </div>
             </div>
-            <div className="flex gap-3 justify-end pt-2">
-              <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">ยกเลิก</button>
-              <button type="button" onClick={handleCreateSchedule} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">สร้างตาราง</button>
+            <div className="flex gap-3 justify-end">
+              <button type="button" onClick={() => setIsCreateModalOpen(false)} className="px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">ยกเลิก</button>
+              <button type="button" onClick={handleCreateSchedule} className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">สร้างตาราง</button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Assign shift modal */}
       {assignmentModal.isOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setAssignmentModal({ isOpen: false, empId: null, dateStr: null })}>
-          <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
             <h3 className="text-base font-bold border-b border-gray-100 pb-3 mb-4 flex items-center justify-between">
               เลือกเวรประจำวัน
-              <button type="button" onClick={() => handleAssignShift(null)} className="py-1 px-3 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 font-medium transition-colors">ว่าง (ลบเวร)</button>
+              <button type="button" onClick={() => handleAssignShift(null)} className="py-1 px-3 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 font-medium">ว่าง (ลบเวร)</button>
             </h3>
             <div className="grid grid-cols-3 gap-2.5 max-h-[60vh] overflow-y-auto pr-1">
-              {shifts.map((s) => (
-                <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)} className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform" style={{ backgroundColor: s.color }}>
+              {shifts.map(s => (
+                <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)}
+                  className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform" style={{ backgroundColor: s.color }}>
                   {s.name}
                 </button>
               ))}
@@ -839,9 +805,9 @@ function ScheduleManager() {
   );
 }
 
-// ==========================================
-// 2. Component: จัดการพนักงาน (เภสัชกร)
-// ==========================================
+// ══════════════════════════════════════════════════════════════
+// 2. EmployeesManager — UI กลุ่มเภสัชกร
+// ══════════════════════════════════════════════════════════════
 function EmployeesManager() {
   const [rawShifts] = useFirebaseSync('ph_shift_types', []);
   const [rawEmployees, setEmployees] = useFirebaseSync('ph_employees', []);
@@ -849,103 +815,214 @@ function EmployeesManager() {
   const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
 
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] });
+  const [formData, setFormData] = useState({ name: '', group: 'normal', offShifts: [], specificShifts: [] });
+  const [filterGroup, setFilterGroup] = useState('all');
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อ');
-    if (formData.id) setEmployees(employees.map((e) => (e.id === formData.id ? formData : e)));
+    if (formData.id) setEmployees(employees.map(e => e.id === formData.id ? formData : e));
     else setEmployees([...employees, { ...formData, id: Date.now().toString() }]);
     setIsModalOpen(false);
   };
 
+  const openAdd = () => setFormData({ name: '', group: 'normal', offShifts: [], specificShifts: [] });
+  const openEdit = (emp) => setFormData({ ...emp, group: emp.group || 'normal', offShifts: emp.offShifts || [], specificShifts: emp.specificShifts || [] });
+
+  const displayed = filterGroup === 'all' ? employees : employees.filter(e => (e.group || 'normal') === filterGroup);
+
+  // จัดกลุ่มเวรตามหมวด สำหรับ checkbox
+  const shiftGroups = [
+    { label: 'เวรบ่าย', names: ['บi','บr','บe'] },
+    { label: 'เวรดึก', names: ['ดi','ดe'] },
+    { label: 'เวรเช้า', names: ['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4'] },
+    { label: 'เวร 4o/4s/2o', names: ['4o','4s1','4s2','4s3','4s4','2o'] },
+  ];
+
+  const renderShiftCheckboxes = (section) => {
+    const isSpecific = section === 'specific';
+    const selectedIds = isSpecific ? (formData.specificShifts || []) : (formData.offShifts || []);
+    const otherIds = isSpecific ? (formData.offShifts || []) : (formData.specificShifts || []);
+
+    return shiftGroups.map(grp => {
+      const grpShifts = shifts.filter(s => grp.names.some(n => s.name.trim().toUpperCase() === n.toUpperCase()));
+      if (grpShifts.length === 0) return null;
+      return (
+        <div key={grp.label} className="mb-3">
+          <div className="text-[11px] font-bold text-gray-500 mb-1.5 uppercase tracking-wide">{grp.label}</div>
+          <div className="flex flex-wrap gap-1.5">
+            {grpShifts.map(s => {
+              const isChecked = selectedIds.includes(s.id);
+              const isDisabled = otherIds.includes(s.id);
+              return (
+                <label key={s.id} className={`flex items-center gap-1.5 border px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-all select-none
+                  ${isChecked ? 'bg-white shadow-sm' : 'bg-white/50 hover:bg-white'}
+                  ${isDisabled ? 'opacity-40 pointer-events-none' : ''}
+                  ${isChecked && isSpecific ? 'border-blue-400' : isChecked ? 'border-red-300' : 'border-gray-200'}`}>
+                  <input type="checkbox" className="w-3.5 h-3.5" disabled={isDisabled} checked={isChecked}
+                    onChange={e => {
+                      const newIds = e.target.checked ? [...selectedIds, s.id] : selectedIds.filter(id => id !== s.id);
+                      if (isSpecific) setFormData({ ...formData, specificShifts: newIds, offShifts: (formData.offShifts||[]).filter(id=>id!==s.id) });
+                      else setFormData({ ...formData, offShifts: newIds });
+                    }} />
+                  <span style={{ color: s.color }}>{s.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      );
+    });
+  };
+
   return (
     <div className="w-full h-full flex flex-col">
-      <div className="flex justify-between items-center mb-5">
-        <h2 className="text-xl font-bold text-gray-800">จัดการรายชื่อเภสัชกร</h2>
-        <button type="button" onClick={() => { setFormData({ name: '', role: 'pharmacist', offShifts: [], specificShifts: [] }); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
+      <div className="flex justify-between items-center mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-bold text-gray-800">จัดการรายชื่อเภสัชกร</h2>
+          <span className="text-sm text-gray-400">({employees.length} คน)</span>
+        </div>
+        <button type="button" onClick={() => { openAdd(); setIsModalOpen(true); }}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <UserPlus className="w-4 h-4" /> เพิ่มเภสัชกร
         </button>
       </div>
+
+      {/* Group filter tabs */}
+      <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit flex-wrap">
+        <button type="button" onClick={() => setFilterGroup('all')}
+          className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${filterGroup === 'all' ? 'bg-white shadow-sm text-gray-800' : 'text-gray-500 hover:text-gray-700'}`}>
+          ทั้งหมด ({employees.length})
+        </button>
+        {PHARMACIST_GROUPS.map(g => {
+          const count = employees.filter(e => (e.group || 'normal') === g.id).length;
+          return (
+            <button key={g.id} type="button" onClick={() => setFilterGroup(g.id)}
+              className={`px-3 py-1.5 rounded-md text-xs font-bold transition-colors ${filterGroup === g.id ? 'bg-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              style={filterGroup === g.id ? { color: g.color } : {}}>
+              {g.label} ({count})
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Group legend */}
+      <div className="flex flex-wrap gap-2 mb-4">
+        {PHARMACIST_GROUPS.map(g => (
+          <div key={g.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-gray-200 rounded-full text-xs shadow-sm">
+            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: g.color }}></div>
+            <span className="font-bold" style={{ color: g.color }}>{g.label}</span>
+            <span className="text-gray-400">— {g.desc}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Table */}
       <div className="flex-1 overflow-auto border border-gray-200 rounded-2xl bg-white shadow-sm">
         <table className="w-full text-left">
           <thead className="bg-gray-50 text-sm text-gray-600 border-b border-gray-200 sticky top-0 z-10">
             <tr>
-              <th className="p-4 font-bold w-[25%]">ชื่อ</th>
-              <th className="p-4 font-bold w-[20%]">หมวดหมู่</th>
-              <th className="p-4 font-bold w-[20%]">เวรเฉพาะ (ลงแค่เวรนี้)</th>
-              <th className="p-4 font-bold w-[20%]">งดรับเวร</th>
-              <th className="p-4 font-bold text-center w-[15%]">จัดการ</th>
+              <th className="p-4 font-bold w-[5%]">#</th>
+              <th className="p-4 font-bold w-[22%]">ชื่อ</th>
+              <th className="p-4 font-bold w-[18%]">กลุ่ม</th>
+              <th className="p-4 font-bold w-[22%]">เวรเฉพาะ (ลงแค่เวรนี้)</th>
+              <th className="p-4 font-bold w-[22%]">งดรับเวร</th>
+              <th className="p-4 font-bold text-center w-[11%]">จัดการ</th>
             </tr>
           </thead>
           <tbody className="text-sm">
-            {employees.length === 0 && (<tr><td colSpan="5" className="text-center p-8 text-gray-400">ยังไม่มีข้อมูลพนักงาน</td></tr>)}
-            {employees.map((emp) => (
-              <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-                <td className="p-4 font-bold text-gray-900">{emp.name}</td>
-                <td className="p-4 text-gray-600 font-medium"><span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded text-xs">เภสัชกร</span></td>
-                <td className="p-4">
-                  <div className="flex flex-wrap gap-1.5">
-                    {(!emp.specificShifts || emp.specificShifts.length === 0) && <span className="text-gray-400 text-xs">-</span>}
-                    {emp.specificShifts?.map((id) => {
-                      const s = shifts.find((x) => x.id === id);
-                      return s ? <span key={id} className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
-                    })}
-                  </div>
-                </td>
-                <td className="p-4">
-                  <div className="flex flex-wrap gap-1.5">
-                    {(!emp.offShifts || emp.offShifts.length === 0) && <span className="text-gray-400 text-xs">-</span>}
-                    {emp.offShifts?.map((id) => {
-                      const s = shifts.find((x) => x.id === id);
-                      return s ? <span key={id} className="px-2 py-1 rounded-md text-xs text-white font-medium shadow-sm opacity-80" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
-                    })}
-                  </div>
-                </td>
-                <td className="p-4 text-center">
-                  <button type="button" onClick={() => { setFormData({ ...emp, role: 'pharmacist', offShifts: emp.offShifts || [], specificShifts: emp.specificShifts || [] }); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1 transition-colors"><Edit2 className="w-4 h-4" /></button>
-                  <button type="button" onClick={() => { if (confirm('ยืนยันลบพนักงาน?')) setEmployees(employees.filter((e) => e.id !== emp.id)); }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
-                </td>
-              </tr>
-            ))}
+            {displayed.length === 0 && (
+              <tr><td colSpan="6" className="text-center p-8 text-gray-400">ยังไม่มีข้อมูลพนักงาน</td></tr>
+            )}
+            {displayed.map((emp, idx) => {
+              const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
+              return (
+                <tr key={emp.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                  <td className="p-4 text-gray-400 text-xs">{idx + 1}</td>
+                  <td className="p-4 font-bold text-gray-900">{emp.name}</td>
+                  <td className="p-4">
+                    {grp && (
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold text-white" style={{ backgroundColor: grp.color }}>
+                        {grp.label}
+                      </span>
+                    )}
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(!emp.specificShifts || emp.specificShifts.length === 0)
+                        ? <span className="text-gray-400 text-xs">-</span>
+                        : emp.specificShifts.map(id => {
+                          const s = shifts.find(x => x.id === id);
+                          return s ? <span key={id} className="px-2 py-0.5 rounded-md text-xs text-white font-medium" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
+                        })}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(!emp.offShifts || emp.offShifts.length === 0)
+                        ? <span className="text-gray-400 text-xs">-</span>
+                        : emp.offShifts.map(id => {
+                          const s = shifts.find(x => x.id === id);
+                          return s ? <span key={id} className="px-2 py-0.5 rounded-md text-xs text-white font-medium opacity-80" style={{ backgroundColor: s.color }}>{s.name}</span> : null;
+                        })}
+                    </div>
+                  </td>
+                  <td className="p-4 text-center">
+                    <button type="button" onClick={() => { openEdit(emp); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1"><Edit2 className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => { if (confirm('ยืนยันลบพนักงาน?')) setEmployees(employees.filter(e => e.id !== emp.id)); }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
 
+      {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-2xl w-full max-w-xl p-6 shadow-2xl flex flex-col max-h-[92vh]">
             <h3 className="text-xl font-bold mb-5 border-b border-gray-100 pb-3">{formData.id ? 'แก้ไขข้อมูล' : 'เพิ่มรายชื่อใหม่'}</h3>
-            <div className="space-y-5 overflow-y-auto flex-1 pr-2 custom-scrollbar">
+            <div className="space-y-5 overflow-y-auto flex-1 pr-1">
+              {/* ชื่อ */}
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">ชื่อพนักงาน *</label>
-                <input type="text" placeholder="ระบุชื่อพนักงาน" className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none transition-shadow" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                <input type="text" placeholder="ระบุชื่อพนักงาน" className="w-full border border-gray-300 rounded-lg p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
               </div>
+
+              {/* กลุ่ม */}
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">กลุ่มเภสัชกร</label>
+                <div className="grid grid-cols-1 gap-2">
+                  {PHARMACIST_GROUPS.map(g => (
+                    <label key={g.id} className={`flex items-center gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all ${formData.group === g.id ? 'border-current bg-opacity-5' : 'border-gray-200 hover:border-gray-300'}`}
+                      style={formData.group === g.id ? { borderColor: g.color, backgroundColor: g.color + '10' } : {}}>
+                      <input type="radio" name="group" value={g.id} checked={formData.group === g.id} onChange={() => setFormData({ ...formData, group: g.id })} className="w-4 h-4" />
+                      <div className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: g.color }}></div>
+                      <div className="flex-1">
+                        <div className="font-bold text-sm" style={{ color: g.color }}>{g.label}</div>
+                        <div className="text-xs text-gray-500">{g.desc}</div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* เวรเฉพาะ */}
               <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-100">
-                <label className="block text-sm font-bold text-blue-800 mb-1">เวรเฉพาะ (บังคับลงแค่เวรเหล่านี้)</label>
-                <div className="flex flex-wrap gap-2">
-                  {shifts.map((s) => (
-                    <label key={s.id} className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${formData.specificShifts?.includes(s.id) ? 'bg-white border-blue-400 shadow-sm' : 'bg-white/50 border-gray-200 hover:bg-white'}`}>
-                      <input type="checkbox" className="w-4 h-4 text-blue-600 rounded" checked={formData.specificShifts?.includes(s.id)} onChange={(e) => { const newSpecific = e.target.checked ? [...(formData.specificShifts || []), s.id] : (formData.specificShifts || []).filter((id) => id !== s.id); const newOff = (formData.offShifts || []).filter((id) => id !== s.id); setFormData({ ...formData, specificShifts: newSpecific, offShifts: newOff }); }} />
-                      <span style={{ color: s.color }}>{s.name}</span>
-                    </label>
-                  ))}
-                </div>
+                <label className="block text-sm font-bold text-blue-800 mb-3">เวรเฉพาะ (บังคับลงแค่เวรเหล่านี้)</label>
+                {renderShiftCheckboxes('specific')}
               </div>
+
+              {/* งดรับเวร */}
               <div className="bg-red-50/50 p-4 rounded-xl border border-red-100">
-                <label className="block text-sm font-bold text-red-800 mb-1">งดรับเวร (เวรที่ไม่ต้องการขึ้น)</label>
-                <div className="flex flex-wrap gap-2">
-                  {shifts.map((s) => (
-                    <label key={s.id} className={`flex items-center gap-2 border px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-all ${formData.offShifts?.includes(s.id) ? 'bg-white border-red-300 shadow-sm' : 'bg-white/50 border-gray-200 hover:bg-white'} ${formData.specificShifts?.includes(s.id) ? 'opacity-50 pointer-events-none' : ''}`}>
-                      <input type="checkbox" className="w-4 h-4 text-red-500 rounded" disabled={formData.specificShifts?.includes(s.id)} checked={formData.offShifts?.includes(s.id)} onChange={(e) => { const newOff = e.target.checked ? [...(formData.offShifts || []), s.id] : (formData.offShifts || []).filter((id) => id !== s.id); setFormData({ ...formData, offShifts: newOff }); }} />
-                      <span style={{ color: s.color }}>{s.name}</span>
-                    </label>
-                  ))}
-                </div>
+                <label className="block text-sm font-bold text-red-800 mb-3">งดรับเวร (เวรที่ไม่ต้องการขึ้น)</label>
+                {renderShiftCheckboxes('off')}
               </div>
             </div>
-            <div className="flex gap-3 justify-end mt-6 pt-4 border-t border-gray-100 shrink-0">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">ยกเลิก</button>
-              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors">บันทึกพนักงาน</button>
+            <div className="flex gap-3 justify-end mt-5 pt-4 border-t border-gray-100 shrink-0">
+              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">ยกเลิก</button>
+              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm">บันทึกพนักงาน</button>
             </div>
           </div>
         </div>
@@ -954,63 +1031,51 @@ function EmployeesManager() {
   );
 }
 
-// ==========================================
-// 3. Component: จัดการประเภทเวร (เภสัชกร)
-// ==========================================
+// ══════════════════════════════════════════════════════════════
+// 3. ShiftTypesManager
+// ══════════════════════════════════════════════════════════════
 function ShiftTypesManager() {
   const [rawShifts, setShifts] = useFirebaseSync('ph_shift_types', []);
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
-
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
 
-  const colorOptions = [
-    '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316',
-    '#6366f1', '#06b6d4', '#84cc16', '#f43f5e', '#d946ef', '#0ea5e9', '#eab308', '#64748b',
-  ];
+  const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#06b6d4','#84cc16','#f43f5e','#d946ef','#0ea5e9','#eab308','#64748b'];
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อเวร');
-    if (formData.id) setShifts(shifts.map((s) => (s.id === formData.id ? formData : s)));
+    if (formData.id) setShifts(shifts.map(s => s.id === formData.id ? formData : s));
     else setShifts([...shifts, { ...formData, id: Date.now().toString() }]);
     setIsModalOpen(false);
   };
 
-  const getAllowedDaysText = (val) => {
-    if (val === 'weekdays') return 'วันธรรมดา';
-    if (val === 'weekends_holidays') return 'วันหยุด';
-    if (val === 'saturdays_only') return 'วันเสาร์';
-    if (val === 'mon_tue_only') return 'จันทร์-อังคาร';
-    if (val === 'holidays_except_saturday') return 'วันหยุด (ยกเว้นเสาร์)';
-    if (val === 'first_day_of_holidays') return 'วันแรกของช่วงหยุด (T2)'; 
-    return 'ทุกวัน';
-  };
+  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)' };
 
   return (
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold">จัดการประเภทเวร (เภสัชกร)</h2>
-        <button type="button" onClick={() => { setFormData({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' }); setIsModalOpen(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
+        <button type="button" onClick={() => { setFormData({ name:'', color:'#3b82f6', start:'', end:'', min:1, allowedDays:'all' }); setIsModalOpen(true); }}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <Plus className="w-4 h-4" /> เพิ่มเวร
         </button>
       </div>
-
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 overflow-y-auto pr-2 pb-4">
-        {shifts.map((s) => (
+        {shifts.map(s => (
           <div key={s.id} className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group">
             <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.color }}></div>
             <div className="flex justify-between items-start mb-4 mt-1">
               <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button type="button" onClick={() => { setFormData(s); setIsModalOpen(true); }} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
-                <button type="button" onClick={() => { if (confirm('ลบเวรนี้?')) setShifts(shifts.filter((x) => x.id !== s.id)); }} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
+                <button type="button" onClick={() => { if (confirm('ลบเวรนี้?')) setShifts(shifts.filter(x => x.id !== s.id)); }} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
               </div>
             </div>
             <div className="space-y-3 text-sm text-gray-600">
-              <div className="flex items-center gap-2.5"><Clock className="w-4 h-4 text-gray-400" /> {s.start || '--:--'} - {s.end || '--:--'}</div>
+              <div className="flex items-center gap-2.5"><Clock className="w-4 h-4 text-gray-400" /> {s.start||'--:--'} - {s.end||'--:--'}</div>
               <div className="flex items-center gap-2.5"><Users className="w-4 h-4 text-gray-400" /> รับ: <span className="font-bold text-gray-800">{s.min}</span> คน</div>
-              <div className="flex items-center gap-2.5"><CalendarDays className="w-4 h-4 text-gray-400" /> {getAllowedDaysText(s.allowedDays)}</div>
-              <div className="flex items-center gap-2.5 border-t pt-3 mt-3"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> <span className="text-emerald-600 font-bold">{getShiftValue(s).toLocaleString('th-TH')} บ.</span></div>
+              <div className="flex items-center gap-2.5"><CalendarDays className="w-4 h-4 text-gray-400" /> {dayLabels[s.allowedDays] || 'ทุกวัน'}</div>
+              <div className="flex items-center gap-2.5 border-t pt-3 mt-3"><CheckCircle2 className="w-4 h-4 text-emerald-500" /> <span className="text-emerald-600 font-bold">{getShiftValue(s).toLocaleString()} บ.</span></div>
             </div>
           </div>
         ))}
@@ -1023,48 +1088,60 @@ function ShiftTypesManager() {
             <div className="space-y-5">
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">ชื่อเวร *</label>
-                <input type="text" placeholder="เช่น เช้า, บ่าย, ดึก, T2" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.name} onChange={(e) => setFormData({ ...formData, name: e.target.value })} />
+                <input type="text" placeholder="เช่น di, de, บi, T1, 4s1" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.name} onChange={e => setFormData({ ...formData, name: e.target.value })} />
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-2">สีป้ายเวร</label>
                 <div className="flex gap-2 flex-wrap p-3 bg-gray-50 rounded-xl border border-gray-100">
-                  {colorOptions.map((color) => (<button key={color} type="button" onClick={() => setFormData({ ...formData, color })} className={`w-8 h-8 rounded-lg transition-all ${formData.color === color ? 'ring-2 ring-offset-2 ring-gray-800 scale-110' : 'hover:scale-110 shadow-sm border border-black/10'}`} style={{ backgroundColor: color }} />))}
+                  {colors.map(c => (
+                    <button key={c} type="button" onClick={() => setFormData({ ...formData, color: c })}
+                      className={`w-8 h-8 rounded-lg transition-all ${formData.color === c ? 'ring-2 ring-offset-2 ring-gray-800 scale-110' : 'hover:scale-110 shadow-sm border border-black/10'}`}
+                      style={{ backgroundColor: c }} />
+                  ))}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">เวลาเริ่ม</label>
-                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.start} onChange={(e) => setFormData({ ...formData, start: e.target.value })} />
+                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.start} onChange={e => setFormData({ ...formData, start: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">เวลาสิ้นสุด</label>
-                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.end} onChange={(e) => setFormData({ ...formData, end: e.target.value })} />
+                  <input type="time" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.end} onChange={e => setFormData({ ...formData, end: e.target.value })} />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">จำนวนคนต้องการ / วัน</label>
-                <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none" value={formData.min} onChange={(e) => setFormData({ ...formData, min: parseInt(e.target.value) || 1, })} />
+                <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                  value={formData.min} onChange={e => setFormData({ ...formData, min: parseInt(e.target.value) || 1 })} />
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">เงื่อนไขวันที่จัดได้</label>
-                <select className="w-full border border-gray-300 rounded-xl p-3 text-base focus:ring-2 focus:ring-blue-500 outline-none bg-white" value={formData.allowedDays} onChange={(e) => setFormData({ ...formData, allowedDays: e.target.value })}>
-                  <option value="all">ลงได้ทุกวัน (รวมวันหยุด)</option>
-                  <option value="weekdays">เฉพาะวันธรรมดา (จ.-ศ.)</option>
-                  <option value="weekends_holidays">เฉพาะวันหยุด (ส.-อา. และนักขัตฤกษ์)</option>
-                  <option value="saturdays_only">เฉพาะวันเสาร์</option>
-                  <option value="mon_tue_only">เฉพาะ จันทร์-อังคาร</option>
-                  <option value="holidays_except_saturday">เฉพาะวันหยุด (ยกเว้นเสาร์)</option>
-                  <option value="first_day_of_holidays">วันแรกของช่วงหยุดยาว/ส.-อา. (สำหรับ T2)</option>
+                <select className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  value={formData.allowedDays} onChange={e => setFormData({ ...formData, allowedDays: e.target.value })}>
+                  {Object.entries(dayLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50 transition-colors">ยกเลิก</button>
-              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md hover:shadow-lg transition-all">บันทึกเวร</button>
+              <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">ยกเลิก</button>
+              <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md">บันทึกเวร</button>
             </div>
           </div>
         </div>
       )}
     </div>
   );
+}
+
+// ─── helpers (module-level) ───
+function fmtDateFor(schedule, d) {
+  return `${schedule.year}-${String(schedule.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+}
+
+function isHolidayRaw(d, dow, dateStr, schedule) {
+  return dow === 0 || dow === 6 || !!(schedule?.holidays?.[dateStr]);
 }
