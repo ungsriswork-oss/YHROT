@@ -413,36 +413,53 @@ function ScheduleManager() {
       // Rule 6: A/As4 ได้แค่ 1 ครั้ง
       if (rules.rule_6 && (u === 'A' || u === 'AS1' || u === 'AS/4') && st.countA_As4 >= 1) return false;
 
-      // Rule 7: เวรเช้าห้ามซ้ำตำแหน่ง
-      if (rules.rule_7 && cat === 'เช้า' && st.assignedMornings.has(u)) return false;
+      // Rule 7: เวรเช้าห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่ต้องได้ทุกวันหยุด)
+      if (rules.rule_7 && cat === 'เช้า' && u !== 'R2' && st.assignedMornings.has(u)) return false;
 
-      // Hard cap per category
-      const nightCap = 2;
-      const morningCap = 3;
-      const otherCap = isOffSpecial(emp) ? 2 : 3;
-      if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
-      if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
-      if (!['ดึก','เช้า'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+      // Hard cap per category — R2 ไม่มี cap เลย (บังคับได้ทุกวันหยุด)
+      if (u !== 'R2') {
+        const nightCap = 2;
+        const morningCap = 3;
+        const otherCap = isOffSpecial(emp) ? 2 : 3;
+        if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
+        if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
+        if (!['ดึก','เช้า'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+      }
 
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Hard cap ชั่วโมง: ถ้ายังมีคนชั่วโมงน้อยกว่ารับได้ → ข้ามคนนี้ก่อน
-      const shiftHrs = getShiftHours(shift);
-      const HOUR_BUFFER = 8;
-      const currentAvg = employees.reduce((s, e) => s + empStats[e.id].hours, 0) / Math.max(employees.length, 1);
-      if (st.hours + shiftHrs > currentAvg + HOUR_BUFFER) {
-        const hasLowerHourPerson = employees.some(e =>
-          e.id !== emp.id &&
-          empStats[e.id].hours < st.hours &&
-          !newAssignments[`${e.id}_${dateStr}`] &&
-          !e.offShifts?.includes(shift.id) &&
-          !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-          !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
-          (canDoNight(e) || cat !== 'ดึก') &&
-          (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u) || u === 'R2')
-        );
-        if (hasLowerHourPerson) return false;
+      // Hard cap ชั่วโมง แยกตามกลุ่ม:
+      // - กลุ่มปกติ/r2: คำนวณ avg เฉพาะกลุ่มที่ขึ้นดึกได้
+      // - กลุ่ม off_night/r2_off_night: คำนวณ avg เฉพาะกลุ่มงดดึก
+      // R2 shift ไม่ apply hour cap (ต้องได้ทุกวันหยุด)
+      if (u !== 'R2') {
+        const sameGroupEmps = employees.filter(e => {
+          const eg = getGroup(e);
+          const myg = getGroup(emp);
+          // จัดกลุ่ม: ขึ้นดึกได้ vs งดดึก
+          const empCanNight = eg === 'normal' || eg === 'r2';
+          const myCanNight  = myg === 'normal' || myg === 'r2';
+          return empCanNight === myCanNight;
+        });
+        const groupAvg = sameGroupEmps.length > 0
+          ? sameGroupEmps.reduce((s, e) => s + empStats[e.id].hours, 0) / sameGroupEmps.length
+          : 0;
+        const shiftHrs = getShiftHours(shift);
+        const HOUR_BUFFER = 8;
+        if (st.hours + shiftHrs > groupAvg + HOUR_BUFFER) {
+          const hasLowerHourPerson = sameGroupEmps.some(e =>
+            e.id !== emp.id &&
+            empStats[e.id].hours < st.hours &&
+            !newAssignments[`${e.id}_${dateStr}`] &&
+            !e.offShifts?.includes(shift.id) &&
+            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
+            !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
+            (canDoNight(e) || cat !== 'ดึก') &&
+            (cat !== 'ดึก' || u === 'R2' || !empStats[e.id].assignedNights.has(u))
+          );
+          if (hasLowerHourPerson) return false;
+        }
       }
 
       return true;
@@ -497,19 +514,35 @@ function ScheduleManager() {
     };
 
     // ─── PHASE 1: จัดเวรหลักทุกประเภท (ยกเว้น 2o) วนรายวัน ───
+    // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
+    const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
     const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       const hol = isHol(d);
-
-      // วัน TPN (วันหยุดนักขัตฤกษ์): T1 เสมอ, T2 เฉพาะวันแรก/ไม่ติด ส-อา
       const dow = getDow(d);
+
+      // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด ──
+      if (hol && r2Shift) {
+        // หาคนกลุ่ม r2 หรือ r2_off_night ที่ยังไม่มีเวรวันนี้
+        const r2Emps = employees.filter(e =>
+          (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
+          !newAssignments[`${e.id}_${dateStr}`] &&
+          !(rules.rule_1 && empStats[e.id].lastDay !== null && d - empStats[e.id].lastDay === 1) &&
+          !(rules.rule_1 && fmtD(d+1) && newAssignments[`${e.id}_${fmtD(d+1)}`])
+        );
+        r2Emps.forEach(emp => {
+          if (!newAssignments[`${emp.id}_${dateStr}`]) {
+            doAssign(emp, dateStr, d, r2Shift);
+          }
+        });
+      }
+
+      // ── STEP B: วันหยุดนักขัตฤกษ์ (ไม่ใช่ ส-อา) จัด T1/T2 ก่อน ──
       const isNationalHol = hol && dow !== 0 && dow !== 6;
       if (isNationalHol) {
-        // T1: ทุกวันหยุดนักขัตฤกษ์
         const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
-        // T2: เฉพาะวันแรกของช่วงหยุด
         const t2Shift = isFirstHol(d) ? shifts.find(s => s.name.trim().toUpperCase() === 'T2') : null;
         [t1Shift, t2Shift].filter(Boolean).forEach(shift => {
           for (let slot = 0; slot < (shift.min || 1); slot++) {
@@ -518,10 +551,10 @@ function ScheduleManager() {
             doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
           }
         });
-        // จัดเวรอื่นในวันหยุดนักขัตฤกษ์ (ยกเว้น T1/T2 ที่จัดแล้ว)
+        // จัดเวรที่เหลือในวันหยุดนักขัตฤกษ์
         const otherShifts = mainShifts.filter(s => {
           const u = s.name.trim().toUpperCase();
-          if (u === 'T1' || u === 'T2') return false;
+          if (u === 'T1' || u === 'T2' || u === 'R2') return false;
           return isApplicable(s, d);
         });
         shuffle(otherShifts);
@@ -535,8 +568,11 @@ function ScheduleManager() {
         continue;
       }
 
-      // วันปกติ / ส-อา
-      const todayShifts = mainShifts.filter(s => isApplicable(s, d));
+      // ── STEP C: วันปกติ / ส-อา — จัดเวรที่เหลือ (ไม่รวม R2 ที่จัดแล้ว) ──
+      const todayShifts = mainShifts.filter(s => {
+        if (s.name.trim().toUpperCase() === 'R2') return false; // จัดแล้วใน STEP A
+        return isApplicable(s, d);
+      });
       shuffle(todayShifts);
       for (const shift of todayShifts) {
         for (let slot = 0; slot < (shift.min || 1); slot++) {
