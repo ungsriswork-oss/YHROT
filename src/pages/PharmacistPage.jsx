@@ -420,12 +420,7 @@ function ScheduleManager() {
         if ((empStats[emp.id].catCounts[cat] || 0) >= catMax) return false;
         // Rule As/4: คนที่ได้ As/4 แล้ว → จำกัด SMC ไม่เกิน 1 เวร
         if (cat === 'SMC' && empStats[emp.id].countA_As4 >= 1 && (empStats[emp.id].catCounts['SMC'] || 0) >= 1) return false;
-        // Money cap: ป้องกัน total money เกิน 6,640 บ. (เป้าหมายจาก file ตัวอย่าง)
-        // ใช้ money แทน hours เพราะ As/4=153บ./ชม. ≠ regular=100บ./ชม.
-        // - คนที่ ด=2: ด(1600)+ช(1600)+บ(1600)+4s(1440)+4o(400) = 6,640 → cap พอดี ✓
-        // - คนที่ ด=1: ด(800)+ช(1600)+บ(1600)+4s(1440)+4o(400) = 5,840 → ได้ ช=3 (+800) = 6,640 ✓
-        // - คนที่มี As/4: 1,840 + shifts จนถึง 6,640 → ได้ shifts น้อยลงอัตโนมัติ ✓
-        if (empStats[emp.id].money + getShiftValue(shift) > 6640) return false;
+        // (money cap ถูกย้ายไปอยู่ใน sort แทน — ป้องกัน required shifts เช่น R2 ถูก block)
         return true;
       });
     };
@@ -457,7 +452,11 @@ function ScheduleManager() {
         const cd = (empStats[a.id].catCounts[cat] || 0) - (empStats[b.id].catCounts[cat] || 0);
         if (cd !== 0) return cd;
         // P4: totalShifts ascending (equal workload)
-        return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+        if (empStats[a.id].totalShifts !== empStats[b.id].totalShifts)
+          return empStats[a.id].totalShifts - empStats[b.id].totalShifts;
+        // P5: money ascending (soft preference — คนเงินน้อยได้ก่อน)
+        // เป็น soft preference ไม่ใช่ hard exclusion → R2 ยังถูก assign แม้คนเงินเยอะ
+        return empStats[a.id].money - empStats[b.id].money;
       });
       return eligible;
     };
