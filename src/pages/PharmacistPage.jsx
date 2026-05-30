@@ -411,11 +411,17 @@ function ScheduleManager() {
         }
         if (rules.rule_6 && (upper === 'A' || upper === 'AS1' || upper === 'AS/4') && empStats[emp.id].countA_As4 >= 1) return false;
         if (rules.rule_7 && cat === 'เช้า' && empStats[emp.id].assignedUniqueMornings.has(upper)) return false;
-        // Hard cap: max MAX_PER_CAT per category
-        if ((empStats[emp.id].catCounts[cat] || 0) >= MAX_PER_CAT) return false;
+        // Hard cap แยกตาม category:
+        // - ดึก: max 2 (ป้องกัน ด=3)
+        // - opt-out: max 2 ทุก category (ตามกฎข้อ 4)
+        // - regular อื่นๆ: max 3 (อนุญาต ช=3/บ=3 เพื่อชดเชย ด=1 → ถึง 60 ชม.)
+        const isOptOutEmp = empStats[emp.id].isOptOutNight;
+        const catMax = (cat === 'ดึก') ? 2 : (isOptOutEmp ? 2 : 3);
+        if ((empStats[emp.id].catCounts[cat] || 0) >= catMax) return false;
         // Rule As/4: คนที่ได้ As/4 แล้ว → จำกัด SMC ไม่เกิน 1 เวร
         if (cat === 'SMC' && empStats[emp.id].countA_As4 >= 1 && (empStats[emp.id].catCounts['SMC'] || 0) >= 1) return false;
-        // Hours cap: ป้องกัน total hours เกิน 60 ชม. (เป้าหมายจาก file ตัวอย่าง)
+        // Hours cap: ป้องกัน total hours เกิน 60 ชม.
+        // hours cap คุมไม่ให้ ช=3 สร้างปัญหาสำหรับคนที่ ด=2 (ซึ่งอยู่ที่ 60 ชม. พอดีแล้ว)
         if (empStats[emp.id].hours + getShiftHours(shift) > 60) return false;
         return true;
       });
