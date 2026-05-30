@@ -432,10 +432,13 @@ function ScheduleManager() {
       if (u !== 'R2') {
         const nightCap = 2;
         const morningCap = 3;
+        // กลุ่มงดดึก: บ่ายได้ไม่เกิน 2 (ไม่ชดเชยดึก), เช้าได้ไม่เกิน 3
+        const afternoonCap = (!canDoNight(emp)) ? 2 : 3;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
         if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
-        if (!['ดึก','เช้า'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+        if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
+        if (!['ดึก','เช้า','บ่าย'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
       }
 
       // As/4 → SMC ไม่เกิน 1
@@ -632,32 +635,48 @@ function ScheduleManager() {
     });
   }
 
-  // เรียงพนักงานตามกลุ่ม → เงิน
+  // เรียงพนักงานแบบสุ่ม (shuffle) หรือตามกลุ่ม→เงิน
   const sortedEmployees = useMemo(() => {
-    if (!sortByMoney || !activeSchedule) return employees;
-    const groupOrder = { normal:1, r2:2, r2_off_night:3, off_night:4, off_special:5 };
-    const empMoney = {};
-    employees.forEach(emp => {
-      let m = 0;
-      monthDates.forEach(d => {
-        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-        if (s) m += getShiftValue(s);
+    if (!activeSchedule) return employees;
+    if (sortByMoney) {
+      const groupOrder = { normal:1, r2:2, r2_off_night:3, off_night:4, off_special:5 };
+      const empMoney = {};
+      employees.forEach(emp => {
+        let m = 0;
+        monthDates.forEach(d => {
+          const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+          if (s) m += getShiftValue(s);
+        });
+        empMoney[emp.id] = m;
       });
-      empMoney[emp.id] = m;
-    });
-    return [...employees].sort((a,b) => {
-      const ga = groupOrder[a.group || 'normal'] || 1;
-      const gb = groupOrder[b.group || 'normal'] || 1;
-      if (ga !== gb) return ga - gb;
-      return empMoney[b.id] - empMoney[a.id];
-    });
-  }, [sortByMoney, employees, activeSchedule, shifts, monthDates]);
+      return [...employees].sort((a,b) => {
+        const ga = groupOrder[a.group || 'normal'] || 1;
+        const gb = groupOrder[b.group || 'normal'] || 1;
+        if (ga !== gb) return ga - gb;
+        return empMoney[b.id] - empMoney[a.id];
+      });
+    }
+    // default: สุ่มลำดับ (shuffle) เพื่อให้ตารางไม่ซ้ำกันทุกครั้ง
+    const arr = [...employees];
+    for (let k = arr.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [arr[k], arr[j]] = [arr[j], arr[k]];
+    }
+    return arr;
+  }, [employees, activeSchedule, shifts, monthDates, sortByMoney]);
 
   const activeRules = RULES_LIST.filter(r => rules[r.id]);
   const inactiveRules = RULES_LIST.filter(r => !rules[r.id]);
+  const hasR2Group = employees.some(e => e.group === 'r2' || e.group === 'r2_off_night');
 
   return (
     <div className="flex flex-col h-full w-full">
+      {/* Warning: ไม่มีคนกลุ่ม R2 */}
+      {!hasR2Group && (
+        <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-800 text-xs font-medium flex items-center gap-2 print-hidden shrink-0">
+          ⚠️ ยังไม่มีพนักงานในกลุ่ม <strong>R2</strong> หรือ <strong>R2+งดดึก</strong> — เวร R2 จะไม่ถูกจัดในตาราง กรุณาไปตั้งกลุ่มให้พนักงานในแท็บ <strong>พนักงาน</strong> ก่อน
+        </div>
+      )}
       {/* Controls top */}
       <div className="flex justify-between items-center mb-3 shrink-0 print-hidden">
         <div className="flex gap-1 bg-white p-1 rounded-md border border-gray-200 flex-wrap">
@@ -770,10 +789,14 @@ function ScheduleManager() {
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
                   let cnt = { A:0, เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
-                  const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group);
+                  const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
+                  const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
+                  const isR2Group = ['r2','r2_off_night'].includes(emp.group);
+                  // สีพื้นหลัง row: off_night=เทาอ่อน, r2=เขียวอ่อน, ปกติ=ขาว
+                  const rowBg = isOffNight ? 'bg-gray-100/70' : isR2Group ? 'bg-green-50/60' : '';
                   return (
-                    <tr key={emp.id} className="hover:bg-gray-50 h-8">
-                      <td className="sticky left-0 bg-white px-2 py-1 border-b border-r border-gray-200 text-left truncate">
+                    <tr key={emp.id} className={`hover:brightness-95 h-8 ${rowBg}`}>
+                      <td className={`sticky left-0 px-2 py-1 border-b border-r border-gray-200 text-left truncate ${rowBg || 'bg-white'}`}>
                         <div className="flex flex-col">
                           <span className="text-xs font-bold text-gray-800">{emp.name}</span>
                           {grp && <span className="text-[9px] font-medium px-1 rounded" style={{ color: grp.color }}>{grp.label}</span>}
