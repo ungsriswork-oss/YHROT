@@ -395,6 +395,9 @@ function ScheduleManager() {
       // Rule 2: บ่ายห้ามซ้ำตำแหน่ง
       if (rules.rule_2 && cat === 'บ่าย' && st.assignedAfternoons.has(u)) return false;
 
+      // เวรดึกห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่อาจได้หลายครั้ง)
+      if (cat === 'ดึก' && u !== 'R2' && st.assignedNights.has(u)) return false;
+
       // Rule 4+5: R1 ≠ T1/T2
       if (rules.rule_4 || rules.rule_5) {
         if (u === 'R1' && (st.hasT1 || st.hasT2)) return false;
@@ -424,7 +427,23 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Rule 8: กลุ่มงดดึกต้องมีเงินน้อยกว่ากลุ่มปกติ → soft (ตรวจที่ sort)
+      // Hard cap ชั่วโมง: ถ้ายังมีคนชั่วโมงน้อยกว่ารับได้ → ข้ามคนนี้ก่อน
+      const shiftHrs = getShiftHours(shift);
+      const HOUR_BUFFER = 8;
+      const currentAvg = employees.reduce((s, e) => s + empStats[e.id].hours, 0) / Math.max(employees.length, 1);
+      if (st.hours + shiftHrs > currentAvg + HOUR_BUFFER) {
+        const hasLowerHourPerson = employees.some(e =>
+          e.id !== emp.id &&
+          empStats[e.id].hours < st.hours &&
+          !newAssignments[`${e.id}_${dateStr}`] &&
+          !e.offShifts?.includes(shift.id) &&
+          !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
+          !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
+          (canDoNight(e) || cat !== 'ดึก') &&
+          (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u) || u === 'R2')
+        );
+        if (hasLowerHourPerson) return false;
+      }
 
       return true;
     };
@@ -456,16 +475,19 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
-        // SMC: กระจายตามชั่วโมงค่าเวร smc (ตามกฎข้อ 3 ในภาพ)
+        // SMC: กระจายตามชั่วโมงค่าเวร smc
         if (cat === 'SMC') {
           if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
         }
 
-        // กระจายตาม catCounts
+        // Primary: กระจายตาม hours รวม (คนชั่วโมงน้อยได้ก่อน)
+        if (sa.hours !== sb.hours) return sa.hours - sb.hours;
+
+        // Secondary: catCounts ของประเภทนี้
         const cd = (sa.catCounts[cat] || 0) - (sb.catCounts[cat] || 0);
         if (cd !== 0) return cd;
 
-        // กระจายตาม totalShifts
+        // Tertiary: totalShifts
         if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
 
         // soft: money ascending
