@@ -385,11 +385,23 @@ function ScheduleManager() {
       if (newAssignments[`${emp.id}_${dateStr}`]) return false;
 
       // Rule 1: ห้ามเวรติดกัน (ตรวจทั้งวันก่อนและหลัง)
+      // ยกเว้น: ถ้าวันก่อนหน้าเป็น R2 (mandatory) → ไม่นับเป็นการ block
       if (rules.rule_1) {
-        if (st.lastDay !== null && d - st.lastDay === 1) return false;
-        // ตรวจวันถัดไปว่ามีเวรอยู่แล้วไหม
+        if (st.lastDay !== null && d - st.lastDay === 1) {
+          // ตรวจว่าเวรวันก่อนเป็น R2 ไหม
+          const prevDs = fmtD(d - 1);
+          const prevShiftId = prevDs ? newAssignments[`${emp.id}_${prevDs}`] : null;
+          const prevShift = prevShiftId ? shifts.find(s => s.id === prevShiftId) : null;
+          const prevWasR2 = prevShift?.name?.trim().toUpperCase() === 'R2';
+          if (!prevWasR2) return false;
+        }
         const nextDs = fmtD(d + 1);
-        if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) return false;
+        if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
+          const nextShiftId = newAssignments[`${emp.id}_${nextDs}`];
+          const nextShift = shifts.find(s => s.id === nextShiftId);
+          const nextWasR2 = nextShift?.name?.trim().toUpperCase() === 'R2';
+          if (!nextWasR2) return false;
+        }
       }
 
       // Rule 2: บ่ายห้ามซ้ำตำแหน่ง
@@ -494,6 +506,8 @@ function ScheduleManager() {
     // ─── PHASE 1: จัดเวรหลักทุกประเภท (ยกเว้น 2o) วนรายวัน ───
     // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
     const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
+    const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
+    const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2');
     const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
     for (let d = 1; d <= dim; d++) {
@@ -501,54 +515,49 @@ function ScheduleManager() {
       const hol = isHol(d);
       const dow = getDow(d);
 
-      // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด ──
+      // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด (ไม่มี rule_1 สำหรับ R2) ──
       if (hol && r2Shift) {
-        // หาคนกลุ่ม r2 หรือ r2_off_night ที่ยังไม่มีเวรวันนี้
         const r2Emps = employees.filter(e =>
           (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
-          !newAssignments[`${e.id}_${dateStr}`] &&
-          !(rules.rule_1 && empStats[e.id].lastDay !== null && d - empStats[e.id].lastDay === 1) &&
-          !(rules.rule_1 && fmtD(d+1) && newAssignments[`${e.id}_${fmtD(d+1)}`])
+          !newAssignments[`${e.id}_${dateStr}`]
+          // R2 เป็น mandatory → ไม่ตรวจ rule_1 และไม่ตรวจ offShifts
         );
         r2Emps.forEach(emp => {
-          if (!newAssignments[`${emp.id}_${dateStr}`]) {
-            doAssign(emp, dateStr, d, r2Shift);
-          }
+          doAssign(emp, dateStr, d, r2Shift);
         });
       }
 
-      // ── STEP B: วันหยุดนักขัตฤกษ์ (ไม่ใช่ ส-อา) จัด T1/T2 ก่อน ──
+      // ── STEP B/C: คำนวณ flag วันนี้ก่อน ──
       const isNationalHol = hol && dow !== 0 && dow !== 6;
-      if (isNationalHol) {
-        const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
-        const t2Shift = isFirstHol(d) ? shifts.find(s => s.name.trim().toUpperCase() === 'T2') : null;
-        [t1Shift, t2Shift].filter(Boolean).forEach(shift => {
-          for (let slot = 0; slot < (shift.min || 1); slot++) {
-            const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
-            if (eligible.length === 0) return;
-            doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
-          }
-        });
-        // จัดเวรที่เหลือในวันหยุดนักขัตฤกษ์
-        const otherShifts = mainShifts.filter(s => {
-          const u = s.name.trim().toUpperCase();
-          if (u === 'T1' || u === 'T2' || u === 'R2') return false;
-          return isApplicable(s, d);
-        });
-        shuffle(otherShifts);
-        for (const shift of otherShifts) {
-          for (let slot = 0; slot < (shift.min || 1); slot++) {
-            const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
-            if (eligible.length === 0) continue;
-            doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
-          }
+      // T1 มีทุกวันหยุด (ส, อา, นักขัตฤกษ์)
+      const isT1Day = hol;
+      // T2 มีเฉพาะ "วันแรกของช่วงหยุด" เท่านั้น
+      const isT2Day = hol && isFirstHol(d);
+
+      // ── STEP B: จัด T1 (วันหยุดนักขัตฤกษ์ทุกวัน) ──
+      if (isT1Day && t1Shift) {
+        for (let slot = 0; slot < (t1Shift.min || 1); slot++) {
+          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, t1Shift));
+          if (eligible.length === 0) break;
+          doAssign(sortEligible(eligible, t1Shift)[0], dateStr, d, t1Shift);
         }
-        continue;
       }
 
-      // ── STEP C: วันปกติ / ส-อา — จัดเวรที่เหลือ (ไม่รวม R2 ที่จัดแล้ว) ──
+      // ── STEP C: จัด T2 (เสาร์ + วันแรกของช่วงหยุดนักขัตฤกษ์) ──
+      if (isT2Day && t2Shift) {
+        for (let slot = 0; slot < (t2Shift.min || 1); slot++) {
+          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, t2Shift));
+          if (eligible.length === 0) break;
+          doAssign(sortEligible(eligible, t2Shift)[0], dateStr, d, t2Shift);
+        }
+      }
+
+      // ── STEP D: จัดเวรที่เหลือทั้งหมด ──
       const todayShifts = mainShifts.filter(s => {
-        if (s.name.trim().toUpperCase() === 'R2') return false; // จัดแล้วใน STEP A
+        const u = s.name.trim().toUpperCase();
+        if (u === 'R2') return false;              // จัดแล้ว STEP A
+        if (u === 'T1') return false;              // จัดด้วย isT1Day ข้างบนแล้ว หรือไม่ใช่วันนี้
+        if (u === 'T2') return false;              // จัดด้วย isT2Day ข้างบนแล้ว หรือไม่ใช่วันนี้
         return isApplicable(s, d);
       });
       shuffle(todayShifts);
