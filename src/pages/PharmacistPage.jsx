@@ -469,17 +469,6 @@ function ScheduleManager() {
         }
       }
 
-      // Hard hours cap กลุ่ม off_night: ต้องต่ำกว่า avg กลุ่มปกติ อย่างน้อย 8 ชม.
-      if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
-        const normalEmps = employees.filter(e => canDoNight(e));
-        const normalAssigned = normalEmps.filter(e => empStats[e.id].hours > 0);
-        if (normalAssigned.length >= 3) {
-          const normalAvg = normalAssigned.reduce((s,e) => s + empStats[e.id].hours, 0) / normalAssigned.length;
-          const shiftHrs = getShiftHours(shift);
-          if (st.hours + shiftHrs > normalAvg - 8) return false;
-        }
-      }
-
       return true;
     };
 
