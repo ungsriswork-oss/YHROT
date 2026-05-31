@@ -469,16 +469,17 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน TARGET_NORMAL+4 ชม.
-      // R2 ยังต้อง assign ได้ (bypass) แต่เวรอื่นถูก cap
+      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน TARGET_NORMAL + 8h (ฉุกเฉินเท่านั้น)
+      // sort ใน sortEligible จะดูแลให้ทุกคนอยู่แถว TARGET ก่อนถึง cap นี้
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
-        if (st.hours + shiftHrs > TARGET_NORMAL + 4) {
+        const NORMAL_CAP = TARGET_NORMAL + 8;
+        if (st.hours + shiftHrs > NORMAL_CAP) {
           const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? (canDoNight(e) ? 3 : 2) : 2;
           const hasLess = normalEmpsAll.some(e =>
             e.id !== emp.id &&
             empStats[e.id].hours < st.hours &&
-            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL + 4 &&
+            empStats[e.id].hours + shiftHrs <= NORMAL_CAP &&
             !newAssignments[`${e.id}_${dateStr}`] &&
             !e.offShifts?.includes(shift.id) &&
             !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
@@ -492,12 +493,14 @@ function ScheduleManager() {
         }
       }
 
-      // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT+4 ชม.
+      // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT + 8h
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
-        if (st.hours + shiftHrs > TARGET_OFF_NIGHT + 4) {
+        const OFF_CAP = TARGET_OFF_NIGHT + 8;
+        const NORMAL_CAP = TARGET_NORMAL + 8;
+        if (st.hours + shiftHrs > OFF_CAP) {
           const hasNormalCanDo = normalEmpsAll.some(e =>
-            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL + 4 &&
+            empStats[e.id].hours + shiftHrs <= NORMAL_CAP &&
             !newAssignments[`${e.id}_${dateStr}`] &&
             !e.offShifts?.includes(shift.id) &&
             !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
@@ -545,7 +548,7 @@ function ScheduleManager() {
           if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
         }
 
-        // เช้า: คนที่ได้เช้า < 2 ได้ก่อนเสมอ (ป้องกันคนปกติได้เช้าแค่ 1)
+        // เช้า: คนที่ได้เช้า < 2 ได้ก่อนเสมอ
         if (cat === 'เช้า') {
           const aM = sa.catCounts['เช้า'] || 0;
           const bM = sb.catCounts['เช้า'] || 0;
@@ -553,10 +556,14 @@ function ScheduleManager() {
           if (aUnder !== bUnder) return aUnder ? -1 : 1;
         }
 
-        // Primary: กระจายชั่วโมงภายในกลุ่มเดียวกัน (ขึ้นดึกได้ vs งดดึก)
+        // Primary: คนที่ห่างจาก TARGET มากที่สุด (hours น้อยกว่า) ได้ก่อน
+        // เปรียบเทียบภายในกลุ่มเดียวกันเท่านั้น
         const aCanNight = canDoNight(a), bCanNight = canDoNight(b);
         if (aCanNight === bCanNight) {
-          if (sa.hours !== sb.hours) return sa.hours - sb.hours;
+          const myTarget = aCanNight ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+          const aGap = myTarget - sa.hours; // gap มาก = ยังขาด = ควรได้ก่อน
+          const bGap = myTarget - sb.hours;
+          if (aGap !== bGap) return bGap - aGap; // descending: gap มากได้ก่อน
         } else {
           if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
         }
