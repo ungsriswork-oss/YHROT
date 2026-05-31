@@ -431,8 +431,8 @@ function ScheduleManager() {
       // Hard cap per category — R2 ไม่มี cap เลย (บังคับได้ทุกวันหยุด)
       if (u !== 'R2') {
         const nightCap = 2;
-        const morningCap = 3;
-        // บ่าย cap = 2 สำหรับทุกกลุ่ม (ไม่ให้ใครได้เกิน 2 บ่ายต่อเดือน)
+        // เช้า: off_night ได้ไม่เกิน 2 (ประหยัดให้คนปกติ), ปกติ ได้ไม่เกิน 3
+        const morningCap = canDoNight(emp) ? 3 : 2;
         const afternoonCap = 2;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
@@ -444,20 +444,14 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Soft hour balance: sort เท่านั้น ไม่ block (ป้องกันเวรไม่ครบ)
-      // การกระจายชั่วโมงทำผ่าน sortEligible แทน
-
-      // Hard hours cap: ป้องกันคนได้เวรเกินค่าเฉลี่ยกลุ่มเดียวกันมากเกินไป
-      // เฉพาะกลุ่มที่ขึ้นดึกได้ (ปกติ/r2) เท่านั้น — ไม่แตะ off_night
+      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน avg+8 ชม.
       if (u !== 'R2' && canDoNight(emp)) {
         const sameGrpEmps = employees.filter(e => canDoNight(e));
         const assignedSoFar = sameGrpEmps.filter(e => empStats[e.id].hours > 0);
         if (assignedSoFar.length >= 3) {
           const avgHrs = assignedSoFar.reduce((s,e) => s + empStats[e.id].hours, 0) / assignedSoFar.length;
           const shiftHrs = getShiftHours(shift);
-          const BUFFER = 8; // ยอมรับต่างกันได้ไม่เกิน 8 ชม.
-          if (st.hours + shiftHrs > avgHrs + BUFFER) {
-            // มีคนกลุ่มเดียวกันที่ชั่วโมงน้อยกว่าและรับเวรนี้ได้ไหม?
+          if (st.hours + shiftHrs > avgHrs + 8) {
             const hasLess = sameGrpEmps.some(e =>
               e.id !== emp.id &&
               empStats[e.id].hours < st.hours &&
@@ -465,13 +459,24 @@ function ScheduleManager() {
               !e.offShifts?.includes(shift.id) &&
               !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
               !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
-              (cat !== 'ดึก' || (!empStats[e.id].assignedNights.has(u))) &&
-              (cat !== 'เช้า' || (!empStats[e.id].assignedMornings.has(u))) &&
-              (cat !== 'บ่าย' || (!empStats[e.id].assignedAfternoons.has(u))) &&
+              (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
+              (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
+              (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
               (empStats[e.id].catCounts[cat] || 0) < (cat === 'ดึก' ? 2 : cat === 'เช้า' ? 3 : 2)
             );
             if (hasLess) return false;
           }
+        }
+      }
+
+      // Hard hours cap กลุ่ม off_night: ต้องต่ำกว่า avg กลุ่มปกติ อย่างน้อย 8 ชม.
+      if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
+        const normalEmps = employees.filter(e => canDoNight(e));
+        const normalAssigned = normalEmps.filter(e => empStats[e.id].hours > 0);
+        if (normalAssigned.length >= 3) {
+          const normalAvg = normalAssigned.reduce((s,e) => s + empStats[e.id].hours, 0) / normalAssigned.length;
+          const shiftHrs = getShiftHours(shift);
+          if (st.hours + shiftHrs > normalAvg - 8) return false;
         }
       }
 
