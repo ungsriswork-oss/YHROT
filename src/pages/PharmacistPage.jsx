@@ -474,17 +474,18 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน TARGET_NORMAL + 8h (ฉุกเฉินเท่านั้น)
-      // sort ใน sortEligible จะดูแลให้ทุกคนอยู่แถว TARGET ก่อนถึง cap นี้
+      // Hard hours cap กลุ่มปกติ/R2
+      // เป้าหมาย: ทุกคนอยู่ที่ TARGET_NORMAL พอดี
+      // buffer +8h ใช้เฉพาะกรณีฉุกเฉิน (หาคนไม่ได้จริงๆ)
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
-        const NORMAL_CAP = TARGET_NORMAL + 8;
-        if (st.hours + shiftHrs > NORMAL_CAP) {
-          const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? (canDoNight(e) ? 3 : 2) : 2;
-          const hasLess = normalEmpsAll.some(e =>
+        // ถ้าจะเกิน TARGET → block ถ้ายังมีคนอื่นรับได้โดยไม่เกิน TARGET
+        if (st.hours + shiftHrs > TARGET_NORMAL) {
+          const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? 3 : 2;
+          const hasLessUnderTarget = normalEmpsAll.some(e =>
             e.id !== emp.id &&
             empStats[e.id].hours < st.hours &&
-            empStats[e.id].hours + shiftHrs <= NORMAL_CAP &&
+            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL &&
             !newAssignments[`${e.id}_${dateStr}`] &&
             !e.offShifts?.includes(shift.id) &&
             !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
@@ -494,8 +495,10 @@ function ScheduleManager() {
             (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
             (empStats[e.id].catCounts[cat] || 0) < capForE(e)
           );
-          if (hasLess) return false;
+          if (hasLessUnderTarget) return false;
         }
+        // Hard emergency cap: ไม่เกิน TARGET + 8h ไม่ว่าอะไรจะเกิดขึ้น
+        if (st.hours + shiftHrs > TARGET_NORMAL + 8) return false;
       }
 
       // Hours cap กลุ่ม off_night: ต้องต่ำกว่า min ของกลุ่มปกติ อย่างน้อย 8h
