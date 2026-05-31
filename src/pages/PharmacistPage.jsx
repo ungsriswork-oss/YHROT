@@ -432,8 +432,8 @@ function ScheduleManager() {
       if (u !== 'R2') {
         const nightCap = 2;
         const morningCap = 3;
-        // กลุ่มงดดึก: บ่ายได้ไม่เกิน 2 (ไม่ชดเชยดึก), เช้าได้ไม่เกิน 3
-        const afternoonCap = (!canDoNight(emp)) ? 2 : 3;
+        // บ่าย cap = 2 สำหรับทุกกลุ่ม (ไม่ให้ใครได้เกิน 2 บ่ายต่อเดือน)
+        const afternoonCap = 2;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
         if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
