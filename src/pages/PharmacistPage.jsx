@@ -431,7 +431,7 @@ function ScheduleManager() {
       // Hard cap per category — R2 ไม่มี cap เลย (บังคับได้ทุกวันหยุด)
       if (u !== 'R2') {
         const nightCap = 2;
-        // เช้า: off_night ได้ไม่เกิน 2 (ประหยัดให้คนปกติ), ปกติ ได้ไม่เกิน 3
+        // เช้า: กลุ่มที่ขึ้นดึกได้ (normal/r2) ≤ 3, กลุ่มงดดึกทุกประเภท ≤ 2
         const morningCap = canDoNight(emp) ? 3 : 2;
         const afternoonCap = 2;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
@@ -452,6 +452,7 @@ function ScheduleManager() {
           const avgHrs = assignedSoFar.reduce((s,e) => s + empStats[e.id].hours, 0) / assignedSoFar.length;
           const shiftHrs = getShiftHours(shift);
           if (st.hours + shiftHrs > avgHrs + 8) {
+            const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? (canDoNight(e) ? 3 : 2) : 2;
             const hasLess = sameGrpEmps.some(e =>
               e.id !== emp.id &&
               empStats[e.id].hours < st.hours &&
@@ -462,7 +463,7 @@ function ScheduleManager() {
               (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
               (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
               (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-              (empStats[e.id].catCounts[cat] || 0) < (cat === 'ดึก' ? 2 : cat === 'เช้า' ? 3 : 2)
+              (empStats[e.id].catCounts[cat] || 0) < capForE(e)
             );
             if (hasLess) return false;
           }
