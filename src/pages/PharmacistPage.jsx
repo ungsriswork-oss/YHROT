@@ -319,31 +319,6 @@ function ScheduleManager() {
       }
     };
 
-    // ─── คำนวณ target hours ต่อคน (คงที่ตลอดเดือน) ───
-    // นับ total shift hours ที่ต้องจัดทั้งเดือน แล้วหารด้วยจำนวนคนกลุ่มปกติ/R2
-    const normalEmpsAll = employees.filter(e => canDoNight(e));
-    const offNightEmpsAll = employees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
-
-    // ประมาณ total hours จาก shift definitions
-    let estimatedTotalNormal = 0;
-    for (let d = 1; d <= dim; d++) {
-      shifts.forEach(s => {
-        if (!isApplicable(s, d)) return;
-        const cat = getShiftCategory(s);
-        const u = s.name.trim().toUpperCase();
-        // เวรที่คนปกติรับ
-        if (!['2o'].includes(cat)) {
-          const slots = u === 'R2' ? 1 : (s.min || 1);
-          estimatedTotalNormal += getShiftHours(s) * slots;
-        }
-      });
-    }
-    const TARGET_NORMAL = normalEmpsAll.length > 0
-      ? Math.round(estimatedTotalNormal / normalEmpsAll.length)
-      : 60;
-    // off_night target = normal target - 16 (ไม่มีดึก 2 เวร = 16h)
-    const TARGET_OFF_NIGHT = TARGET_NORMAL - 16;
-
     // ─── doAssign ───
     const doAssign = (emp, dateStr, d, shift) => {
       const cat = getShiftCategory(shift);
@@ -389,6 +364,28 @@ function ScheduleManager() {
       }
       return true;
     };
+
+    // ─── คำนวณ target hours ต่อคน (คงที่ตลอดเดือน) ───
+    // ต้องอยู่หลัง isApplicable เพราะต้องเรียกใช้
+    const normalEmpsAll = employees.filter(e => canDoNight(e));
+    const offNightEmpsAll = employees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
+
+    let estimatedTotalNormal = 0;
+    for (let d = 1; d <= dim; d++) {
+      shifts.forEach(s => {
+        if (!isApplicable(s, d)) return;
+        const cat = getShiftCategory(s);
+        const u = s.name.trim().toUpperCase();
+        if (cat !== '2o') {
+          const slots = u === 'R2' ? 1 : (s.min || 1);
+          estimatedTotalNormal += getShiftHours(s) * slots;
+        }
+      });
+    }
+    const TARGET_NORMAL = normalEmpsAll.length > 0
+      ? Math.round(estimatedTotalNormal / normalEmpsAll.length)
+      : 60;
+    const TARGET_OFF_NIGHT = TARGET_NORMAL - 16;
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
