@@ -475,11 +475,8 @@ function ScheduleManager() {
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
       // Hard hours cap กลุ่มปกติ/R2
-      // เป้าหมาย: ทุกคนอยู่ที่ TARGET_NORMAL พอดี
-      // buffer +8h ใช้เฉพาะกรณีฉุกเฉิน (หาคนไม่ได้จริงๆ)
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
-        // ถ้าจะเกิน TARGET → block ถ้ายังมีคนอื่นรับได้โดยไม่เกิน TARGET
         if (st.hours + shiftHrs > TARGET_NORMAL) {
           const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? 3 : 2;
           const hasLessUnderTarget = normalEmpsAll.some(e =>
@@ -497,8 +494,14 @@ function ScheduleManager() {
           );
           if (hasLessUnderTarget) return false;
         }
-        // Hard emergency cap: ไม่เกิน TARGET + 8h ไม่ว่าอะไรจะเกิดขึ้น
+        // Emergency hard cap: ไม่เกิน TARGET + 8h ไม่ว่าอะไรจะเกิดขึ้น
         if (st.hours + shiftHrs > TARGET_NORMAL + 8) return false;
+      }
+
+      // Cap เฉพาะกลุ่ม off_night: เช้า≤2, บ่าย≤2, 4o≤1, SMC≤2
+      if (!canDoNight(emp) && !isOffSpecial(emp) && u !== 'R2') {
+        if (cat === '4o' && (st.catCounts['4o'] || 0) >= 1) return false;
+        if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= 2) return false;
       }
 
       // Hours cap กลุ่ม off_night: ต้องต่ำกว่า min ของกลุ่มปกติ อย่างน้อย 8h
