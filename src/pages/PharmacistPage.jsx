@@ -520,12 +520,15 @@ function ScheduleManager() {
 
       // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด (ไม่มี rule_1 สำหรับ R2) ──
       if (hol && r2Shift) {
+        const slots = r2Shift.min || 1;
         const r2Emps = employees.filter(e =>
           (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
           !newAssignments[`${e.id}_${dateStr}`]
-          // R2 เป็น mandatory → ไม่ตรวจ rule_1 และไม่ตรวจ offShifts
         );
-        r2Emps.forEach(emp => {
+        // สุ่มลำดับก่อน แล้วเอาแค่ slots คน
+        shuffle(r2Emps);
+        r2Emps.sort((a,b) => empStats[a.id].catCounts['เช้า'] - empStats[b.id].catCounts['เช้า']);
+        r2Emps.slice(0, slots).forEach(emp => {
           doAssign(emp, dateStr, d, r2Shift);
         });
       }
