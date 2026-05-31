@@ -72,13 +72,22 @@ const getShiftHours = (shift) => {
 };
 
 // ─── หมวดเวร ───
+// Priority: ใช้ field 'category' จาก Firebase ก่อน
+// ถ้าไม่มีค่อย fallback ไป match ชื่อ
 const getShiftCategory = (shift) => {
   if (!shift?.name) return 'อื่นๆ';
+
+  // ถ้า Firebase มี category field → ใช้เลย (ไม่ต้อง hardcode)
+  if (shift.category) return shift.category;
+
+  // Fallback: match จากชื่อ (สำหรับเวรเก่าที่ยังไม่มี category field)
   const u = shift.name.trim().toUpperCase();
   const l = shift.name.trim().toLowerCase();
   if (u === 'AS/4' || u === 'AS1') return 'As/4';
   if (u === 'A/4') return 'A/4';
   if (['B','C','D','E','F','G','R1','R2','T1','T2'].includes(u)) return 'เช้า';
+  if (['บI','บR','บE'].includes(u)) return 'บ่าย';
+  if (['ดI','ดE'].includes(u)) return 'ดึก';
   if (['4s1','4s2','4s3','4s4'].includes(l)) return 'SMC';
   if (u === '4O') return '4o';
   if (u === '2O') return '2o';
@@ -1197,16 +1206,29 @@ function ShiftTypesManager() {
   const [rawShifts, setShifts] = useFirebaseSync('ph_shift_types', []);
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all' });
+  const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all', category: '' });
 
   const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#06b6d4','#84cc16','#f43f5e','#d946ef','#0ea5e9','#eab308','#64748b'];
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อเวร');
+    if (!formData.category) return alert('กรุณาเลือกหมวดเวร');
     if (formData.id) setShifts(shifts.map(s => s.id === formData.id ? formData : s));
     else setShifts([...shifts, { ...formData, id: Date.now().toString() }]);
     setIsModalOpen(false);
   };
+
+  const CATEGORIES = [
+    { value: 'เช้า', label: 'เช้า (B,C,D,E,F,G,R1,R2,T1,T2)' },
+    { value: 'บ่าย', label: 'บ่าย (บi,บr,บe)' },
+    { value: 'ดึก', label: 'ดึก (ดi,ดe)' },
+    { value: 'As/4', label: 'As/4 (วันเสาร์)' },
+    { value: 'A/4', label: 'A/4 (วันหยุดอื่น)' },
+    { value: 'SMC', label: 'SMC (4s1-4s4)' },
+    { value: '4o', label: '4o' },
+    { value: '2o', label: '2o' },
+    { value: 'อื่นๆ', label: 'อื่นๆ' },
+  ];
 
   const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)' };
 
@@ -1214,7 +1236,7 @@ function ShiftTypesManager() {
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold">จัดการประเภทเวร (เภสัชกร)</h2>
-        <button type="button" onClick={() => { setFormData({ name:'', color:'#3b82f6', start:'', end:'', min:1, allowedDays:'all' }); setIsModalOpen(true); }}
+        <button type="button" onClick={() => { setFormData({ name:'', color:'#3b82f6', start:'', end:'', min:1, allowedDays:'all', category:'' }); setIsModalOpen(true); }}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <Plus className="w-4 h-4" /> เพิ่มเวร
         </button>
@@ -1224,7 +1246,13 @@ function ShiftTypesManager() {
           <div key={s.id} className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group">
             <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.color }}></div>
             <div className="flex justify-between items-start mb-4 mt-1">
-              <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
+              <div>
+                <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
+                {s.category
+                  ? <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-full">{s.category}</span>
+                  : <span className="ml-1 px-2 py-0.5 bg-red-100 text-red-500 text-[10px] font-bold rounded-full">⚠️ ไม่มีหมวด</span>
+                }
+              </div>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button type="button" onClick={() => { setFormData(s); setIsModalOpen(true); }} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
                 <button type="button" onClick={() => { if (confirm('ลบเวรนี้?')) setShifts(shifts.filter(x => x.id !== s.id)); }} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
@@ -1276,6 +1304,14 @@ function ShiftTypesManager() {
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">จำนวนคนต้องการ / วัน</label>
                 <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
                   value={formData.min} onChange={e => setFormData({ ...formData, min: parseInt(e.target.value) || 1 })} />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">หมวดเวร *</label>
+                <select className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+                  value={formData.category} onChange={e => setFormData({ ...formData, category: e.target.value })}>
+                  <option value="">-- เลือกหมวดเวร --</option>
+                  {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">เงื่อนไขวันที่จัดได้</label>
