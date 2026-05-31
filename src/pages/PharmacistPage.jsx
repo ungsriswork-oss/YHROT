@@ -444,14 +444,15 @@ function ScheduleManager() {
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
-      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน avg+8 ชม.
+      // Hard hours cap กลุ่มปกติ/R2: ไม่เกิน avg+4 ชม.
+      // R2 ยังต้อง assign ได้ (bypass) แต่เวรอื่นถูก cap เพื่อไม่ให้รวมเกิน
       if (u !== 'R2' && canDoNight(emp)) {
         const sameGrpEmps = employees.filter(e => canDoNight(e));
         const assignedSoFar = sameGrpEmps.filter(e => empStats[e.id].hours > 0);
         if (assignedSoFar.length >= 3) {
           const avgHrs = assignedSoFar.reduce((s,e) => s + empStats[e.id].hours, 0) / assignedSoFar.length;
           const shiftHrs = getShiftHours(shift);
-          if (st.hours + shiftHrs > avgHrs + 8) {
+          if (st.hours + shiftHrs > avgHrs + 4) {
             const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? (canDoNight(e) ? 3 : 2) : 2;
             const hasLess = sameGrpEmps.some(e =>
               e.id !== emp.id &&
@@ -466,6 +467,30 @@ function ScheduleManager() {
               (empStats[e.id].catCounts[cat] || 0) < capForE(e)
             );
             if (hasLess) return false;
+          }
+        }
+      }
+
+      // Hours cap กลุ่ม off_night: soft block ถ้าชั่วโมงจะเกิน normalAvg-8
+      // มี fallback ป้องกันเวรขาด
+      if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
+        const normalEmps = employees.filter(e => canDoNight(e));
+        const normalAssigned = normalEmps.filter(e => empStats[e.id].hours > 0);
+        if (normalAssigned.length >= 5) {
+          const normalAvg = normalAssigned.reduce((s,e) => s + empStats[e.id].hours, 0) / normalAssigned.length;
+          const shiftHrs = getShiftHours(shift);
+          if (st.hours + shiftHrs > normalAvg - 8) {
+            const hasNormalCanDo = normalEmps.some(e =>
+              empStats[e.id].hours + shiftHrs <= normalAvg + 4 &&
+              !newAssignments[`${e.id}_${dateStr}`] &&
+              !e.offShifts?.includes(shift.id) &&
+              !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
+              (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
+              (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
+              (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
+              (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
+            );
+            if (hasNormalCanDo) return false;
           }
         }
       }
