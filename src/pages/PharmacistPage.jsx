@@ -576,29 +576,46 @@ function ScheduleManager() {
       }
     }
 
-    // ─── PHASE 2: เวร 2o (จ-อ วันทำการ, กระจายตามเงิน) ───
+    // ─── PHASE 2: เวร 2o (จ-อ วันทำการ, กระจายทั่วทุกกลุ่ม) ───
     const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
-    const MAX_2O = 3;
+    const MAX_2O = 2; // ไม่เกิน 2 ครั้งต่อเดือน/คน เพื่อกระจาย
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       for (const shift of twoOShifts) {
         if (!isApplicable(shift, d)) continue;
-        // คำนวณค่าเฉลี่ยเงินกลุ่มปกติ
-        const regEmps = employees.filter(e => canDoNight(e));
-        const avgMoney = regEmps.length > 0 ? regEmps.reduce((s,e) => s + empStats[e.id].money, 0) / regEmps.length : 0;
-
         for (let slot = 0; slot < (shift.min || 1); slot++) {
-          const eligible = employees.filter(emp => {
+          // รอบแรก: หาคนกลุ่มปกติ/r2 ที่ได้ 2o น้อยกว่า MAX_2O
+          let eligible = employees.filter(emp => {
             if (!canAssign(emp, dateStr, d, shift)) return false;
             if ((empStats[emp.id].catCounts['2o'] || 0) >= MAX_2O) return false;
-            // 2o: ให้กลุ่มที่เงินต่ำกว่าค่าเฉลี่ย 400 บาทก่อน
-            if (empStats[emp.id].money >= avgMoney - 400) return false;
-            return true;
+            // prefer กลุ่มปกติก่อน
+            const g = getGroup(emp);
+            return g === 'normal' || g === 'r2';
           });
+
+          // รอบสอง: ถ้ากลุ่มปกติหมดแล้ว เปิดให้กลุ่มอื่น
+          if (eligible.length === 0) {
+            eligible = employees.filter(emp => {
+              if (!canAssign(emp, dateStr, d, shift)) return false;
+              return (empStats[emp.id].catCounts['2o'] || 0) < MAX_2O;
+            });
+          }
+
+          // รอบสาม: ถ้ายังไม่มี ไม่จำกัด MAX_2O (ป้องกันวันขาด)
+          if (eligible.length === 0) {
+            eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
+          }
+
           if (eligible.length === 0) continue;
           shuffle(eligible);
-          eligible.sort((a,b) => empStats[a.id].money - empStats[b.id].money);
+          // เรียงตาม 2o count น้อยก่อน แล้ว hours น้อยก่อน
+          eligible.sort((a, b) => {
+            const c2a = empStats[a.id].catCounts['2o'] || 0;
+            const c2b = empStats[b.id].catCounts['2o'] || 0;
+            if (c2a !== c2b) return c2a - c2b;
+            return empStats[a.id].hours - empStats[b.id].hours;
+          });
           doAssign(eligible[0], dateStr, d, shift);
         }
       }
