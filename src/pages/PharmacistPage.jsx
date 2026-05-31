@@ -76,7 +76,8 @@ const getShiftCategory = (shift) => {
   if (!shift?.name) return 'อื่นๆ';
   const u = shift.name.trim().toUpperCase();
   const l = shift.name.trim().toLowerCase();
-  if (['A/4','AS/4','AS1'].includes(u)) return 'As/4';
+  if (u === 'AS/4' || u === 'AS1') return 'As/4';
+  if (u === 'A/4') return 'A/4';
   if (['B','C','D','E','F','G','R1','R2','T1','T2'].includes(u)) return 'เช้า';
   if (['4s1','4s2','4s3','4s4'].includes(l)) return 'SMC';
   if (u === '4O') return '4o';
@@ -233,19 +234,19 @@ function ScheduleManager() {
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
     employees.forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
-      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
         row.push(s ? `"${s.name}"` : '');
         if (s) { money += getShiftValue(s); hours += getShiftHours(s); const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
       }
-      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['SMC'], cnt['4o'], cnt['2o'], hours, money);
+      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A/4'], cnt['SMC'], cnt['4o'], cnt['2o'], hours, money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
@@ -869,7 +870,7 @@ function ScheduleManager() {
                       <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
                   ))}
-                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
+                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A/4','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
                     <th key={label} className={`p-1 border-b border-r border-gray-200 w-[30px] text-[10px] font-bold ${bg} ${tc}`}>{label}</th>
                   ))}
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold">รวม(บ.)</th>
@@ -878,7 +879,7 @@ function ScheduleManager() {
               <tbody>
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
-                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0 };
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
                   const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
                   const isR2Group = ['r2','r2_off_night'].includes(emp.group);
@@ -902,7 +903,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right">{totalMoney.toLocaleString()}</td>
