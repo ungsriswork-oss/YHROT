@@ -498,23 +498,27 @@ function ScheduleManager() {
         }
       }
 
-      // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT + 8h
+      // Hours cap กลุ่ม off_night: ต้องต่ำกว่า min ของกลุ่มปกติ อย่างน้อย 8h
+      // คำนวณ min_normal แบบ real-time จากคนที่มีเวรแล้ว
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
-        const OFF_CAP = TARGET_OFF_NIGHT + 8;
-        const NORMAL_CAP = TARGET_NORMAL + 8;
-        if (st.hours + shiftHrs > OFF_CAP) {
-          const hasNormalCanDo = normalEmpsAll.some(e =>
-            empStats[e.id].hours + shiftHrs <= NORMAL_CAP &&
-            !newAssignments[`${e.id}_${dateStr}`] &&
-            !e.offShifts?.includes(shift.id) &&
-            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-            (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
-            (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
-            (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-            (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
-          );
-          if (hasNormalCanDo) return false;
+        const normalHours = normalEmpsAll.map(e => empStats[e.id].hours).filter(h => h > 0);
+        if (normalHours.length >= 3) {
+          const minNormal = Math.min(...normalHours);
+          const OFF_CAP = minNormal - 8; // off_night ต้องต่ำกว่า min_normal อย่างน้อย 8h
+          if (st.hours + shiftHrs > OFF_CAP) {
+            // มีคนปกติที่ยังชั่วโมงน้อยกว่า TARGET รับเวรนี้ได้ไหม
+            const hasNormalCanDo = normalEmpsAll.some(e =>
+              empStats[e.id].hours < TARGET_NORMAL &&
+              !newAssignments[`${e.id}_${dateStr}`] &&
+              !e.offShifts?.includes(shift.id) &&
+              !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
+              (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
+              (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
+              (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
+            );
+            if (hasNormalCanDo) return false;
+          }
         }
       }
 
@@ -656,25 +660,32 @@ function ScheduleManager() {
       }
     }
 
-    // ─── PHASE 2: เวร 2o (จ-อ วันทำการ, กระจายทั่วทุกกลุ่ม) ───
+    // ─── PHASE 2: เวร 2o ───
     const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
-    const MAX_2O = 2; // ไม่เกิน 2 ครั้งต่อเดือน/คน เพื่อกระจาย
+    const MAX_2O = 2;
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       for (const shift of twoOShifts) {
         if (!isApplicable(shift, d)) continue;
         for (let slot = 0; slot < (shift.min || 1); slot++) {
-          // รอบแรก: หาคนกลุ่มปกติ/r2 ที่ได้ 2o น้อยกว่า MAX_2O
-          let eligible = employees.filter(emp => {
+
+          // รอบ 1: คนปกติที่ hours < TARGET_NORMAL (เติมให้เข้าใกล้ 60h ก่อน)
+          let eligible = normalEmpsAll.filter(emp => {
             if (!canAssign(emp, dateStr, d, shift)) return false;
             if ((empStats[emp.id].catCounts['2o'] || 0) >= MAX_2O) return false;
-            // prefer กลุ่มปกติก่อน
-            const g = getGroup(emp);
-            return g === 'normal' || g === 'r2';
+            return empStats[emp.id].hours < TARGET_NORMAL;
           });
 
-          // รอบสอง: ถ้ากลุ่มปกติหมดแล้ว เปิดให้กลุ่มอื่น
+          // รอบ 2: คนปกติทั่วไป (ถ้ารอบ 1 ไม่มี)
+          if (eligible.length === 0) {
+            eligible = normalEmpsAll.filter(emp => {
+              if (!canAssign(emp, dateStr, d, shift)) return false;
+              return (empStats[emp.id].catCounts['2o'] || 0) < MAX_2O;
+            });
+          }
+
+          // รอบ 3: off_night (หลังจากคนปกติเต็มแล้ว)
           if (eligible.length === 0) {
             eligible = employees.filter(emp => {
               if (!canAssign(emp, dateStr, d, shift)) return false;
@@ -682,19 +693,21 @@ function ScheduleManager() {
             });
           }
 
-          // รอบสาม: ถ้ายังไม่มี ไม่จำกัด MAX_2O (ป้องกันวันขาด)
+          // รอบ 4: fallback ป้องกันเวรขาด
           if (eligible.length === 0) {
             eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
           }
 
           if (eligible.length === 0) continue;
           shuffle(eligible);
-          // เรียงตาม 2o count น้อยก่อน แล้ว hours น้อยก่อน
           eligible.sort((a, b) => {
-            const c2a = empStats[a.id].catCounts['2o'] || 0;
-            const c2b = empStats[b.id].catCounts['2o'] || 0;
-            if (c2a !== c2b) return c2a - c2b;
-            return empStats[a.id].hours - empStats[b.id].hours;
+            // เรียงตาม gap จาก TARGET (คนห่างมากได้ก่อน)
+            const aTarget = canDoNight(a) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+            const bTarget = canDoNight(b) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+            const aGap = aTarget - empStats[a.id].hours;
+            const bGap = bTarget - empStats[b.id].hours;
+            if (aGap !== bGap) return bGap - aGap;
+            return (empStats[a.id].catCounts['2o'] || 0) - (empStats[b.id].catCounts['2o'] || 0);
           });
           doAssign(eligible[0], dateStr, d, shift);
         }
