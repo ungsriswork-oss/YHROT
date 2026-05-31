@@ -51,8 +51,9 @@ function useFirebaseSync(key, initialValue) {
 const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
   const n = shift.name.trim().toLowerCase();
+  // 4s1-4s4: hardcode 720 เพราะไม่มี start/end ที่คำนวณได้ถูก
   if (['4s1','4s2','4s3','4s4'].includes(n)) return 720;
-  if (n === 'as1' || n === 'as/4') return 1440;
+  // เวรอื่นคำนวณจาก start/end ที่ตั้งใน Firebase
   if (!shift.start || !shift.end) return 0;
   const [h1,m1] = shift.start.split(':').map(Number);
   const [h2,m2] = shift.end.split(':').map(Number);
@@ -75,11 +76,8 @@ const getShiftCategory = (shift) => {
   if (!shift?.name) return 'อื่นๆ';
   const u = shift.name.trim().toUpperCase();
   const l = shift.name.trim().toLowerCase();
-  if (u === 'A') return 'A';
+  if (['A/4','AS/4','AS1'].includes(u)) return 'As/4';
   if (['B','C','D','E','F','G','R1','R2','T1','T2'].includes(u)) return 'เช้า';
-  if (['บI','บR','บE'].includes(u)) return 'บ่าย';
-  if (['ดI','ดE'].includes(u)) return 'ดึก';
-  if (u === 'AS1' || u === 'AS/4') return 'As/4';
   if (['4s1','4s2','4s3','4s4'].includes(l)) return 'SMC';
   if (u === '4O') return '4o';
   if (u === '2O') return '2o';
@@ -235,19 +233,19 @@ function ScheduleManager() {
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,A,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
     employees.forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
-      let cnt = { A:0, เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
         row.push(s ? `"${s.name}"` : '');
         if (s) { money += getShiftValue(s); hours += getShiftHours(s); const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
       }
-      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A'], cnt['SMC'], cnt['4o'], cnt['2o'], hours, money);
+      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['SMC'], cnt['4o'], cnt['2o'], hours, money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
@@ -330,7 +328,7 @@ function ScheduleManager() {
       empStats[emp.id].totalShifts++;
       empStats[emp.id].catCounts[cat] = (empStats[emp.id].catCounts[cat] || 0) + 1;
       if (cat === 'SMC') empStats[emp.id].smcHours += getShiftHours(shift);
-      if (u === 'A' || u === 'AS1' || u === 'AS/4') empStats[emp.id].countA_As4++;
+      if (u === 'A/4' || u === 'AS1' || u === 'AS/4') empStats[emp.id].countA_As4++;
       if (cat === 'เช้า') {
         empStats[emp.id].assignedMornings.add(u);
         if (u === 'R1') empStats[emp.id].hasR1 = true;
@@ -445,7 +443,7 @@ function ScheduleManager() {
       }
 
       // Rule 6: A/As4 ได้แค่ 1 ครั้ง
-      if (rules.rule_6 && (u === 'A' || u === 'AS1' || u === 'AS/4') && st.countA_As4 >= 1) return false;
+      if (rules.rule_6 && (u === 'A/4' || u === 'AS1' || u === 'AS/4') && st.countA_As4 >= 1) return false;
 
       // Rule 7: เวรเช้าห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่ต้องได้ทุกวันหยุด)
       if (rules.rule_7 && cat === 'เช้า' && u !== 'R2' && st.assignedMornings.has(u)) return false;
@@ -871,7 +869,7 @@ function ScheduleManager() {
                       <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
                   ))}
-                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
+                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
                     <th key={label} className={`p-1 border-b border-r border-gray-200 w-[30px] text-[10px] font-bold ${bg} ${tc}`}>{label}</th>
                   ))}
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold">รวม(บ.)</th>
@@ -880,7 +878,7 @@ function ScheduleManager() {
               <tbody>
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
-                  let cnt = { A:0, เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
+                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, SMC:0, '4o':0, '2o':0 };
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
                   const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
                   const isR2Group = ['r2','r2_off_night'].includes(emp.group);
@@ -904,7 +902,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right">{totalMoney.toLocaleString()}</td>
