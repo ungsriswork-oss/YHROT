@@ -476,7 +476,12 @@ function ScheduleManager() {
 
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
-        if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
+
+        // คนที่ได้ As/4 หรือ A/4 แล้ว → ห้ามได้ 4o เพิ่ม (As/4 = เช้า + 4o อยู่แล้ว)
+        const hasAs4 = (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0) > 0;
+        const effectiveFourOCap = hasAs4 ? 0 : fourOCap;
+        if (cat === '4o' && (st.catCounts['4o'] || 0) >= effectiveFourOCap) return false;
+
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= smcCap) return false;
 
         // เช้า cap: นับรวม เช้า + As/4 + A/4 (ทุกเวรที่ทำงาน 8-12h ช่วงเช้า)
@@ -683,7 +688,7 @@ function ScheduleManager() {
 
     // ─── PHASE 2: เวร 2o ───
     const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
-    const MAX_2O = 2;
+    const MAX_2O = 1; // กระจายคนละ 1 ครั้ง
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
