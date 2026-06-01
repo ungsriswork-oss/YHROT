@@ -468,66 +468,75 @@ function ScheduleManager() {
       if (rules.rule_7 && cat === 'เช้า' && u !== 'R2' && st.assignedMornings.has(u)) return false;
 
       // Hard cap per category — R2 ไม่มี cap เลย
+      // ใช้ CAP object คำนวณจาก Firebase — รองรับเวรใหม่อัตโนมัติ
       if (u !== 'R2') {
-        const nightCap = 2;
-        const afternoonCap = 2;
-        // SMC cap: off_night ≤ 2, ปกติ ≤ 3
-        const smcCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 2 : 3;
-        const otherCap = isOffSpecial(emp) ? 2 : 3;
+        if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
+        if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= CAP['บ่าย']) return false;
 
-        if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
-        if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
-
-        // 4o cap: ทุกกลุ่ม ≤ 1 + คนที่มี As4/A4 แล้ว → ห้ามได้ 4o
+        // 4o: คนที่มี As4/A4 แล้ว → ห้ามได้ 4o
         const hasAs4 = (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0) > 0;
-        const fourOCap = hasAs4 ? 0 : 1;
+        const fourOCap = hasAs4 ? 0 : CAP['4o'];
         if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
 
-        if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= smcCap) return false;
+        if (cat === '2o' && (st.catCounts['2o'] || 0) >= CAP['2o']) return false;
+        if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= CAP['SMC']) return false;
 
-        // เช้า cap: นับรวม เช้า + As/4 + A/4 (ทุกเวรที่ทำงาน 8-12h ช่วงเช้า)
+        // เช้า cap รวม (เช้า + As/4 + A/4)
         const totalMorning = (st.catCounts['เช้า'] || 0) + (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0);
         if (['เช้า','As/4','A/4'].includes(cat)) {
-          // ปกติ ≤ 3 รวม, off_night ≤ 2 รวม
-          const mornCap = canDoNight(emp) ? 3 : 2;
+          const mornCap = canDoNight(emp) ? MORNING_CAP_NORMAL : MORNING_CAP_OFF;
           if (totalMorning >= mornCap) return false;
         }
 
-        if (!['ดึก','เช้า','บ่าย','4o','SMC','As/4','A/4'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+        // เวรอื่นๆ (4T, เวรใหม่ในอนาคต) คำนวณ cap จาก Firebase อัตโนมัติ
+        if (!['ดึก','เช้า','บ่าย','4o','2o','SMC','As/4','A/4'].includes(cat)) {
+          const otherCap = isOffSpecial(emp) ? 2 : Math.max(2, CAP[cat] || 3);
+          if ((st.catCounts[cat] || 0) >= otherCap) return false;
+        }
       }
 
       // As/4 → SMC ไม่เกิน 1
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
       // Hard hours cap กลุ่มปกติ/R2
-      // block ถ้าจะเกิน TARGET และยังมีคนอื่นที่รับได้โดยไม่เกิน TARGET
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
         if (st.hours + shiftHrs > TARGET_NORMAL) {
-          const hasOtherUnderTarget = normalEmpsAll.some(e =>
-            e.id !== emp.id &&
-            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL &&
-            !newAssignments[`${e.id}_${dateStr}`] &&
-            !e.offShifts?.includes(shift.id) &&
-            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-            !(isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) &&
-            (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
-            (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
-            (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-            (cat !== 'ดึก' || (empStats[e.id].catCounts['ดึก'] || 0) < 2) &&
-            (cat === 'ดึก' || cat === 'เช้า' || (empStats[e.id].catCounts[cat] || 0) < 2)
-          );
+          const hasOtherUnderTarget = normalEmpsAll.some(e => {
+            if (e.id === emp.id) return false;
+            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
+            if (newAssignments[`${e.id}_${dateStr}`]) return false;
+            if (e.offShifts?.includes(shift.id)) return false;
+            if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false;
+            if (isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) return false;
+            if (cat === 'ดึก' && empStats[e.id].assignedNights.has(u)) return false;
+            if (cat === 'ดึก' && (empStats[e.id].catCounts['ดึก'] || 0) >= 2) return false;
+            if (['เช้า','As/4','A/4'].includes(cat)) {
+              const eTotalMorning = (empStats[e.id].catCounts['เช้า']||0) + (empStats[e.id].catCounts['As/4']||0) + (empStats[e.id].catCounts['A/4']||0);
+              const eMornCap = canDoNight(e) ? MORNING_CAP_NORMAL : MORNING_CAP_OFF;
+              if (eTotalMorning >= eMornCap) return false;
+              if (cat === 'เช้า' && empStats[e.id].assignedMornings.has(u)) return false;
+            }
+            if (cat === 'บ่าย') {
+              if (empStats[e.id].assignedAfternoons.has(u)) return false;
+              if ((empStats[e.id].catCounts['บ่าย']||0) >= CAP['บ่าย']) return false;
+            }
+            if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= SMC_CAP) return false;
+            if (cat === '4o') {
+              const eHasAs4 = (empStats[e.id].catCounts['As/4']||0) + (empStats[e.id].catCounts['A/4']||0) > 0;
+              if (eHasAs4) return false;
+              if ((empStats[e.id].catCounts['4o']||0) >= CAP['4o']) return false;
+            }
+            return true;
+          });
           if (hasOtherUnderTarget) return false;
         }
-        // Emergency hard cap: ป้องกันเวรขาดในเดือนที่ยุ่งมาก
+        // Emergency hard cap
         if (st.hours + shiftHrs > TARGET_NORMAL + 8) return false;
       }
 
-      // Cap เฉพาะกลุ่ม off_night: เช้า≤2, บ่าย≤2, 4o≤1, SMC≤2
-      if (!canDoNight(emp) && !isOffSpecial(emp) && u !== 'R2') {
-        if (cat === '4o' && (st.catCounts['4o'] || 0) >= 1) return false;
-        if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= 2) return false;
-      }
+      // Cap เฉพาะกลุ่ม off_night (ใช้ CAP เดิม ไม่ hardcode)
+      // ไม่ต้องเพิ่มอะไรที่นี่ เพราะ CAP block ด้านบนครอบคลุมแล้ว
 
       // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT
       // block ถ้ายังมีคนปกติที่ชั่วโมง < TARGET_NORMAL รับได้
@@ -617,7 +626,46 @@ function ScheduleManager() {
       return eligible;
     };
 
-    // ─── PHASE 1: จัดเวรหลักทุกประเภท (ยกเว้น 2o) วนรายวัน ───
+    // ─── คำนวณ CAP ต่อคนแบบ dynamic จาก Firebase ทุกประเภทเวร ───
+    // หลักการ: cap = ceil(total_slots / eligible_people) แต่ไม่น้อยกว่าค่า min
+    // รองรับการเพิ่มเวรใหม่ (4s5, 4T, 2o เพิ่ม) โดยไม่ต้องแก้ code
+    const slotsByCat = {};
+    for (let d = 1; d <= dim; d++) {
+      shifts.forEach(s => {
+        if (!isApplicable(s, d)) return;
+        const cat = getShiftCategory(s);
+        slotsByCat[cat] = (slotsByCat[cat] || 0) + (s.min || 1);
+      });
+    }
+
+    const totalEmps = employees.length || 1;
+    const normalCount = normalEmpsAll.length || 1;
+
+    // eligible คน = คนที่รับเวรนั้นได้จริง
+    const eligibleCount = (cat) => {
+      if (cat === 'ดึก') return normalCount; // เฉพาะคนปกติ
+      return totalEmps; // ทุกคน
+    };
+
+    const dynamicCap = (cat, minCap = 1) =>
+      Math.max(minCap, Math.ceil((slotsByCat[cat] || 0) / eligibleCount(cat)));
+
+    const CAP = {
+      'ดึก':  dynamicCap('ดึก',  2),
+      'บ่าย': dynamicCap('บ่าย', 2),
+      'เช้า': dynamicCap('เช้า', 2),  // morning รวม As/4,A/4 แยกตรวจ
+      'SMC':  dynamicCap('SMC',  2),
+      '4o':   dynamicCap('4o',   1),
+      '2o':   dynamicCap('2o',   1),
+      'As/4': 1, // rule_6: ได้แค่ 1 ครั้ง/เดือน
+      'A/4':  1, // rule_6: ได้แค่ 1 ครั้ง/เดือน
+    };
+    // morning cap รวม (เช้า + As/4 + A/4): ปกติ ≤ 3, off_night ≤ 2
+    const MORNING_CAP_NORMAL   = Math.max(3, dynamicCap('เช้า', 2));
+    const MORNING_CAP_OFF      = 2;
+
+    // SMC_CAP ยังใช้ชื่อเดิมเพื่อ backward compat
+    const SMC_CAP = CAP['SMC'];
     // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
     const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
     const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
