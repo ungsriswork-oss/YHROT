@@ -378,22 +378,34 @@ function ScheduleManager() {
     const normalEmpsAll = employees.filter(e => canDoNight(e));
     const offNightEmpsAll = employees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
 
-    let estimatedTotalNormal = 0;
+    // คำนวณ TARGET_NORMAL จากเวรที่คนปกติรับเท่านั้น
+    // แยกเวรที่คนปกติรับ vs off_night รับ
+    let totalNormalHours = 0;
     for (let d = 1; d <= dim; d++) {
       shifts.forEach(s => {
         if (!isApplicable(s, d)) return;
         const cat = getShiftCategory(s);
         const u = s.name.trim().toUpperCase();
-        if (cat !== '2o') {
-          const slots = u === 'R2' ? 1 : (s.min || 1);
-          estimatedTotalNormal += getShiftHours(s) * slots;
+        if (cat === '2o') return; // ไม่นับ 2o
+        if (u === 'R2') {
+          // R2: 1 slot ต่อวันหยุด → นับเป็น hours ของคนปกติ/r2
+          totalNormalHours += getShiftHours(s) * 1;
+        } else {
+          totalNormalHours += getShiftHours(s) * (s.min || 1);
         }
       });
     }
+
+    // TARGET_NORMAL = total / คนปกติทั้งหมด
     const TARGET_NORMAL = normalEmpsAll.length > 0
-      ? Math.round(estimatedTotalNormal / normalEmpsAll.length)
+      ? Math.round(totalNormalHours / normalEmpsAll.length)
       : 60;
-    const TARGET_OFF_NIGHT = TARGET_NORMAL - 16;
+
+    // TARGET_OFF_NIGHT ปรับตาม TARGET_NORMAL เสมอ (ต่างกัน 12-16h)
+    // ถ้า TARGET_NORMAL ≤ 60 → ต่างกัน 16h
+    // ถ้า TARGET_NORMAL > 60 → ต่างกัน 12h (buffer น้อยลงเมื่อเดือนยุ่ง)
+    const OFF_NIGHT_GAP = TARGET_NORMAL <= 60 ? 16 : 12;
+    const TARGET_OFF_NIGHT = TARGET_NORMAL - OFF_NIGHT_GAP;
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
@@ -458,17 +470,23 @@ function ScheduleManager() {
       // Rule 7: เวรเช้าห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่ต้องได้ทุกวันหยุด)
       if (rules.rule_7 && cat === 'เช้า' && u !== 'R2' && st.assignedMornings.has(u)) return false;
 
-      // Hard cap per category — R2 ไม่มี cap เลย (บังคับได้ทุกวันหยุด)
+      // Hard cap per category — R2 ไม่มี cap เลย
       if (u !== 'R2') {
         const nightCap = 2;
-        // เช้า: กลุ่มที่ขึ้นดึกได้ (normal/r2) ≤ 3, กลุ่มงดดึกทุกประเภท ≤ 2
+        // เช้า: ปกติ ≤ 3, off_night ≤ 2 (แต่ต้องได้ 2 เสมอ → sort จะดูแล)
         const morningCap = canDoNight(emp) ? 3 : 2;
         const afternoonCap = 2;
+        // off_night: 4o ≤ 1, SMC ≤ 2
+        const fourOCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 1 : 3;
+        const smcCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 2 : 3;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
+
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
         if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
-        if (!['ดึก','เช้า','บ่าย'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+        if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
+        if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= smcCap) return false;
+        if (!['ดึก','เช้า','บ่าย','4o','SMC'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
       }
 
       // As/4 → SMC ไม่เกิน 1
@@ -504,28 +522,24 @@ function ScheduleManager() {
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= 2) return false;
       }
 
-      // Hours cap กลุ่ม off_night: ต้องต่ำกว่า min ของกลุ่มปกติ อย่างน้อย 8h
-      // คำนวณ min_normal แบบ real-time จากคนที่มีเวรแล้ว
+      // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT
+      // block ถ้ายังมีคนปกติที่ชั่วโมง < TARGET_NORMAL รับได้
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
-        const normalHours = normalEmpsAll.map(e => empStats[e.id].hours).filter(h => h > 0);
-        if (normalHours.length >= 3) {
-          const minNormal = Math.min(...normalHours);
-          const OFF_CAP = minNormal - 8; // off_night ต้องต่ำกว่า min_normal อย่างน้อย 8h
-          if (st.hours + shiftHrs > OFF_CAP) {
-            // มีคนปกติที่ยังชั่วโมงน้อยกว่า TARGET รับเวรนี้ได้ไหม
-            const hasNormalCanDo = normalEmpsAll.some(e =>
-              empStats[e.id].hours < TARGET_NORMAL &&
-              !newAssignments[`${e.id}_${dateStr}`] &&
-              !e.offShifts?.includes(shift.id) &&
-              !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-              (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
-              (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-              (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
-            );
-            if (hasNormalCanDo) return false;
-          }
+        if (st.hours + shiftHrs > TARGET_OFF_NIGHT) {
+          const hasNormalUnderTarget = normalEmpsAll.some(e =>
+            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL &&
+            !newAssignments[`${e.id}_${dateStr}`] &&
+            !e.offShifts?.includes(shift.id) &&
+            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
+            (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
+            (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
+            (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
+          );
+          if (hasNormalUnderTarget) return false;
         }
+        // Emergency: ไม่เกิน TARGET_OFF_NIGHT + 8h ไม่ว่ากรณีใด
+        if (st.hours + shiftHrs > TARGET_OFF_NIGHT + 8) return false;
       }
 
       return true;
