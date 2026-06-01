@@ -473,8 +473,6 @@ function ScheduleManager() {
       // Hard cap per category — R2 ไม่มี cap เลย
       if (u !== 'R2') {
         const nightCap = 2;
-        // เช้า: ปกติ ≤ 3, off_night ≤ 2 (แต่ต้องได้ 2 เสมอ → sort จะดูแล)
-        const morningCap = canDoNight(emp) ? 3 : 2;
         const afternoonCap = 2;
         // off_night: 4o ≤ 1, SMC ≤ 2
         const fourOCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 1 : 3;
@@ -482,11 +480,19 @@ function ScheduleManager() {
         const otherCap = isOffSpecial(emp) ? 2 : 3;
 
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
-        if (cat === 'เช้า' && (st.catCounts['เช้า'] || 0) >= morningCap) return false;
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
         if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= smcCap) return false;
-        if (!['ดึก','เช้า','บ่าย','4o','SMC'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
+
+        // เช้า cap: นับรวม เช้า + As/4 + A/4 (ทุกเวรที่ทำงาน 8-12h ช่วงเช้า)
+        const totalMorning = (st.catCounts['เช้า'] || 0) + (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0);
+        if (['เช้า','As/4','A/4'].includes(cat)) {
+          // ปกติ ≤ 3 รวม, off_night ≤ 2 รวม
+          const mornCap = canDoNight(emp) ? 3 : 2;
+          if (totalMorning >= mornCap) return false;
+        }
+
+        if (!['ดึก','เช้า','บ่าย','4o','SMC','As/4','A/4'].includes(cat) && (st.catCounts[cat] || 0) >= otherCap) return false;
       }
 
       // As/4 → SMC ไม่เกิน 1
@@ -577,11 +583,11 @@ function ScheduleManager() {
           if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
         }
 
-        // เช้า: คนที่ได้เช้า < 2 ได้ก่อนเสมอ
-        if (cat === 'เช้า') {
-          const aM = sa.catCounts['เช้า'] || 0;
-          const bM = sb.catCounts['เช้า'] || 0;
-          const aUnder = aM < 2, bUnder = bM < 2;
+        // เช้า: นับรวม เช้า + As/4 + A/4 — คนที่รวมแล้ว < 2 ได้ก่อน
+        if (['เช้า','As/4','A/4'].includes(cat)) {
+          const aTotal = (sa.catCounts['เช้า']||0) + (sa.catCounts['As/4']||0) + (sa.catCounts['A/4']||0);
+          const bTotal = (sb.catCounts['เช้า']||0) + (sb.catCounts['As/4']||0) + (sb.catCounts['A/4']||0);
+          const aUnder = aTotal < 2, bUnder = bTotal < 2;
           if (aUnder !== bUnder) return aUnder ? -1 : 1;
         }
 
