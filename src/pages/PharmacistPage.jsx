@@ -653,16 +653,27 @@ function ScheduleManager() {
     const CAP = {
       'ดึก':  dynamicCap('ดึก',  2),
       'บ่าย': dynamicCap('บ่าย', 2),
-      'เช้า': dynamicCap('เช้า', 2),  // morning รวม As/4,A/4 แยกตรวจ
+      'เช้า': dynamicCap('เช้า', 2),
       'SMC':  dynamicCap('SMC',  2),
       '4o':   dynamicCap('4o',   1),
       '2o':   dynamicCap('2o',   1),
-      'As/4': 1, // rule_6: ได้แค่ 1 ครั้ง/เดือน
-      'A/4':  1, // rule_6: ได้แค่ 1 ครั้ง/เดือน
+      'As/4': 1,
+      'A/4':  1,
     };
-    // morning cap รวม (เช้า + As/4 + A/4): ปกติ ≤ 3, off_night ≤ 2
-    const MORNING_CAP_NORMAL   = Math.max(3, dynamicCap('เช้า', 2));
-    const MORNING_CAP_OFF      = 2;
+
+    // morning cap: คำนวณจาก hours budget
+    // หัก hours ที่จำเป็นต้องใช้ (ดึก+บ่าย) แล้วดูว่าเหลือพอสำหรับเช้ากี่เวร
+    // ใช้ค่าเฉลี่ย (50% ของ cap) เพื่อไม่ให้ตึงเกินไป
+    const nightHrsPerPerson  = CAP['ดึก']  * 8 * 0.6;  // เฉลี่ยได้ดึก ~60% ของ cap
+    const aftHrsPerPerson    = CAP['บ่าย'] * 8;         // บ่ายเต็ม cap เสมอ
+    const smcHrsPerPerson    = CAP['SMC']  * 4;         // SMC เต็ม cap
+    const fourOHrsPerPerson  = CAP['4o']   * 4 * 0.7;  // 4o ~70%
+    const budgetForMorning   = TARGET_NORMAL - nightHrsPerPerson - aftHrsPerPerson - smcHrsPerPerson - fourOHrsPerPerson;
+    const MORNING_CAP_NORMAL = Math.max(2, Math.min(
+      dynamicCap('เช้า', 2),
+      Math.floor(budgetForMorning / 8)
+    ));
+    const MORNING_CAP_OFF = 2;
 
     // SMC_CAP ยังใช้ชื่อเดิมเพื่อ backward compat
     const SMC_CAP = CAP['SMC'];
