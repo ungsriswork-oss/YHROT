@@ -199,6 +199,8 @@ function ScheduleManager() {
   const [assignmentModal, setAssignmentModal] = useState({ isOpen: false, empId: null, dateStr: null });
   const [showRuleDropdown, setShowRuleDropdown] = useState(false);
   const [sortByMoney, setSortByMoney] = useState(false);
+  const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
+  const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
 
   const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
@@ -307,7 +309,7 @@ function ScheduleManager() {
     employees.forEach(e => {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0,
-        catCounts: { A:0, เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, '4o':0, '2o':0, อื่นๆ:0 },
+        catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, อื่นๆ:0 },
         smcHours: 0,       // ชม.ค่าเวร smc สำหรับกระจาย
         countA_As4: 0,
         assignedMornings: new Set(),   // unique morning positions
@@ -469,18 +471,17 @@ function ScheduleManager() {
       if (u !== 'R2') {
         const nightCap = 2;
         const afternoonCap = 2;
-        // off_night: 4o ≤ 1, SMC ≤ 2
-        const fourOCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 1 : 3;
+        // SMC cap: off_night ≤ 2, ปกติ ≤ 3
         const smcCap = (!canDoNight(emp) && !isOffSpecial(emp)) ? 2 : 3;
         const otherCap = isOffSpecial(emp) ? 2 : 3;
 
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= nightCap) return false;
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= afternoonCap) return false;
 
-        // คนที่ได้ As/4 หรือ A/4 แล้ว → ห้ามได้ 4o เพิ่ม (As/4 = เช้า + 4o อยู่แล้ว)
+        // 4o cap: ทุกกลุ่ม ≤ 1 + คนที่มี As4/A4 แล้ว → ห้ามได้ 4o
         const hasAs4 = (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0) > 0;
-        const effectiveFourOCap = hasAs4 ? 0 : fourOCap;
-        if (cat === '4o' && (st.catCounts['4o'] || 0) >= effectiveFourOCap) return false;
+        const fourOCap = hasAs4 ? 0 : 1;
+        if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
 
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= smcCap) return false;
 
@@ -499,13 +500,12 @@ function ScheduleManager() {
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
       // Hard hours cap กลุ่มปกติ/R2
+      // block ถ้าจะเกิน TARGET และยังมีคนอื่นที่รับได้โดยไม่เกิน TARGET
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
         if (st.hours + shiftHrs > TARGET_NORMAL) {
-          const capForE = (e) => cat === 'ดึก' ? 2 : cat === 'เช้า' ? 3 : 2;
-          const hasLessUnderTarget = normalEmpsAll.some(e =>
+          const hasOtherUnderTarget = normalEmpsAll.some(e =>
             e.id !== emp.id &&
-            empStats[e.id].hours < st.hours &&
             empStats[e.id].hours + shiftHrs <= TARGET_NORMAL &&
             !newAssignments[`${e.id}_${dateStr}`] &&
             !e.offShifts?.includes(shift.id) &&
@@ -514,11 +514,12 @@ function ScheduleManager() {
             (cat !== 'ดึก' || !empStats[e.id].assignedNights.has(u)) &&
             (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
             (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-            (empStats[e.id].catCounts[cat] || 0) < capForE(e)
+            (cat !== 'ดึก' || (empStats[e.id].catCounts['ดึก'] || 0) < 2) &&
+            (cat === 'ดึก' || cat === 'เช้า' || (empStats[e.id].catCounts[cat] || 0) < 2)
           );
-          if (hasLessUnderTarget) return false;
+          if (hasOtherUnderTarget) return false;
         }
-        // Emergency hard cap: ไม่เกิน TARGET + 8h ไม่ว่าอะไรจะเกิดขึ้น
+        // Emergency hard cap: ป้องกันเวรขาดในเดือนที่ยุ่งมาก
         if (st.hours + shiftHrs > TARGET_NORMAL + 8) return false;
       }
 
@@ -741,6 +742,8 @@ function ScheduleManager() {
     }
 
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
+    setTargetNormalDisplay(TARGET_NORMAL);
+    setTargetOffNightDisplay(TARGET_OFF_NIGHT);
   };
 
   const handleAssignShift = (shiftId) => {
@@ -876,6 +879,12 @@ function ScheduleManager() {
       {/* Action bar */}
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
+          {activeSchedule && TARGET_NORMAL_DISPLAY > 0 && (
+            <div className="text-xs text-gray-500 mr-auto flex gap-3">
+              <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
+              <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
+            </div>
+          )}
           <button type="button" onClick={handleDeleteSchedule}
             className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 mr-2">
             <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
@@ -931,8 +940,10 @@ function ScheduleManager() {
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
                   const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
                   const isR2Group = ['r2','r2_off_night'].includes(emp.group);
-                  // สีพื้นหลัง row: off_night=เทาอ่อน, r2=เขียวอ่อน, ปกติ=ขาว
                   const rowBg = isOffNight ? 'bg-gray-100/70' : isR2Group ? 'bg-green-50/60' : '';
+                  // คำนวณ TARGET ของคนนี้
+                  const empCanNight = !isOffNight;
+                  const empTarget = empCanNight ? TARGET_NORMAL_DISPLAY : TARGET_OFF_NIGHT_DISPLAY;
                   return (
                     <tr key={emp.id} className={`hover:brightness-95 h-8 ${rowBg}`}>
                       <td className={`sticky left-0 px-2 py-1 border-b border-r border-gray-200 text-left truncate ${rowBg || 'bg-white'}`}>
@@ -951,9 +962,15 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],totalHours].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o']].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
+                      <td className={`px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold
+                        ${totalHours > empTarget + 4 ? 'bg-red-100 text-red-700' :
+                          totalHours > empTarget ? 'bg-orange-50 text-orange-600' :
+                          totalHours === empTarget ? 'bg-green-50 text-green-700' : 'text-gray-700'}`}>
+                        {totalHours > 0 ? `${totalHours}h` : '-'}
+                      </td>
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right">{totalMoney.toLocaleString()}</td>
                     </tr>
                   );
@@ -993,10 +1010,30 @@ function ScheduleManager() {
       {assignmentModal.isOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm" onClick={() => setAssignmentModal({ isOpen: false, empId: null, dateStr: null })}>
           <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-base font-bold border-b border-gray-100 pb-3 mb-4 flex items-center justify-between">
+            <h3 className="text-base font-bold border-b border-gray-100 pb-3 mb-3 flex items-center justify-between">
               เลือกเวรประจำวัน
               <button type="button" onClick={() => handleAssignShift(null)} className="py-1 px-3 border border-red-200 text-red-500 rounded-lg text-xs hover:bg-red-50 font-medium">ว่าง (ลบเวร)</button>
             </h3>
+            {(() => {
+              const emp = employees.find(e => e.id === assignmentModal.empId);
+              if (!emp) return null;
+              const isOff = ['off_night','r2_off_night','off_special'].includes(emp.group);
+              const target = isOff ? TARGET_OFF_NIGHT_DISPLAY : TARGET_NORMAL_DISPLAY;
+              let curHours = 0;
+              monthDates.forEach(d => {
+                const s = shifts.find(s => s.id === activeSchedule?.assignments[`${emp.id}_${d.dateStr}`]);
+                if (s) curHours += getShiftHours(s);
+              });
+              const over = curHours > target;
+              return (
+                <div className={`flex items-center gap-2 text-xs mb-3 px-3 py-2 rounded-lg ${over ? 'bg-red-50 text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+                  <span className="font-bold">{emp.name}</span>
+                  <span>ชั่วโมงปัจจุบัน: <b>{curHours}h</b></span>
+                  <span>/ เป้า <b>{target}h</b></span>
+                  {over && <span className="font-bold text-red-600">⚠️ เกิน {curHours - target}h</span>}
+                </div>
+              );
+            })()}
             <div className="grid grid-cols-3 gap-2.5 max-h-[60vh] overflow-y-auto pr-1">
               {shifts.map(s => (
                 <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)}
