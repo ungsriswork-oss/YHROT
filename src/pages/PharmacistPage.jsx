@@ -216,7 +216,17 @@ function ScheduleManager() {
   const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
 
-  const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+  // Spacebar shortcut → สุ่มเวร
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.code === 'Space' && e.target === document.body) {
+        e.preventDefault();
+        if (activeSchedule) handleAutoGenerate();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [activeSchedule, employees, shifts, schedules, rules]);
   const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
   const activeSchedule = schedules.find(s => s.id === activeScheduleId);
 
@@ -369,6 +379,52 @@ function ScheduleManager() {
         if (u === 'บE') empStats[emp.id].hasBe = true;
       }
       empStats[emp.id].lastDay = d;
+    };
+
+    // ─── doSwap: ย้ายเวรจาก fromEmp → toEmp พร้อม update empStats ───
+    const doSwap = (fromEmpId, toEmpId, dateStr, shift) => {
+      const cat = getShiftCategory(shift);
+      const u = shift.name.trim().toUpperCase();
+      const hrs = getShiftHours(shift);
+
+      // ลบออกจาก fromEmp
+      delete newAssignments[`${fromEmpId}_${dateStr}`];
+      empStats[fromEmpId].hours -= hrs;
+      empStats[fromEmpId].money -= getShiftValue(shift);
+      empStats[fromEmpId].totalShifts--;
+      empStats[fromEmpId].catCounts[cat] = Math.max(0, (empStats[fromEmpId].catCounts[cat] || 1) - 1);
+      if (cat === 'บ่าย') {
+        empStats[fromEmpId].afternoonCount = Math.max(0, empStats[fromEmpId].afternoonCount - 1);
+        // rebuild assignedAfternoons
+        empStats[fromEmpId].assignedAfternoons = new Set();
+        for (let d2 = 1; d2 <= dim; d2++) {
+          const s2 = shifts.find(s => s.id === newAssignments[`${fromEmpId}_${fmtD(d2)}`]);
+          if (s2 && getShiftCategory(s2) === 'บ่าย') empStats[fromEmpId].assignedAfternoons.add(s2.name.trim().toUpperCase());
+        }
+      }
+      if (cat === 'SMC') empStats[fromEmpId].smcHours -= hrs;
+      if (cat === 'ดึก') {
+        empStats[fromEmpId].assignedNights = new Set();
+        for (let d2 = 1; d2 <= dim; d2++) {
+          const s2 = shifts.find(s => s.id === newAssignments[`${fromEmpId}_${fmtD(d2)}`]);
+          if (s2 && getShiftCategory(s2) === 'ดึก') empStats[fromEmpId].assignedNights.add(s2.name.trim().toUpperCase());
+        }
+      }
+
+      // เพิ่มให้ toEmp
+      newAssignments[`${toEmpId}_${dateStr}`] = shift.id;
+      empStats[toEmpId].hours += hrs;
+      empStats[toEmpId].money += getShiftValue(shift);
+      empStats[toEmpId].totalShifts++;
+      empStats[toEmpId].catCounts[cat] = (empStats[toEmpId].catCounts[cat] || 0) + 1;
+      if (cat === 'บ่าย') {
+        empStats[toEmpId].assignedAfternoons.add(u);
+        empStats[toEmpId].afternoonCount++;
+        if (u === 'บE') empStats[toEmpId].hasBe = true;
+      }
+      if (cat === 'SMC') empStats[toEmpId].smcHours += hrs;
+      if (cat === 'ดึก') empStats[toEmpId].assignedNights.add(u);
+      if (cat === 'เช้า') empStats[toEmpId].assignedMornings.add(u);
     };
 
     // ─── isApplicable: วันที่จัดได้ ───
@@ -922,8 +978,7 @@ function ScheduleManager() {
             if (newUnderHours > overHours - 1) continue;
 
             // SWAP!
-            delete newAssignments[`${overEmp.id}_${ds}`];
-            newAssignments[`${underEmp.id}_${ds}`] = overShift.id;
+            doSwap(overEmp.id, underEmp.id, ds, overShift);
             foundSwap = true;
             swapped = true;
             break;
@@ -1025,15 +1080,11 @@ function ScheduleManager() {
             const newUnderHours = underHours + 8 - 4; // +บ่าย -4h
             const newOverHours = overHours - 8 + 4;   // -บ่าย +4h
             if (newUnderHours > 64) continue; // ไม่ให้ under เกิน
-            if (newOverHours >= overHours) continue;   // ต้องลดลงจริงๆ
+            if (newOverHours >= overHours) continue;
 
             // ─ 2-WAY SWAP ─
-            // 1. ให้ under รับบ่าย
-            delete newAssignments[`${overEmp.id}_${ds}`];
-            newAssignments[`${underEmp.id}_${ds}`] = aftShift.id;
-            // 2. ให้ over รับ 4h ของ under
-            delete newAssignments[`${underEmp.id}_${ds4}`];
-            newAssignments[`${overEmp.id}_${ds4}`] = s4.id;
+            doSwap(overEmp.id, underEmp.id, ds, aftShift);
+            doSwap(underEmp.id, overEmp.id, ds4, s4);
             swapped3b = true;
             break;
           }
@@ -1110,8 +1161,8 @@ function ScheduleManager() {
             if (newUnderHours > 60) continue; // คนปกติต้องไม่เกิน 60h
 
             // SWAP!
-            delete newAssignments[`${overEmp.id}_${ds}`];
-            newAssignments[`${underEmp.id}_${ds}`] = fourShift.id;
+            // SWAP!
+            doSwap(overEmp.id, underEmp.id, ds, fourShift);
             swapped3c = true;
             break;
           }
@@ -1316,13 +1367,18 @@ function ScheduleManager() {
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
                   let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0 };
+                  // pre-calculate cnt ก่อน render เพื่อใช้ highlight
+                  monthDates.forEach(d => {
+                    const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                    if (s) { totalMoney += getShiftValue(s); totalHours += getShiftHours(s); const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
+                  });
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
                   const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
                   const isR2Group = ['r2','r2_off_night'].includes(emp.group);
                   const rowBg = isOffNight ? 'bg-gray-100/70' : isR2Group ? 'bg-green-50/60' : '';
-                  // คำนวณ TARGET ของคนนี้
                   const empCanNight = !isOffNight;
                   const empTarget = empCanNight ? TARGET_NORMAL_DISPLAY : TARGET_OFF_NIGHT_DISPLAY;
+                  const aftCount = cnt['บ่าย'];
                   return (
                     <tr key={emp.id} className={`hover:brightness-95 h-8 ${rowBg}`}>
                       <td className={`sticky left-0 px-2 py-1 border-b border-r border-gray-200 text-left truncate ${rowBg || 'bg-white'}`}>
@@ -1333,11 +1389,11 @@ function ScheduleManager() {
                       </td>
                       {monthDates.map(d => {
                         const sData = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-                        if (sData) { totalMoney += getShiftValue(sData); totalHours += getShiftHours(sData); const c = getShiftCategory(sData); if (cnt[c] !== undefined) cnt[c]++; }
+                        const isAftOver = sData && getShiftCategory(sData) === 'บ่าย' && aftCount >= 3;
                         return (
                           <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })}
                             className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-50/30' : ''}`}>
-                            {sData && <div className="absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm" style={{ backgroundColor: sData.color }}>{sData.name}</div>}
+                            {sData && <div className={`absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm ${isAftOver ? 'ring-2 ring-red-500 ring-offset-1' : ''}`} style={{ backgroundColor: isAftOver ? '#ef4444' : sData.color }}>{sData.name}</div>}
                           </td>
                         );
                       })}
