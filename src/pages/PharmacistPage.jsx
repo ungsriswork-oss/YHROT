@@ -920,7 +920,7 @@ function ScheduleManager() {
             }
 
             // ตรวจชั่วโมงหลัง swap
-            const shiftH = overShift.h || getShiftHours(overShift);
+            const shiftH = overShift.h || getShiftHours(overShift.s);
             const newOverHours = overHours - shiftH;
             const newUnderHours = underHours + shiftH;
             if (newUnderHours > TARGET_NORMAL + 4) continue;
