@@ -502,26 +502,28 @@ function ScheduleManager() {
       if (u !== 'R2' && canDoNight(emp)) {
         const shiftHrs = getShiftHours(shift);
         if (st.hours + shiftHrs > TARGET_NORMAL) {
+          // ตรวจว่ามีคนอื่นในกลุ่มปกติที่:
+          // 1. ชั่วโมงน้อยกว่าคนนี้ AND
+          // 2. รับเวรนี้ได้โดยไม่เกิน TARGET
           const hasOtherUnderTarget = normalEmpsAll.some(e => {
             if (e.id === emp.id) return false;
-            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
+            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false; // ต้องรับได้โดยไม่เกิน TARGET
             if (newAssignments[`${e.id}_${dateStr}`]) return false;
             if (e.offShifts?.includes(shift.id)) return false;
             if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false;
             if (isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) return false;
             if (cat === 'ดึก' && empStats[e.id].assignedNights.has(u)) return false;
-            if (cat === 'ดึก' && (empStats[e.id].catCounts['ดึก'] || 0) >= 2) return false;
+            if (cat === 'ดึก' && (empStats[e.id].catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
             if (['เช้า','As/4','A/4'].includes(cat)) {
               const eTotalMorning = (empStats[e.id].catCounts['เช้า']||0) + (empStats[e.id].catCounts['As/4']||0) + (empStats[e.id].catCounts['A/4']||0);
-              const eMornCap = canDoNight(e) ? MORNING_CAP_NORMAL : MORNING_CAP_OFF;
-              if (eTotalMorning >= eMornCap) return false;
+              if (eTotalMorning >= MORNING_CAP_NORMAL) return false;
               if (cat === 'เช้า' && empStats[e.id].assignedMornings.has(u)) return false;
             }
             if (cat === 'บ่าย') {
               if (empStats[e.id].assignedAfternoons.has(u)) return false;
               if ((empStats[e.id].catCounts['บ่าย']||0) >= CAP['บ่าย']) return false;
             }
-            if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= SMC_CAP) return false;
+            if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= CAP['SMC']) return false;
             if (cat === '4o') {
               const eHasAs4 = (empStats[e.id].catCounts['As/4']||0) + (empStats[e.id].catCounts['A/4']||0) > 0;
               if (eHasAs4) return false;
@@ -531,8 +533,9 @@ function ScheduleManager() {
           });
           if (hasOtherUnderTarget) return false;
         }
-        // Emergency hard cap
-        if (st.hours + shiftHrs > TARGET_NORMAL + 8) return false;
+        // Emergency hard cap: ป้องกันเวรขาด
+        const maxShiftHrs = Math.max(...shifts.map(s => getShiftHours(s)).filter(h => h > 0));
+        if (st.hours + shiftHrs > TARGET_NORMAL + maxShiftHrs - 1) return false;
       }
 
       // Cap เฉพาะกลุ่ม off_night (ใช้ CAP เดิม ไม่ hardcode)
@@ -661,18 +664,10 @@ function ScheduleManager() {
       'A/4':  1,
     };
 
-    // morning cap: คำนวณจาก hours budget
-    // หัก hours ที่จำเป็นต้องใช้ (ดึก+บ่าย) แล้วดูว่าเหลือพอสำหรับเช้ากี่เวร
-    // ใช้ค่าเฉลี่ย (50% ของ cap) เพื่อไม่ให้ตึงเกินไป
-    const nightHrsPerPerson  = CAP['ดึก']  * 8 * 0.6;  // เฉลี่ยได้ดึก ~60% ของ cap
-    const aftHrsPerPerson    = CAP['บ่าย'] * 8;         // บ่ายเต็ม cap เสมอ
-    const smcHrsPerPerson    = CAP['SMC']  * 4;         // SMC เต็ม cap
-    const fourOHrsPerPerson  = CAP['4o']   * 4 * 0.7;  // 4o ~70%
-    const budgetForMorning   = TARGET_NORMAL - nightHrsPerPerson - aftHrsPerPerson - smcHrsPerPerson - fourOHrsPerPerson;
-    const MORNING_CAP_NORMAL = Math.max(2, Math.min(
-      dynamicCap('เช้า', 2),
-      Math.floor(budgetForMorning / 8)
-    ));
+    // morning cap รวม (เช้า + As/4 + A/4)
+    // ปกติ: ใช้ dynamic cap แต่ไม่เกิน 3
+    // off_night: ≤ 2 เสมอ
+    const MORNING_CAP_NORMAL = Math.min(3, dynamicCap('เช้า', 2));
     const MORNING_CAP_OFF = 2;
 
     // SMC_CAP ยังใช้ชื่อเดิมเพื่อ backward compat
