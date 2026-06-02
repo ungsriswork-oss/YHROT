@@ -875,8 +875,9 @@ function ScheduleManager() {
           if (foundSwap) break;
           const underHours = calcHours(underEmp.id);
 
-          for (const { d, ds, s: overShift } of overShifts) {
+          for (const shiftItem of overShifts) {
             if (foundSwap) break;
+            const { d, ds, s: overShift, h: overShiftH } = shiftItem;
 
             // ตรวจว่า underEmp ว่างวันนี้ไหม
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
@@ -887,9 +888,9 @@ function ScheduleManager() {
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
-            // ตรวจดึก: ถ้าเป็นเวรดึก คนรับต้องมีดึก < 2 และไม่ซ้ำตำแหน่ง
-            const cat = getShiftCategory(overShift.s);
-            const u = overShift.s.name.trim().toUpperCase();
+            // ตรวจดึก: ถ้าเป็นเวรดึก คนรับต้องมีดึก < CAP และไม่ซ้ำตำแหน่ง
+            const cat = getShiftCategory(overShift);
+            const u = overShift.name.trim().toUpperCase();
             if (cat === 'ดึก') {
               let nightCount = 0;
               let hasSameNight = false;
@@ -903,15 +904,13 @@ function ScheduleManager() {
                   if (s2.name.trim().toUpperCase() === u) hasSameNight = true;
                 }
               }
-              if (nightCount >= CAP['ดึก']) continue; // ดึกครบแล้ว
-              if (hasSameNight) continue; // ซ้ำตำแหน่งดึก
+              if (nightCount >= CAP['ดึก']) continue;
+              if (hasSameNight) continue;
             }
-            if (cat === 'เช้า' || cat === 'As/4' || cat === 'A/4') {
-              // ตรวจว่า underEmp ได้เวรนี้ไปแล้วไหม
+            if (['เช้า','As/4','A/4'].includes(cat)) {
               let alreadyHas = false;
               for (let d2 = 1; d2 <= dim; d2++) {
-                const ds2 = fmtD(d2);
-                const sid2 = newAssignments[`${underEmp.id}_${ds2}`];
+                const sid2 = newAssignments[`${underEmp.id}_${fmtD(d2)}`];
                 if (!sid2) continue;
                 const s2 = shifts.find(s => s.id === sid2);
                 if (s2 && s2.name.trim().toUpperCase() === u) { alreadyHas = true; break; }
@@ -920,14 +919,13 @@ function ScheduleManager() {
             }
 
             // ตรวจชั่วโมงหลัง swap
-            const shiftH = overShift.h || getShiftHours(overShift.s);
-            const newOverHours = overHours - shiftH;
+            const shiftH = overShiftH || getShiftHours(overShift);
             const newUnderHours = underHours + shiftH;
             if (newUnderHours > TARGET_NORMAL + 4) continue;
 
             // SWAP!
             delete newAssignments[`${overEmp.id}_${ds}`];
-            newAssignments[`${underEmp.id}_${ds}`] = overShift.s.id;
+            newAssignments[`${underEmp.id}_${ds}`] = overShift.id;
             foundSwap = true;
             swapped = true;
             break;
