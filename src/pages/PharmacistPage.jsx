@@ -617,24 +617,21 @@ function ScheduleManager() {
           if (aUnder !== bUnder) return aUnder ? -1 : 1;
         }
 
-        // Primary: คนที่ห่างจาก TARGET มากที่สุด (hours น้อยกว่า) ได้ก่อน
-        // เปรียบเทียบภายในกลุ่มเดียวกันเท่านั้น
+        // Primary: กระจาย totalShifts ก่อน — ป้องกันคนเดิมได้เวรสะสม
+        if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
+
+        // Secondary: คนที่ห่างจาก TARGET มากกว่า (hours น้อยกว่า) ได้ก่อน
         const aCanNight = canDoNight(a), bCanNight = canDoNight(b);
         if (aCanNight === bCanNight) {
           const myTarget = aCanNight ? TARGET_NORMAL : TARGET_OFF_NIGHT;
-          const aGap = myTarget - sa.hours; // gap มาก = ยังขาด = ควรได้ก่อน
+          const aGap = myTarget - sa.hours;
           const bGap = myTarget - sb.hours;
-          if (aGap !== bGap) return bGap - aGap; // descending: gap มากได้ก่อน
-        } else {
-          if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
+          if (aGap !== bGap) return bGap - aGap;
         }
 
-        // Secondary: catCounts ของประเภทนี้
+        // Tertiary: catCounts ของประเภทนี้
         const cd = (sa.catCounts[cat] || 0) - (sb.catCounts[cat] || 0);
         if (cd !== 0) return cd;
-
-        // Tertiary: totalShifts
-        if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
 
         // soft: money ascending
         return sa.money - sb.money;
