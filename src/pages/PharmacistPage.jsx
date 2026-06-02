@@ -884,9 +884,25 @@ function ScheduleManager() {
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
-            // ตรวจ rule_7: เช้าไม่ซ้ำตำแหน่ง
+            // ตรวจดึก: ถ้าเป็นเวรดึก คนรับต้องมีดึก < 2 และไม่ซ้ำตำแหน่ง
             const cat = getShiftCategory(overShift);
             const u = overShift.name.trim().toUpperCase();
+            if (cat === 'ดึก') {
+              let nightCount = 0;
+              let hasSameNight = false;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const sid2 = newAssignments[`${underEmp.id}_${fmtD(d2)}`];
+                if (!sid2) continue;
+                const s2 = shifts.find(s => s.id === sid2);
+                if (!s2) continue;
+                if (getShiftCategory(s2) === 'ดึก') {
+                  nightCount++;
+                  if (s2.name.trim().toUpperCase() === u) hasSameNight = true;
+                }
+              }
+              if (nightCount >= CAP['ดึก']) continue; // ดึกครบแล้ว
+              if (hasSameNight) continue; // ซ้ำตำแหน่งดึก
+            }
             if (cat === 'เช้า' || cat === 'As/4' || cat === 'A/4') {
               // ตรวจว่า underEmp ได้เวรนี้ไปแล้วไหม
               let alreadyHas = false;
