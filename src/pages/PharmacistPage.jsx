@@ -486,8 +486,8 @@ function ScheduleManager() {
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= CAP['บ่าย']) return false;
 
-        // 4o: คนที่มี As4/A4 แล้ว → ห้ามได้ 4o
-        const hasAs4 = (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0) > 0;
+        // 4o: คนที่มี As4/A4 แล้ว (ใช้ countA_As4 ที่ update ทันที) → ห้ามได้ 4o
+        const hasAs4 = st.countA_As4 > 0;
         const fourOCap = hasAs4 ? 0 : CAP['4o'];
         if (cat === '4o' && (st.catCounts['4o'] || 0) >= fourOCap) return false;
 
@@ -538,7 +538,7 @@ function ScheduleManager() {
             }
             if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= CAP['SMC']) return false;
             if (cat === '4o') {
-              const eHasAs4 = (empStats[e.id].catCounts['As/4']||0) + (empStats[e.id].catCounts['A/4']||0) > 0;
+              const eHasAs4 = empStats[e.id].countA_As4 > 0;
               if (eHasAs4) return false;
               if ((empStats[e.id].catCounts['4o']||0) >= CAP['4o']) return false;
             }

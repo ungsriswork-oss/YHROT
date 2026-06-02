@@ -136,7 +136,7 @@ export default function HomePage() {
             textTransform: 'uppercase',
             marginBottom: 12,
           }}>
-            โรงพยาบาลยโสธร · ฝ่ายเภสัชกรรม
+            โรงพยาบาลเจ้าพระยายมราช · ฝ่ายเภสัชกรรม
           </div>
           <h1 style={{
             fontSize: 'clamp(28px, 4vw, 42px)',
