@@ -520,7 +520,9 @@ function ScheduleManager() {
           // 2. รับเวรนี้ได้โดยไม่เกิน TARGET
           const hasOtherUnderTarget = normalEmpsAll.some(e => {
             if (e.id === emp.id) return false;
-            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false; // ต้องรับได้โดยไม่เกิน TARGET
+            // ต้องมีชั่วโมงน้อยกว่าคนนี้ AND รับได้โดยไม่เกิน TARGET
+            if (empStats[e.id].hours >= st.hours) return false;
+            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
             if (newAssignments[`${e.id}_${dateStr}`]) return false;
             if (e.offShifts?.includes(shift.id)) return false;
             if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false;
@@ -546,14 +548,9 @@ function ScheduleManager() {
           });
           if (hasOtherUnderTarget) return false;
         }
-        // Emergency hard cap — ป้องกันเวรขาดปลายเดือน แต่ไม่ให้ถึง 64h
-        // 4h shift: cap = TARGET+3
-        // 8h shift: cap = TARGET+3 (เท่ากัน ป้องกัน 56+8=64)
-        // 12h shift: cap = TARGET+12 (As/4 unavoidable)
-        const emergCap = shiftHrs <= 8
-          ? TARGET_NORMAL + 3
-          : TARGET_NORMAL + shiftHrs;
-        if (st.hours + shiftHrs > emergCap) return false;
+        // ไม่มี hard emergency cap — hasOtherUnderTarget จัดการทั้งหมด
+        // ถ้าไม่มีใครรับได้โดยไม่เกิน TARGET → รับได้ (เวรไม่หาย)
+        // ถ้ามีคนอื่นรับได้ → block (ชั่วโมงกระจาย)
       }
 
       // Cap เฉพาะกลุ่ม off_night (ใช้ CAP เดิม ไม่ hardcode)
@@ -808,6 +805,116 @@ function ScheduleManager() {
           doAssign(eligible[0], dateStr, d, shift);
         }
       }
+    }
+
+    // ─── PHASE 3: Post-process swap ───
+    // หาคนที่ได้ > TARGET+4h แล้วสลับเวร 8h กับคนที่ได้ < TARGET-2h
+    // เงื่อนไข swap: ต้องไม่ผิด rule_1 (ติดกัน) และ rule_7 (เช้าซ้ำ)
+    const calcHours = (empId) => {
+      let h = 0;
+      for (let d = 1; d <= dim; d++) {
+        const ds = fmtD(d);
+        const s = shifts.find(s => s.id === newAssignments[`${empId}_${ds}`]);
+        if (s) h += getShiftHours(s);
+      }
+      return h;
+    };
+
+    const MAX_SWAP_ROUNDS = 10;
+    for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
+      let swapped = false;
+
+      // หาคนที่เกิน TARGET+4h
+      const overEmps = normalEmpsAll.filter(e =>
+        calcHours(e.id) > TARGET_NORMAL + 4
+      ).sort((a,b) => calcHours(b.id) - calcHours(a.id));
+
+      for (const overEmp of overEmps) {
+        const overHours = calcHours(overEmp.id);
+
+        // หาเวรของคนนี้ที่เป็น 8h และ swap ได้
+        // R2 group: swap ดึก ออกได้ (R2 เองห้าม swap)
+        // ปกติ: swap เวร 8h ทุกอย่างยกเว้น R2
+        const overShifts = [];
+        for (let d = 1; d <= dim; d++) {
+          const ds = fmtD(d);
+          const sid = newAssignments[`${overEmp.id}_${ds}`];
+          if (!sid) continue;
+          const s = shifts.find(s => s.id === sid);
+          if (!s) continue;
+          const u = s.name.trim().toUpperCase();
+          if (u === 'R2') continue; // R2 ห้าม swap
+          if (getShiftHours(s) === 8) overShifts.push({ d, ds, s });
+        }
+        // เรียงให้ swap ดึกก่อน (ลดภาระคนที่ off ดึก ไม่ได้ใช้ประโยชน์)
+        overShifts.sort((a,b) => {
+          const aCat = getShiftCategory(a.s);
+          const bCat = getShiftCategory(b.s);
+          if (aCat === 'ดึก' && bCat !== 'ดึก') return -1;
+          if (bCat === 'ดึก' && aCat !== 'ดึก') return 1;
+          return 0;
+        });
+
+        // หาคนที่ under — เรียงจากน้อยสุดก่อน
+        // ถ้า swap ดึก → ต้องเป็นคนที่ขึ้นดึกได้ด้วย
+        const swapCat = overShifts[0] ? getShiftCategory(overShifts[0].s) : '';
+        const underPool = swapCat === 'ดึก'
+          ? employees.filter(e => canDoNight(e))
+          : normalEmpsAll;
+
+        const underEmps = underPool.filter(e => {
+          if (e.id === overEmp.id) return false;
+          return calcHours(e.id) < overHours;
+        }).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+
+        let foundSwap = false;
+        for (const underEmp of underEmps) {
+          if (foundSwap) break;
+          const underHours = calcHours(underEmp.id);
+
+          for (const { d, ds, s: overShift } of overShifts) {
+            if (foundSwap) break;
+
+            // ตรวจว่า underEmp ว่างวันนี้ไหม
+            if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // ตรวจ rule_1: ไม่ติดกับวันก่อน/หลัง
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+            // ตรวจ rule_7: เช้าไม่ซ้ำตำแหน่ง
+            const cat = getShiftCategory(overShift);
+            const u = overShift.name.trim().toUpperCase();
+            if (cat === 'เช้า' || cat === 'As/4' || cat === 'A/4') {
+              // ตรวจว่า underEmp ได้เวรนี้ไปแล้วไหม
+              let alreadyHas = false;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const ds2 = fmtD(d2);
+                const sid2 = newAssignments[`${underEmp.id}_${ds2}`];
+                if (!sid2) continue;
+                const s2 = shifts.find(s => s.id === sid2);
+                if (s2 && s2.name.trim().toUpperCase() === u) { alreadyHas = true; break; }
+              }
+              if (alreadyHas) continue;
+            }
+
+            // ตรวจชั่วโมงหลัง swap
+            const newOverHours = overHours - 8;
+            const newUnderHours = underHours + 8;
+            if (newUnderHours > TARGET_NORMAL + 4) continue; // ไม่ให้ under เกินด้วย
+
+            // SWAP!
+            delete newAssignments[`${overEmp.id}_${ds}`];
+            newAssignments[`${underEmp.id}_${ds}`] = overShift.id;
+            foundSwap = true;
+            swapped = true;
+            break;
+          }
+        }
+      }
+      if (!swapped) break; // ไม่มีอะไรให้ swap แล้ว
     }
 
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
