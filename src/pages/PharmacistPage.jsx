@@ -512,7 +512,8 @@ function ScheduleManager() {
       if (cat === 'SMC' && st.countA_As4 >= 1 && (st.catCounts['SMC'] || 0) >= 1) return false;
 
       // Hard hours cap กลุ่มปกติ/R2
-      if (u !== 'R2' && canDoNight(emp)) {
+      // ยกเว้น: บ่าย — ถ้ายังได้บ่ายน้อยกว่า CAP ควรได้ก่อนเสมอ
+      if (u !== 'R2' && canDoNight(emp) && cat !== 'บ่าย') {
         const shiftHrs = getShiftHours(shift);
         if (st.hours + shiftHrs > TARGET_NORMAL) {
           // ตรวจว่ามีคนอื่นในกลุ่มปกติที่:
@@ -832,9 +833,8 @@ function ScheduleManager() {
       for (const overEmp of overEmps) {
         const overHours = calcHours(overEmp.id);
 
-        // หาเวรของคนนี้ที่เป็น 8h และ swap ได้
-        // R2 group: swap ดึก ออกได้ (R2 เองห้าม swap)
-        // ปกติ: swap เวร 8h ทุกอย่างยกเว้น R2
+        // หาเวรของคนนี้ที่ swap ได้ — รวม 8h และ 2o(2h)
+        // R2 ห้าม swap, เรียงดึกก่อน
         const overShifts = [];
         for (let d = 1; d <= dim; d++) {
           const ds = fmtD(d);
@@ -843,15 +843,18 @@ function ScheduleManager() {
           const s = shifts.find(s => s.id === sid);
           if (!s) continue;
           const u = s.name.trim().toUpperCase();
-          if (u === 'R2') continue; // R2 ห้าม swap
-          if (getShiftHours(s) === 8) overShifts.push({ d, ds, s });
+          if (u === 'R2') continue;
+          const h = getShiftHours(s);
+          if (h === 8 || h === 2) overShifts.push({ d, ds, s, h });
         }
-        // เรียงให้ swap ดึกก่อน (ลดภาระคนที่ off ดึก ไม่ได้ใช้ประโยชน์)
+        // เรียง: ดึกก่อน แล้ว 2o (เอาออกง่าย) แล้ว 8h อื่น
         overShifts.sort((a,b) => {
           const aCat = getShiftCategory(a.s);
           const bCat = getShiftCategory(b.s);
           if (aCat === 'ดึก' && bCat !== 'ดึก') return -1;
           if (bCat === 'ดึก' && aCat !== 'ดึก') return 1;
+          if (a.h === 2 && b.h !== 2) return -1;
+          if (b.h === 2 && a.h !== 2) return 1;
           return 0;
         });
 
@@ -885,8 +888,8 @@ function ScheduleManager() {
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
             // ตรวจดึก: ถ้าเป็นเวรดึก คนรับต้องมีดึก < 2 และไม่ซ้ำตำแหน่ง
-            const cat = getShiftCategory(overShift);
-            const u = overShift.name.trim().toUpperCase();
+            const cat = getShiftCategory(overShift.s);
+            const u = overShift.s.name.trim().toUpperCase();
             if (cat === 'ดึก') {
               let nightCount = 0;
               let hasSameNight = false;
@@ -917,13 +920,14 @@ function ScheduleManager() {
             }
 
             // ตรวจชั่วโมงหลัง swap
-            const newOverHours = overHours - 8;
-            const newUnderHours = underHours + 8;
-            if (newUnderHours > TARGET_NORMAL + 4) continue; // ไม่ให้ under เกินด้วย
+            const shiftH = overShift.h || getShiftHours(overShift);
+            const newOverHours = overHours - shiftH;
+            const newUnderHours = underHours + shiftH;
+            if (newUnderHours > TARGET_NORMAL + 4) continue;
 
             // SWAP!
             delete newAssignments[`${overEmp.id}_${ds}`];
-            newAssignments[`${underEmp.id}_${ds}`] = overShift.id;
+            newAssignments[`${underEmp.id}_${ds}`] = overShift.s.id;
             foundSwap = true;
             swapped = true;
             break;
