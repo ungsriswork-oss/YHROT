@@ -1073,9 +1073,9 @@ function ScheduleManager() {
           if (getShiftHours(s) === 4) fourHShifts.push({ d, ds, s });
         }
 
-        // หาคนปกติที่ hours น้อยสุด
+        // หาคนปกติที่รับ 4h ได้โดยไม่เกิน 60h — เรียงน้อยสุดก่อน
         const underNormal = normalEmpsAll
-          .filter(e => calcHours(e.id) < overHours)
+          .filter(e => calcHours(e.id) + 4 <= 60)
           .sort((a,b) => calcHours(a.id) - calcHours(b.id));
 
         for (const underEmp of underNormal) {
@@ -1107,9 +1107,7 @@ function ScheduleManager() {
 
             // ชั่วโมงหลัง swap
             const newUnderHours = underHours + 4;
-            const newOverHours = overHours - 4;
-            if (newUnderHours > 60) continue;
-            if (newOverHours > MAX_OFF_HOURS && newOverHours >= overHours) continue;
+            if (newUnderHours > 60) continue; // คนปกติต้องไม่เกิน 60h
 
             // SWAP!
             delete newAssignments[`${overEmp.id}_${ds}`];
