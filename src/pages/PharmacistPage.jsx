@@ -825,9 +825,9 @@ function ScheduleManager() {
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
-      // หาคนที่เกิน TARGET+4h
+      // หาคนที่เกิน TARGET+1h (จับ 62h ด้วย ไม่ใช่แค่ 64h)
       const overEmps = normalEmpsAll.filter(e =>
-        calcHours(e.id) > TARGET_NORMAL + 4
+        calcHours(e.id) > TARGET_NORMAL + 1
       ).sort((a,b) => calcHours(b.id) - calcHours(a.id));
 
       for (const overEmp of overEmps) {
@@ -919,9 +919,10 @@ function ScheduleManager() {
             }
 
             // ตรวจชั่วโมงหลัง swap
+            // under ได้ไม่เกิน overHours-1 (ไม่กลายเป็น over เอง)
             const shiftH = overShiftH || getShiftHours(overShift);
             const newUnderHours = underHours + shiftH;
-            if (newUnderHours > TARGET_NORMAL + 4) continue;
+            if (newUnderHours > overHours - 1) continue;
 
             // SWAP!
             delete newAssignments[`${overEmp.id}_${ds}`];
