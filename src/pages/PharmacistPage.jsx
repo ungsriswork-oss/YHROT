@@ -546,9 +546,14 @@ function ScheduleManager() {
           });
           if (hasOtherUnderTarget) return false;
         }
-        // Emergency hard cap: ป้องกันเวรขาด
-        const maxShiftHrs = Math.max(...shifts.map(s => getShiftHours(s)).filter(h => h > 0));
-        if (st.hours + shiftHrs > TARGET_NORMAL + maxShiftHrs - 1) return false;
+        // Emergency hard cap — ป้องกันเวรขาดปลายเดือน แต่ไม่ให้ถึง 64h
+        // 4h shift: cap = TARGET+3
+        // 8h shift: cap = TARGET+3 (เท่ากัน ป้องกัน 56+8=64)
+        // 12h shift: cap = TARGET+12 (As/4 unavoidable)
+        const emergCap = shiftHrs <= 8
+          ? TARGET_NORMAL + 3
+          : TARGET_NORMAL + shiftHrs;
+        if (st.hours + shiftHrs > emergCap) return false;
       }
 
       // Cap เฉพาะกลุ่ม off_night (ใช้ CAP เดิม ไม่ hardcode)
