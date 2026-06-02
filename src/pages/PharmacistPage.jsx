@@ -132,6 +132,7 @@ export default function PharmacistPage() {
   return (
     <div className="min-h-screen w-full bg-slate-50 font-sans text-slate-800 flex flex-col">
       <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         @media print {
           @page { size: A4 landscape; margin: 3mm; }
           html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.82; }
@@ -145,21 +146,33 @@ export default function PharmacistPage() {
           .text-xs { font-size: 7px !important; line-height: 1 !important; }
         }
       `}</style>
-      <header className="bg-white shadow-sm px-4 py-2 flex justify-between items-center z-20 relative print-hidden">
-        <div className="flex items-center gap-4 text-indigo-600">
-          <button type="button" onClick={() => navigate('/')} className="flex items-center gap-1 bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
-            <ArrowLeft className="w-4 h-4" /> กลับหน้าหลัก
+      <header className="bg-slate-900 px-5 py-3 flex justify-between items-center z-20 relative print-hidden">
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => navigate('/')}
+            className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
+            <ArrowLeft className="w-4 h-4" />
+            <span className="font-mono text-xs tracking-wider">BACK</span>
           </button>
-          <div className="flex items-center gap-2 border-l border-gray-200 pl-4">
-            <Calendar className="w-5 h-5" />
-            <h1 className="text-lg font-bold">ตารางเวร: เภสัชกร</h1>
+          <div className="w-px h-5 bg-slate-700" />
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center">
+              <span className="text-white text-xs font-bold font-mono">Rx</span>
+            </div>
+            <div>
+              <div className="text-white font-semibold text-sm leading-tight">ตารางเวร เภสัชกร</div>
+              <div className="text-slate-500 text-[10px] font-mono tracking-wider">PHARMACIST SCHEDULE</div>
+            </div>
           </div>
         </div>
-        <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+        <div className="flex gap-1 bg-slate-800 p-1 rounded-xl border border-slate-700">
           {tabs.map((tab) => (
             <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors ${activeTab === tab.id ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
-              <tab.icon className="w-4 h-4" /> {tab.name}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeTab === tab.id
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}>
+              <tab.icon className="w-3.5 h-3.5" /> {tab.name}
             </button>
           ))}
         </div>
