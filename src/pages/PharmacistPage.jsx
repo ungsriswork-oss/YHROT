@@ -96,7 +96,8 @@ const getShiftCategory = (shift) => {
 
 // ─── เวรที่กลุ่ม Off พิเศษ งดขึ้น ───
 const OFF_SPECIAL_BANNED_CATS = new Set(['ดึก','SMC']);
-const OFF_SPECIAL_BANNED_NAMES = new Set(['บe','บr','R1','T1','T2','G','A','AS1','AS/4'].map(x=>x.toUpperCase()));
+// บe ห้าม, บi/บr อนุญาต (นิธิรับบi+บr ได้)
+const OFF_SPECIAL_BANNED_NAMES = new Set(['บe','R1','T1','T2','G','A','AS1','AS/4'].map(x=>x.toUpperCase()));
 
 const isShiftBannedForOffSpecial = (shift) => {
   const cat = getShiftCategory(shift);
@@ -983,14 +984,14 @@ function ScheduleManager() {
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
-            // rule_2: ไม่ซ้ำตำแหน่งบ่าย
+            // rule_2: ไม่ซ้ำตำแหน่งบ่าย (ตรวจจาก newAssignments ที่อัปเดตล่าสุด)
             const u = aftShift.name.trim().toUpperCase();
-            let hasAft = false;
+            let hasAftDup = false;
             for (let d2 = 1; d2 <= dim; d2++) {
               const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
-              if (s2 && s2.name.trim().toUpperCase() === u) { hasAft = true; break; }
+              if (s2 && s2.name.trim().toUpperCase() === u) { hasAftDup = true; break; }
             }
-            if (hasAft) continue;
+            if (hasAftDup) continue;
 
             // หา 4h ของ underEmp ที่จะ swap กลับให้ overEmp
             // เพื่อให้ชั่วโมงสมดุล: under +8-4=+4, over -8+4=-4
@@ -1031,6 +1032,86 @@ function ScheduleManager() {
         }
       }
       if (!swapped3b) break;
+    }
+
+    // ─── PHASE 3c: swap 4s/4h ของกลุ่ม off_night ให้คนปกติที่ชั่วโมงน้อย ───
+    // เพื่อให้ off_night ได้ไม่เกิน 48h และคนปกติได้เพิ่มขึ้น
+    const MAX_OFF_HOURS = 48;
+    const MAX_3C_ROUNDS = 5;
+
+    for (let round = 0; round < MAX_3C_ROUNDS; round++) {
+      let swapped3c = false;
+
+      // หา off_night ที่ hours > MAX_OFF_HOURS
+      const overOffEmps = employees.filter(e => {
+        const g = getGroup(e);
+        return (g === 'r2_off_night' || g === 'off_night') && calcHours(e.id) > MAX_OFF_HOURS;
+      }).sort((a,b) => calcHours(b.id) - calcHours(a.id));
+
+      for (const overEmp of overOffEmps) {
+        if (swapped3c) break;
+        const overHours = calcHours(overEmp.id);
+
+        // หาเวร 4h (SMC/4o) ของคนนี้ที่ swap ออกได้
+        const fourHShifts = [];
+        for (let d = 1; d <= dim; d++) {
+          const ds = fmtD(d);
+          const sid = newAssignments[`${overEmp.id}_${ds}`];
+          if (!sid) continue;
+          const s = shifts.find(s => s.id === sid);
+          if (!s) continue;
+          const u = s.name.trim().toUpperCase();
+          if (u === 'R2') continue; // R2 ห้าม swap
+          if (getShiftHours(s) === 4) fourHShifts.push({ d, ds, s });
+        }
+
+        // หาคนปกติที่ hours น้อยสุด
+        const underNormal = normalEmpsAll
+          .filter(e => calcHours(e.id) < overHours)
+          .sort((a,b) => calcHours(a.id) - calcHours(b.id));
+
+        for (const underEmp of underNormal) {
+          if (swapped3c) break;
+          const underHours = calcHours(underEmp.id);
+
+          for (const { d, ds, s: fourShift } of fourHShifts) {
+            if (swapped3c) break;
+
+            // underEmp ต้องว่าง
+            if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // rule_1
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+            // ตรวจ SMC cap ของ underEmp
+            const cat = getShiftCategory(fourShift);
+            if (cat === 'SMC') {
+              let smcCount = 0;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
+              }
+              if (smcCount >= CAP['SMC']) continue;
+            }
+
+            // ชั่วโมงหลัง swap
+            const newUnderHours = underHours + 4;
+            const newOverHours = overHours - 4;
+            if (newUnderHours > 60) continue;
+            if (newOverHours > MAX_OFF_HOURS && newOverHours >= overHours) continue;
+
+            // SWAP!
+            delete newAssignments[`${overEmp.id}_${ds}`];
+            newAssignments[`${underEmp.id}_${ds}`] = fourShift.id;
+            swapped3c = true;
+            break;
+          }
+        }
+      }
+      if (!swapped3c) break;
     }
 
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
