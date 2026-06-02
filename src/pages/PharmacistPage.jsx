@@ -404,18 +404,11 @@ function ScheduleManager() {
       });
     }
 
-    // off_night แต่ละคนได้ประมาณ TARGET_NORMAL - GAP
-    // total = normalCount × TARGET_NORMAL + offNightCount × (TARGET_NORMAL - GAP)
-    // total = TARGET_NORMAL × (normalCount + offNightCount) - offNightCount × GAP
-    // TARGET_NORMAL = (total + offNightCount × GAP) / (normalCount + offNightCount)
-    const GAP = 16;
-    const nN = normalEmpsAll.length || 1;
-    const nO = offNightEmpsAll.length || 0;
-    const TARGET_NORMAL = nN > 0
-      ? Math.round((totalAllHours + nO * GAP) / (nN + nO))
-      : 60;
-    const OFF_NIGHT_GAP = TARGET_NORMAL <= 60 ? 16 : 12;
-    const TARGET_OFF_NIGHT = TARGET_NORMAL - OFF_NIGHT_GAP;
+    // TARGET_NORMAL = 60h เสมอ (กลุ่มปกติ)
+    // off_night ต่างกัน 12-16h ตาม TARGET
+    const TARGET_NORMAL = 60;
+    const OFF_NIGHT_GAP = 16;
+    const TARGET_OFF_NIGHT = TARGET_NORMAL - OFF_NIGHT_GAP; // 44h
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
@@ -934,6 +927,110 @@ function ScheduleManager() {
         }
       }
       if (!swapped) break; // ไม่มีอะไรให้ swap แล้ว
+    }
+
+    // ─── PHASE 3b: swap บ่าย — คนที่มี 3 บ่าย → ให้คนที่มี 1 บ่าย ───
+    // แล้วเอา 4h ของคนบ่าย=1 นั้น → ให้คนอื่นที่ชั่วโมงน้อยสุด
+    const countAfternoon = (empId) => {
+      let n = 0;
+      for (let d = 1; d <= dim; d++) {
+        const s = shifts.find(s => s.id === newAssignments[`${empId}_${fmtD(d)}`]);
+        if (s && getShiftCategory(s) === 'บ่าย') n++;
+      }
+      return n;
+    };
+
+    const MAX_AFT_SWAP = 5;
+    for (let round = 0; round < MAX_AFT_SWAP; round++) {
+      let swapped3b = false;
+
+      // หาคนที่บ่าย >= 3
+      const overAft = normalEmpsAll.filter(e => countAfternoon(e.id) >= 3)
+        .sort((a,b) => countAfternoon(b.id) - countAfternoon(a.id));
+
+      for (const overEmp of overAft) {
+        const overHours = calcHours(overEmp.id);
+
+        // หาเวรบ่ายของคนนี้ที่ swap ออกได้ (ไม่ใช่ R2)
+        const aftShifts = [];
+        for (let d = 1; d <= dim; d++) {
+          const ds = fmtD(d);
+          const sid = newAssignments[`${overEmp.id}_${ds}`];
+          if (!sid) continue;
+          const s = shifts.find(s => s.id === sid);
+          if (!s || getShiftCategory(s) !== 'บ่าย') continue;
+          aftShifts.push({ d, ds, s });
+        }
+
+        // หาคนที่บ่าย = 1 — เรียงชั่วโมงน้อยสุดก่อน
+        const underAft = normalEmpsAll.filter(e =>
+          e.id !== overEmp.id && countAfternoon(e.id) === 1
+        ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+
+        for (const underEmp of underAft) {
+          if (swapped3b) break;
+          const underHours = calcHours(underEmp.id);
+
+          for (const { d, ds, s: aftShift } of aftShifts) {
+            if (swapped3b) break;
+
+            // underEmp ต้องว่างวันนี้
+            if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // rule_1: ไม่ติดกัน
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+            // rule_2: ไม่ซ้ำตำแหน่งบ่าย
+            const u = aftShift.name.trim().toUpperCase();
+            let hasAft = false;
+            for (let d2 = 1; d2 <= dim; d2++) {
+              const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+              if (s2 && s2.name.trim().toUpperCase() === u) { hasAft = true; break; }
+            }
+            if (hasAft) continue;
+
+            // หา 4h ของ underEmp ที่จะ swap กลับให้ overEmp
+            // เพื่อให้ชั่วโมงสมดุล: under +8-4=+4, over -8+4=-4
+            const fourHOfUnder = [];
+            for (let d2 = 1; d2 <= dim; d2++) {
+              const ds2 = fmtD(d2);
+              const sid2 = newAssignments[`${underEmp.id}_${ds2}`];
+              if (!sid2) continue;
+              const s2 = shifts.find(s => s.id === sid2);
+              if (!s2 || getShiftHours(s2) !== 4) continue;
+              // ตรวจว่า overEmp รับ 4h วันนั้นได้ไหม (ว่างและไม่ติดกัน)
+              if (newAssignments[`${overEmp.id}_${ds2}`]) continue;
+              const pd2 = fmtD(d2-1), nd2 = fmtD(d2+1);
+              if (pd2 && newAssignments[`${overEmp.id}_${pd2}`]) continue;
+              if (nd2 && newAssignments[`${overEmp.id}_${nd2}`]) continue;
+              fourHOfUnder.push({ d: d2, ds: ds2, s: s2 });
+            }
+
+            if (fourHOfUnder.length === 0) continue;
+
+            // ตรวจ hours หลัง 2-way swap
+            const { d: d4, ds: ds4, s: s4 } = fourHOfUnder[0];
+            const newUnderHours = underHours + 8 - 4; // +บ่าย -4h
+            const newOverHours = overHours - 8 + 4;   // -บ่าย +4h
+            if (newUnderHours > 64) continue; // ไม่ให้ under เกิน
+            if (newOverHours >= overHours) continue;   // ต้องลดลงจริงๆ
+
+            // ─ 2-WAY SWAP ─
+            // 1. ให้ under รับบ่าย
+            delete newAssignments[`${overEmp.id}_${ds}`];
+            newAssignments[`${underEmp.id}_${ds}`] = aftShift.id;
+            // 2. ให้ over รับ 4h ของ under
+            delete newAssignments[`${underEmp.id}_${ds4}`];
+            newAssignments[`${overEmp.id}_${ds4}`] = s4.id;
+            swapped3b = true;
+            break;
+          }
+        }
+      }
+      if (!swapped3b) break;
     }
 
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
