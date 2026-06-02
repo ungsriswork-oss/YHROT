@@ -450,8 +450,11 @@ function ScheduleManager() {
         }
       }
 
-      // Rule 2: บ่ายห้ามซ้ำตำแหน่ง
-      if (rules.rule_2 && cat === 'บ่าย' && st.assignedAfternoons.has(u)) return false;
+      // กลุ่ม r2_off_night: ห้ามได้ A/4, As/4 (มี R2 เป็นเช้าอยู่แล้ว)
+      if (getGroup(emp) === 'r2_off_night' && (cat === 'As/4' || cat === 'A/4')) return false;
+
+      // Rule 2: บ่ายห้ามซ้ำตำแหน่ง (ยกเว้น off_special เพราะได้เวรน้อย)
+      if (rules.rule_2 && cat === 'บ่าย' && !isOffSpecial(emp) && st.assignedAfternoons.has(u)) return false;
 
       // เวรดึกห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่อาจได้หลายครั้ง)
       if (cat === 'ดึก' && u !== 'R2' && st.assignedNights.has(u)) return false;
@@ -963,9 +966,10 @@ function ScheduleManager() {
           aftShifts.push({ d, ds, s });
         }
 
-        // หาคนที่บ่าย = 1 — เรียงชั่วโมงน้อยสุดก่อน
-        const underAft = normalEmpsAll.filter(e =>
-          e.id !== overEmp.id && countAfternoon(e.id) === 1
+        // หาคนที่บ่าย = 1 — รวม off_special (นิธิ) ที่ควรได้บ่ายเพิ่ม
+        // off_special ยกเว้น rule_2 ซ้ำตำแหน่ง
+        const underAft = [...normalEmpsAll, ...employees.filter(e => isOffSpecial(e))].filter(e =>
+          e.id !== overEmp.id && countAfternoon(e.id) <= 1
         ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
 
         for (const underEmp of underAft) {
@@ -984,14 +988,18 @@ function ScheduleManager() {
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
-            // rule_2: ไม่ซ้ำตำแหน่งบ่าย (ตรวจจาก newAssignments ที่อัปเดตล่าสุด)
+            // rule_2: ไม่ซ้ำตำแหน่งบ่าย (ยกเว้น off_special)
             const u = aftShift.name.trim().toUpperCase();
-            let hasAftDup = false;
-            for (let d2 = 1; d2 <= dim; d2++) {
-              const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
-              if (s2 && s2.name.trim().toUpperCase() === u) { hasAftDup = true; break; }
+            if (!isOffSpecial(underEmp)) {
+              let hasAftDup = false;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                if (s2 && s2.name.trim().toUpperCase() === u) { hasAftDup = true; break; }
+              }
+              if (hasAftDup) continue;
             }
-            if (hasAftDup) continue;
+            // off_special: ห้ามแค่ บe
+            if (isOffSpecial(underEmp) && u === 'บE') continue;
 
             // หา 4h ของ underEmp ที่จะ swap กลับให้ overEmp
             // เพื่อให้ชั่วโมงสมดุล: under +8-4=+4, over -8+4=-4
