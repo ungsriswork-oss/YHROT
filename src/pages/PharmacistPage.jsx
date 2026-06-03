@@ -149,7 +149,7 @@ export default function PharmacistPage() {
       `}</style>
       <header className="bg-slate-900 px-5 py-3 flex justify-between items-center z-20 relative print-hidden">
         <div className="flex items-center gap-4">
-          <button type="button" onClick={() => navigate('/')}
+          <button type="button" onClick={() => navigate(-1)}
             className="flex items-center gap-2 text-slate-400 hover:text-white transition-colors text-sm">
             <ArrowLeft className="w-4 h-4" />
             <span className="font-mono text-xs tracking-wider">BACK</span>
