@@ -320,6 +320,9 @@ function ScheduleManager() {
 
     // ─── กำหนดกลุ่มของแต่ละคน ───
     // group: normal | r2 | r2_off_night | off_night | off_special
+    // กรองเฉพาะคนที่ไม่ได้พักงาน
+    const activeEmployees = employees.filter(e => !e.onLeave);
+
     const getGroup = (emp) => emp.group || 'normal';
 
     const canDoNight = (emp) => {
@@ -331,7 +334,7 @@ function ScheduleManager() {
 
     // ─── init empStats ───
     const empStats = {};
-    employees.forEach(e => {
+    activeEmployees.forEach(e => {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0,
         catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, อื่นๆ:0 },
@@ -507,8 +510,8 @@ function ScheduleManager() {
         }
       }
 
-      // กลุ่ม r2_off_night: ห้ามได้ A/4, As/4 (มี R2 เป็นเช้าอยู่แล้ว)
-      if (getGroup(emp) === 'r2_off_night' && (cat === 'As/4' || cat === 'A/4')) return false;
+      // กลุ่ม r2 และ r2_off_night: ห้ามได้ A/4, As/4 (มี R2 เป็นเช้าอยู่แล้ว)
+      if ((getGroup(emp) === 'r2' || getGroup(emp) === 'r2_off_night') && (cat === 'As/4' || cat === 'A/4')) return false;
 
       // Rule 2: บ่ายห้ามซ้ำตำแหน่ง (ยกเว้น off_special เพราะได้เวรน้อย)
       if (rules.rule_2 && cat === 'บ่าย' && !isOffSpecial(emp) && st.assignedAfternoons.has(u)) return false;
@@ -538,6 +541,14 @@ function ScheduleManager() {
       // ใช้ CAP object คำนวณจาก Firebase — รองรับเวรใหม่อัตโนมัติ
       if (u !== 'R2') {
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
+
+        // กลุ่ม r2: โอกาสได้ดึก 2 ครั้ง = 20% เท่านั้น (80% ได้แค่ 1)
+        // ใช้ empId เป็น seed เพื่อให้ consistent ตลอดเดือน
+        if (cat === 'ดึก' && getGroup(emp) === 'r2') {
+          const allow2Nights = (parseInt(emp.id, 36) % 10) < 2; // ~20%
+          const nightCap = allow2Nights ? CAP['ดึก'] : 1;
+          if ((st.catCounts['ดึก'] || 0) >= nightCap) return false;
+        }
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= CAP['บ่าย']) return false;
 
         // 4o: คนที่มี As4/A4 แล้ว (ใช้ countA_As4 ที่ update ทันที) → ห้ามได้ 4o
@@ -708,7 +719,7 @@ function ScheduleManager() {
       });
     }
 
-    const totalEmps = employees.length || 1;
+    const totalEmps = activeEmployees.length || 1;
     const normalCount = normalEmpsAll.length || 1;
 
     // eligible คน = คนที่รับเวรนั้นได้จริง
@@ -1514,7 +1525,7 @@ function EmployeesManager() {
   const shiftGroups = [
     { label: 'เวรบ่าย', names: ['บi','บr','บe'] },
     { label: 'เวรดึก', names: ['ดi','ดe'] },
-    { label: 'เวรเช้า', names: ['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4'] },
+    { label: 'เวรเช้า', names: ['As/4','A/4','B','C','D','E','F','G','R1','R2','T1','T2'] },
     { label: 'เวร 4o/4s/2o', names: ['4o','4s1','4s2','4s3','4s4','2o'] },
   ];
 
@@ -1603,10 +1614,11 @@ function EmployeesManager() {
             <tr>
               <th className="p-4 font-bold w-[5%]">#</th>
               <th className="p-4 font-bold w-[22%]">ชื่อ</th>
-              <th className="p-4 font-bold w-[18%]">กลุ่ม</th>
-              <th className="p-4 font-bold w-[22%]">เวรเฉพาะ (ลงแค่เวรนี้)</th>
-              <th className="p-4 font-bold w-[22%]">งดรับเวร</th>
-              <th className="p-4 font-bold text-center w-[11%]">จัดการ</th>
+              <th className="p-4 font-bold w-[15%]">กลุ่ม</th>
+              <th className="p-4 font-bold w-[8%] text-center">พักงาน</th>
+              <th className="p-4 font-bold w-[18%]">เวรเฉพาะ (ลงแค่เวรนี้)</th>
+              <th className="p-4 font-bold w-[18%]">งดรับเวร</th>
+              <th className="p-4 font-bold text-center w-[9%]">จัดการ</th>
             </tr>
           </thead>
           <tbody className="text-sm">
@@ -1625,6 +1637,13 @@ function EmployeesManager() {
                         {grp.label}
                       </span>
                     )}
+                  </td>
+                  <td className="p-4 text-center">
+                    <button type="button"
+                      onClick={() => setEmployees(employees.map(e => e.id === emp.id ? { ...e, onLeave: !e.onLeave } : e))}
+                      className={`px-3 py-1 rounded-full text-xs font-bold transition-colors ${emp.onLeave ? 'bg-orange-100 text-orange-700 border border-orange-300' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}>
+                      {emp.onLeave ? '⏸ พักงาน' : '-'}
+                    </button>
                   </td>
                   <td className="p-4">
                     <div className="flex flex-wrap gap-1.5">
