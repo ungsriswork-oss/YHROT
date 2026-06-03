@@ -328,7 +328,7 @@ function ScheduleManager() {
     // ─── กำหนดกลุ่มของแต่ละคน ───
     // group: normal | r2 | r2_off_night | off_night | off_special
     // กรองเฉพาะคนที่ไม่ได้พักงาน
-    const activeEmployees = activeEmployees.filter(e => !e.onLeave);
+    const activeEmployees = employees.filter(e => !e.onLeave);
 
     const getGroup = (emp) => emp.group || 'normal';
 
