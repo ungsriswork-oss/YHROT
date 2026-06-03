@@ -135,24 +135,20 @@ export default function PharmacistPage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         @media print {
-          @page { size: A4 landscape; margin: 2mm; }
-          /* ซ่อน header/footer ที่ browser เพิ่มอัตโนมัติ (เวลา, URL, ชื่อหน้า) */
-          @page { margin-top: 0mm; margin-bottom: 0mm; }
-          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.70; }
+          @page { size: A4 landscape; margin: 3mm; margin-top: 0; margin-bottom: 3mm; }
+          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.68; }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
           table { width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\\[1300px\\] { min-width: 0px !important; }
-          th, td { padding: 1px 1px !important; font-size: 12px !important; word-wrap: break-word; overflow: hidden; line-height: 1.3 !important; }
-          .text-xs { font-size: 11px !important; line-height: 1.2 !important; }
+          th, td { padding: 1px 1px !important; font-size: 14px !important; word-wrap: break-word; overflow: hidden; line-height: 1.3 !important; }
+          .text-xs { font-size: 13px !important; line-height: 1.2 !important; }
           .rounded-xl, .rounded-2xl { border-radius: 0 !important; }
           .shadow-sm, .shadow { box-shadow: none !important; }
-          td:first-child, th:first-child { width: 70px !important; max-width: 70px !important; font-size: 12px !important; padding: 1px 2px !important; }
-          /* ซ่อน title ระบบ และเวลาที่ browser แสดงอัตโนมัติ */
-          @page { margin-top: 5mm; }
-          .print-title-system { display: none !important; }
+          td:first-child, th:first-child { width: 75px !important; max-width: 75px !important; font-size: 14px !important; padding: 1px 2px !important; }
+          .print\\:block { display: none !important; }
         }
       `}</style>
       <header className="bg-slate-900 px-5 py-3 flex justify-between items-center z-20 relative print-hidden">
@@ -1388,7 +1384,7 @@ function ScheduleManager() {
           </div>
         ) : (
           <div className="overflow-auto flex-1">
-            <div className="hidden print:block text-center font-bold text-sm mb-2">
+            <div className="hidden print:block text-center font-bold text-sm mb-2 print:hidden">
               ตารางปฏิบัติงาน เภสัชกร ประจำเดือน {thaiMonths[activeSchedule.month]} พ.ศ. {activeSchedule.year + 543}
             </div>
             <table className="w-full border-collapse text-center table-fixed min-w-[1300px] print:min-w-0">
