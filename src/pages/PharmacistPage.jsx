@@ -1246,32 +1246,32 @@ function ScheduleManager() {
   // เรียงพนักงานแบบสุ่ม (shuffle) หรือตามกลุ่ม→เงิน
   const sortedEmployees = useMemo(() => {
     if (!activeSchedule) return employees;
-    if (sortByMoney) {
-      const groupOrder = { normal:1, r2:2, r2_off_night:3, off_night:4, off_special:5 };
-      const empMoney = {};
-      employees.forEach(emp => {
-        let m = 0;
-        monthDates.forEach(d => {
-          const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-          if (s) m += getShiftValue(s);
-        });
-        empMoney[emp.id] = m;
+
+    // คำนวณชั่วโมงต่อคน
+    const empHours = {};
+    employees.forEach(emp => {
+      let h = 0;
+      monthDates.forEach(d => {
+        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+        if (s) h += getShiftHours(s);
       });
+      empHours[emp.id] = h;
+    });
+
+    if (sortByMoney) {
+      // เรียงตามกลุ่ม → ชั่วโมงมากไปน้อยในกลุ่ม
+      const groupOrder = { normal:1, r2:2, r2_off_night:3, off_night:4, off_special:5 };
       return [...employees].sort((a,b) => {
         const ga = groupOrder[a.group || 'normal'] || 1;
         const gb = groupOrder[b.group || 'normal'] || 1;
         if (ga !== gb) return ga - gb;
-        return empMoney[b.id] - empMoney[a.id];
+        return empHours[b.id] - empHours[a.id]; // มากไปน้อยในกลุ่ม
       });
     }
-    // default: สุ่มลำดับ (shuffle) เพื่อให้ตารางไม่ซ้ำกันทุกครั้ง
-    const arr = [...employees];
-    for (let k = arr.length - 1; k > 0; k--) {
-      const j = Math.floor(Math.random() * (k + 1));
-      [arr[k], arr[j]] = [arr[j], arr[k]];
-    }
-    return arr;
-  }, [employees, activeSchedule, shifts, monthDates, sortByMoney]);
+
+    // default: เรียงชั่วโมงมากไปน้อย
+    return [...employees].sort((a,b) => empHours[b.id] - empHours[a.id]);
+  }, [employees, activeSchedule?.assignments, shifts, monthDates, sortByMoney]);
 
   const activeRules = RULES_LIST.filter(r => rules[r.id]);
   const inactiveRules = RULES_LIST.filter(r => !rules[r.id]);
@@ -1357,7 +1357,7 @@ function ScheduleManager() {
           </button>
           <button type="button" onClick={() => setSortByMoney(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
-            <span>฿</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
+            <span>⇅</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
           </button>
           <button type="button" onClick={handleExportExcel}
             className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100">
