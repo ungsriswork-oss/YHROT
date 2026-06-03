@@ -1143,12 +1143,17 @@ function ScheduleManager() {
           if (getShiftHours(s) === 4) fourHShifts.push({ d, ds, s });
         }
 
-        // หาคนปกติที่รับ 4h ได้โดยไม่เกิน 60h — เรียงน้อยสุดก่อน
-        const underNormal = normalEmpsAll
-          .filter(e => calcHours(e.id) + 4 <= 60)
-          .sort((a,b) => calcHours(a.id) - calcHours(b.id));
+        // หาคนรับ: คนปกติ + off_night ที่ชั่วโมงน้อยกว่าและไม่เกิน MAX_OFF_HOURS
+        const underPool = [
+          ...normalEmpsAll.filter(e => calcHours(e.id) + 4 <= 60),
+          ...offNightEmpsAll.filter(e =>
+            e.id !== overEmp.id &&
+            calcHours(e.id) < overHours &&
+            calcHours(e.id) + 4 <= MAX_OFF_HOURS
+          )
+        ].sort((a,b) => calcHours(a.id) - calcHours(b.id));
 
-        for (const underEmp of underNormal) {
+        for (const underEmp of underPool) {
           if (swapped3c) break;
           const underHours = calcHours(underEmp.id);
 
@@ -1177,9 +1182,10 @@ function ScheduleManager() {
 
             // ชั่วโมงหลัง swap
             const newUnderHours = underHours + 4;
-            if (newUnderHours > 60) continue; // คนปกติต้องไม่เกิน 60h
+            const isNormalEmp = canDoNight(underEmp);
+            if (isNormalEmp && newUnderHours > 60) continue;
+            if (!isNormalEmp && newUnderHours > MAX_OFF_HOURS) continue;
 
-            // SWAP!
             // SWAP!
             doSwap(overEmp.id, underEmp.id, ds, fourShift);
             swapped3c = true;
