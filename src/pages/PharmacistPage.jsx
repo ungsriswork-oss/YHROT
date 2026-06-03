@@ -221,12 +221,12 @@ function ScheduleManager() {
     const handleKey = (e) => {
       if (e.code === 'Space' && e.target === document.body) {
         e.preventDefault();
-        if (activeSchedule) handleAutoGenerate();
+        document.querySelector('[data-auto-gen]')?.click();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [activeSchedule, employees, shifts, schedules, rules]);
+  }, []);
   const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
   const activeSchedule = schedules.find(s => s.id === activeScheduleId);
 
@@ -1260,7 +1260,7 @@ function ScheduleManager() {
           ))}
         </div>
         <div className="flex gap-2">
-          <button type="button" onClick={handleAutoGenerate} disabled={!activeSchedule}
+          <button type="button" onClick={handleAutoGenerate} disabled={!activeSchedule} data-auto-gen="true"
             className="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-purple-700 active:scale-95 shadow-sm disabled:opacity-40">
             <Wand2 className="w-4 h-4" /> สุ่มเวรอัตโนมัติ
           </button>
