@@ -328,7 +328,7 @@ function ScheduleManager() {
     // ─── กำหนดกลุ่มของแต่ละคน ───
     // group: normal | r2 | r2_off_night | off_night | off_special
     // กรองเฉพาะคนที่ไม่ได้พักงาน
-    const activeEmployees = employees.filter(e => !e.onLeave);
+    const activeEmployees = activeEmployees.filter(e => !e.onLeave);
 
     const getGroup = (emp) => emp.group || 'normal';
 
@@ -339,9 +339,9 @@ function ScheduleManager() {
 
     const isOffSpecial = (emp) => getGroup(emp) === 'off_special';
 
-    // ─── init empStats ───
+    // ─── init empStats สำหรับทุกคน (รวมคนพักงาน เพื่อป้องกัน undefined) ───
     const empStats = {};
-    activeEmployees.forEach(e => {
+    employees.forEach(e => {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0,
         catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, อื่นๆ:0 },
@@ -853,7 +853,7 @@ function ScheduleManager() {
 
           // รอบ 3: off_night (หลังจากคนปกติเต็มแล้ว)
           if (eligible.length === 0) {
-            eligible = employees.filter(emp => {
+            eligible = activeEmployees.filter(emp => {
               if (!canAssign(emp, dateStr, d, shift)) return false;
               return (empStats[emp.id].catCounts['2o'] || 0) < MAX_2O;
             });
