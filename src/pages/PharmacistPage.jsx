@@ -136,7 +136,7 @@ export default function PharmacistPage() {
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         @media print {
           @page { size: A4 landscape; margin: 2mm; }
-          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.6; }
+          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.72; }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
