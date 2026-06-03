@@ -251,9 +251,16 @@ function ScheduleManager() {
     const newId = `${createYear}-${createMonth}`;
     if (schedules.find(s => s.id === newId)) return alert('มีตารางของเดือนนี้อยู่แล้ว!');
     const newSchedule = { id: newId, year: createYear, month: createMonth, assignments: {}, holidays: {} };
-    setSchedules([...schedules, newSchedule]);
+    const updated = [...schedules, newSchedule];
+    setSchedules(updated);
     setActiveScheduleId(newId);
     setIsCreateModalOpen(false);
+    // scroll ไปที่ปุ่มเดือนใหม่หลัง render
+    setTimeout(() => {
+      const btn = document.querySelector(`[data-schedule-id="${newId}"]`);
+      btn?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      btn?.click();
+    }, 100);
   };
 
   const handleDeleteSchedule = () => {
@@ -1265,7 +1272,7 @@ function ScheduleManager() {
       <div className="flex justify-between items-center mb-3 shrink-0 print-hidden">
         <div className="flex gap-1 bg-white p-1 rounded-md border border-gray-200 flex-wrap">
           {schedules.map(sch => (
-            <button key={sch.id} type="button" onClick={() => setActiveScheduleId(sch.id)}
+            <button key={sch.id} type="button" data-schedule-id={sch.id} onClick={() => setActiveScheduleId(sch.id)}
               className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'}`}>
               {thaiMonths[sch.month]} {sch.year + 543}
             </button>
