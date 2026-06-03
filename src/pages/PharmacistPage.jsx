@@ -135,16 +135,18 @@ export default function PharmacistPage() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         @media print {
-          @page { size: A4 landscape; margin: 3mm; }
-          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.82; }
+          @page { size: A4 landscape; margin: 2mm; }
+          html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.6; }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
           .overflow-auto, .custom-scrollbar { overflow: visible !important; }
           table { width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\\[1300px\\] { min-width: 0px !important; }
-          th, td { padding: 1px 0px !important; font-size: 7.5px !important; word-wrap: break-word; overflow: hidden; }
-          .text-xs { font-size: 7px !important; line-height: 1 !important; }
+          th, td { padding: 1px 0px !important; font-size: 6px !important; word-wrap: break-word; overflow: hidden; line-height: 1.1 !important; }
+          .text-xs { font-size: 5.5px !important; line-height: 1 !important; }
+          .rounded-xl, .rounded-2xl { border-radius: 0 !important; }
+          .shadow-sm, .shadow { box-shadow: none !important; }
         }
       `}</style>
       <header className="bg-slate-900 px-5 py-3 flex justify-between items-center z-20 relative print-hidden">
