@@ -1393,7 +1393,7 @@ function ScheduleManager() {
                   <th className="p-2 border-b border-r border-gray-200 w-[130px] text-sm text-gray-700">พนักงาน</th>
                   {monthDates.map(d => (
                     <th key={d.dateStr} onClick={() => handleToggleHoliday(d.dateStr)}
-                      className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-50 ${d.isHoliday ? 'bg-red-50 text-red-600 font-bold' : 'text-slate-600'}`}>
+                      className={`p-0 border-b border-r border-gray-200 w-[30px] cursor-pointer hover:bg-red-100 ${d.isHoliday ? 'bg-red-100 text-red-700 font-bold' : 'text-slate-600'}`}>
                       <div className="text-[10px] leading-tight pt-1">{d.dayStr}</div>
                       <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
@@ -1434,7 +1434,7 @@ function ScheduleManager() {
                         const isAftOver = sData && getShiftCategory(sData) === 'บ่าย' && aftCount >= 3;
                         return (
                           <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })}
-                            className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-50/30' : ''}`}>
+                            className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-100/50' : ''}`}>
                             {sData && <div className={`absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm ${isAftOver ? 'ring-2 ring-red-500 ring-offset-1' : ''}`} style={{ backgroundColor: isAftOver ? '#ef4444' : sData.color }}>{sData.name}</div>}
                           </td>
                         );
@@ -1445,7 +1445,7 @@ function ScheduleManager() {
                       <td className={`px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold
                         ${totalHours > empTarget + 4 ? 'bg-red-100 text-red-700' :
                           totalHours > empTarget ? 'bg-orange-50 text-orange-600' :
-                          totalHours === empTarget ? 'bg-green-50 text-green-700' : 'text-gray-700'}`}>
+                          totalHours >= empTarget - 2 ? 'bg-green-50 text-green-700' : 'text-gray-700'}`}>
                         {totalHours > 0 ? `${totalHours}h` : '-'}
                       </td>
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right">{totalMoney.toLocaleString()}</td>
