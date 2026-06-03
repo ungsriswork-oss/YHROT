@@ -136,6 +136,8 @@ export default function PharmacistPage() {
         @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap');
         @media print {
           @page { size: A4 landscape; margin: 2mm; }
+          /* ซ่อน header/footer ที่ browser เพิ่มอัตโนมัติ (เวลา, URL, ชื่อหน้า) */
+          @page { margin-top: 0mm; margin-bottom: 0mm; }
           html, body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; zoom: 0.70; }
           .print-hidden { display: none !important; }
           main { padding: 0 !important; }
@@ -143,12 +145,14 @@ export default function PharmacistPage() {
           table { width: 100% !important; border-collapse: collapse; table-layout: fixed; }
           tr { page-break-inside: avoid; }
           .min-w-\\[1300px\\] { min-width: 0px !important; }
-          th, td { padding: 1px 0px !important; font-size: 7px !important; word-wrap: break-word; overflow: hidden; line-height: 1.2 !important; }
-          .text-xs { font-size: 6.5px !important; line-height: 1.1 !important; }
+          th, td { padding: 1px 1px !important; font-size: 12px !important; word-wrap: break-word; overflow: hidden; line-height: 1.3 !important; }
+          .text-xs { font-size: 11px !important; line-height: 1.2 !important; }
           .rounded-xl, .rounded-2xl { border-radius: 0 !important; }
           .shadow-sm, .shadow { box-shadow: none !important; }
-          /* ลด column ชื่อคน แต่ font พออ่านได้ */
-          td:first-child, th:first-child { width: 60px !important; max-width: 60px !important; font-size: 7px !important; padding: 1px 2px !important; }
+          td:first-child, th:first-child { width: 70px !important; max-width: 70px !important; font-size: 12px !important; padding: 1px 2px !important; }
+          /* ซ่อน title ระบบ และเวลาที่ browser แสดงอัตโนมัติ */
+          @page { margin-top: 5mm; }
+          .print-title-system { display: none !important; }
         }
       `}</style>
       <header className="bg-slate-900 px-5 py-3 flex justify-between items-center z-20 relative print-hidden">
@@ -1363,7 +1367,12 @@ function ScheduleManager() {
             className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100">
             <Download className="w-4 h-4" /> Excel
           </button>
-          <button type="button" onClick={() => window.print()}
+          <button type="button" onClick={() => {
+            const prev = document.title;
+            document.title = `ตารางเวร เภสัชกร ${thaiMonths[activeSchedule.month]} ${activeSchedule.year + 543}`;
+            window.print();
+            document.title = prev;
+          }}
             className="text-slate-700 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50">
             <Printer className="w-4 h-4" /> PDF
           </button>
