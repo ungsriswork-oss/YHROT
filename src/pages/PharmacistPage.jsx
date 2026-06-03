@@ -606,6 +606,19 @@ function ScheduleManager() {
             if (empStats[e.id].hours >= st.hours) return false;
             if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
             if (newAssignments[`${e.id}_${dateStr}`]) return false;
+            // ตรวจ rule_1: วันก่อน/หลังต้องว่าง (ไม่งั้นจะ block แล้วไม่มีใครรับได้จริง)
+            if (rules.rule_1) {
+              const prevDs = fmtD(d - 1);
+              const nextDs = fmtD(d + 1);
+              if (prevDs && newAssignments[`${e.id}_${prevDs}`]) {
+                const prevShift = shifts.find(s => s.id === newAssignments[`${e.id}_${prevDs}`]);
+                if (!prevShift || prevShift.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              if (nextDs && newAssignments[`${e.id}_${nextDs}`]) {
+                const nextShift = shifts.find(s => s.id === newAssignments[`${e.id}_${nextDs}`]);
+                if (!nextShift || nextShift.name.trim().toUpperCase() !== 'R2') return false;
+              }
+            }
             if (e.offShifts?.includes(shift.id)) return false;
             if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false;
             if (isOffSpecial(e) && isShiftBannedForOffSpecial(shift)) return false;
@@ -617,7 +630,7 @@ function ScheduleManager() {
               if (cat === 'เช้า' && empStats[e.id].assignedMornings.has(u)) return false;
             }
             if (cat === 'บ่าย') {
-              if (empStats[e.id].assignedAfternoons.has(u)) return false;
+              if (!isOffSpecial(e) && empStats[e.id].assignedAfternoons.has(u)) return false;
               if ((empStats[e.id].catCounts['บ่าย']||0) >= CAP['บ่าย']) return false;
             }
             if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= CAP['SMC']) return false;
