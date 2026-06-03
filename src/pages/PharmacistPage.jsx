@@ -227,6 +227,7 @@ function ScheduleManager() {
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, []);
+  const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
   const activeSchedule = schedules.find(s => s.id === activeScheduleId);
 
