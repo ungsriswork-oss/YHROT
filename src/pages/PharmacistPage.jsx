@@ -1538,6 +1538,27 @@ function EmployeesManager() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', group: 'normal', offShifts: [], specificShifts: [] });
   const [filterGroup, setFilterGroup] = useState('all');
+  const [editPwdModal, setEditPwdModal] = useState({ isOpen: false, emp: null });
+  const [editPwdInput, setEditPwdInput] = useState('');
+  const [editPwdError, setEditPwdError] = useState('');
+  const EDIT_PASSWORD = 'MSMSRX';
+
+  const handleEditClick = (emp) => {
+    setEditPwdModal({ isOpen: true, emp });
+    setEditPwdInput('');
+    setEditPwdError('');
+  };
+
+  const handleEditConfirm = () => {
+    if (editPwdInput === EDIT_PASSWORD) {
+      openEdit(editPwdModal.emp);
+      setIsModalOpen(true);
+      setEditPwdModal({ isOpen: false, emp: null });
+    } else {
+      setEditPwdError('รหัสผ่านไม่ถูกต้อง');
+      setEditPwdInput('');
+    }
+  };
 
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อ');
@@ -1696,7 +1717,7 @@ function EmployeesManager() {
                     </div>
                   </td>
                   <td className="p-4 text-center">
-                    <button type="button" onClick={() => { openEdit(emp); setIsModalOpen(true); }} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1"><Edit2 className="w-4 h-4" /></button>
+                    <button type="button" onClick={() => handleEditClick(emp)} className="text-blue-500 hover:bg-blue-50 p-2 rounded-lg mr-1"><Edit2 className="w-4 h-4" /></button>
                     <button type="button" onClick={() => { if (confirm('ยืนยันลบพนักงาน?')) setEmployees(employees.filter(e => e.id !== emp.id)); }} className="text-red-500 hover:bg-red-50 p-2 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                   </td>
                 </tr>
@@ -1752,6 +1773,42 @@ function EmployeesManager() {
             <div className="flex gap-3 justify-end mt-5 pt-4 border-t border-gray-100 shrink-0">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50">ยกเลิก</button>
               <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm">บันทึกพนักงาน</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Password modal */}
+      {editPwdModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm"
+          onClick={() => setEditPwdModal({ isOpen: false, emp: null })}>
+          <div className="bg-white rounded-2xl w-full max-w-xs p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                <Edit2 className="w-5 h-5 text-blue-600" />
+              </div>
+              <h3 className="text-base font-bold text-gray-900">ยืนยันการแก้ไข</h3>
+              <p className="text-xs text-gray-500 mt-1">{editPwdModal.emp?.name}</p>
+            </div>
+            <input
+              type="password"
+              value={editPwdInput}
+              onChange={e => { setEditPwdInput(e.target.value); setEditPwdError(''); }}
+              onKeyDown={e => e.key === 'Enter' && handleEditConfirm()}
+              placeholder="รหัสผ่าน"
+              autoFocus
+              className={`w-full border rounded-xl px-4 py-2.5 text-sm text-center tracking-widest mb-2 outline-none focus:ring-2 focus:ring-blue-500 ${editPwdError ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
+            />
+            {editPwdError && <p className="text-xs text-red-500 text-center mb-2">{editPwdError}</p>}
+            <div className="flex gap-2 mt-3">
+              <button type="button" onClick={() => setEditPwdModal({ isOpen: false, emp: null })}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50">
+                ยกเลิก
+              </button>
+              <button type="button" onClick={handleEditConfirm}
+                disabled={!editPwdInput}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 disabled:opacity-50">
+                ยืนยัน
+              </button>
             </div>
           </div>
         </div>
