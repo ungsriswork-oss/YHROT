@@ -458,8 +458,8 @@ function ScheduleManager() {
 
     // ─── คำนวณ target hours ต่อคน (คงที่ตลอดเดือน) ───
     // ต้องอยู่หลัง isApplicable เพราะต้องเรียกใช้
-    const normalEmpsAll = employees.filter(e => canDoNight(e));
-    const offNightEmpsAll = employees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
+    const normalEmpsAll = activeEmployees.filter(e => canDoNight(e));
+    const offNightEmpsAll = activeEmployees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
 
     // คำนวณ total hours ทั้งหมดที่ต้องจัดในเดือนนี้
     let totalAllHours = 0;
@@ -771,7 +771,7 @@ function ScheduleManager() {
       // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด (ไม่มี rule_1 สำหรับ R2) ──
       if (hol && r2Shift) {
         const slots = r2Shift.min || 1;
-        const r2Emps = employees.filter(e =>
+        const r2Emps = activeEmployees.filter(e =>
           (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
           !newAssignments[`${e.id}_${dateStr}`]
         );
@@ -793,7 +793,7 @@ function ScheduleManager() {
       // ── STEP B: จัด T1 (วันหยุดนักขัตฤกษ์ทุกวัน) ──
       if (isT1Day && t1Shift) {
         for (let slot = 0; slot < (t1Shift.min || 1); slot++) {
-          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, t1Shift));
+          const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, t1Shift));
           if (eligible.length === 0) break;
           doAssign(sortEligible(eligible, t1Shift)[0], dateStr, d, t1Shift);
         }
@@ -802,7 +802,7 @@ function ScheduleManager() {
       // ── STEP C: จัด T2 (เสาร์ + วันแรกของช่วงหยุดนักขัตฤกษ์) ──
       if (isT2Day && t2Shift) {
         for (let slot = 0; slot < (t2Shift.min || 1); slot++) {
-          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, t2Shift));
+          const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, t2Shift));
           if (eligible.length === 0) break;
           doAssign(sortEligible(eligible, t2Shift)[0], dateStr, d, t2Shift);
         }
@@ -819,7 +819,7 @@ function ScheduleManager() {
       shuffle(todayShifts);
       for (const shift of todayShifts) {
         for (let slot = 0; slot < (shift.min || 1); slot++) {
-          const eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
+          const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
           if (eligible.length === 0) continue;
           doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
         }
@@ -861,7 +861,7 @@ function ScheduleManager() {
 
           // รอบ 4: fallback ป้องกันเวรขาด
           if (eligible.length === 0) {
-            eligible = employees.filter(emp => canAssign(emp, dateStr, d, shift));
+            eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
           }
 
           if (eligible.length === 0) continue;
@@ -936,7 +936,7 @@ function ScheduleManager() {
         // ถ้า swap ดึก → ต้องเป็นคนที่ขึ้นดึกได้ด้วย
         const swapCat = overShifts[0] ? getShiftCategory(overShifts[0].s) : '';
         const underPool = swapCat === 'ดึก'
-          ? employees.filter(e => canDoNight(e))
+          ? activeEmployees.filter(e => canDoNight(e))
           : normalEmpsAll;
 
         const underEmps = underPool.filter(e => {
@@ -1044,7 +1044,7 @@ function ScheduleManager() {
 
         // หาคนที่บ่าย = 1 — รวม off_special (นิธิ) ที่ควรได้บ่ายเพิ่ม
         // off_special ยกเว้น rule_2 ซ้ำตำแหน่ง
-        const underAft = [...normalEmpsAll, ...employees.filter(e => isOffSpecial(e))].filter(e =>
+        const underAft = [...normalEmpsAll, ...activeEmployees.filter(e => isOffSpecial(e))].filter(e =>
           e.id !== overEmp.id && countAfternoon(e.id) <= 1
         ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
 
@@ -1123,7 +1123,7 @@ function ScheduleManager() {
       let swapped3c = false;
 
       // หา off_night ที่ hours > MAX_OFF_HOURS
-      const overOffEmps = employees.filter(e => {
+      const overOffEmps = activeEmployees.filter(e => {
         const g = getGroup(e);
         return (g === 'r2_off_night' || g === 'off_night') && calcHours(e.id) > MAX_OFF_HOURS;
       }).sort((a,b) => calcHours(b.id) - calcHours(a.id));
@@ -1402,7 +1402,8 @@ function ScheduleManager() {
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
                   const isOffNight = ['off_night','r2_off_night','off_special'].includes(emp.group);
                   const isR2Group = ['r2','r2_off_night'].includes(emp.group);
-                  const rowBg = isOffNight ? 'bg-gray-100/70' : isR2Group ? 'bg-green-50/60' : '';
+                  const isOnLeave = !!emp.onLeave;
+                  const rowBg = isOnLeave ? 'bg-gray-50 opacity-40' : isOffNight ? 'bg-gray-100/70' : isR2Group ? 'bg-green-50/60' : '';
                   const empCanNight = !isOffNight;
                   const empTarget = empCanNight ? TARGET_NORMAL_DISPLAY : TARGET_OFF_NIGHT_DISPLAY;
                   const aftCount = cnt['บ่าย'];
