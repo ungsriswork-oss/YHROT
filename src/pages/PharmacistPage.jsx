@@ -461,22 +461,27 @@ function ScheduleManager() {
     const normalEmpsAll = activeEmployees.filter(e => canDoNight(e));
     const offNightEmpsAll = activeEmployees.filter(e => !canDoNight(e) && getGroup(e) !== 'off_special');
 
-    // คำนวณ total hours ทั้งหมดที่ต้องจัดในเดือนนี้
+    // คำนวณ total hours ทั้งหมดที่ต้องจัดในเดือนนี้ (รวม 2o ด้วย)
     let totalAllHours = 0;
     for (let d = 1; d <= dim; d++) {
       shifts.forEach(s => {
         if (!isApplicable(s, d)) return;
-        const cat = getShiftCategory(s);
-        if (cat === '2o') return;
         totalAllHours += getShiftHours(s) * (s.min || 1);
       });
     }
 
-    // TARGET_NORMAL = 60h เสมอ (กลุ่มปกติ)
-    // off_night ต่างกัน 12-16h ตาม TARGET
-    const TARGET_NORMAL = 60;
-    const OFF_NIGHT_GAP = 16;
-    const TARGET_OFF_NIGHT = TARGET_NORMAL - OFF_NIGHT_GAP; // 44h
+    // ─── TARGET_NORMAL คำนวณจาก total hours จริง ───
+    // รองรับเดือนที่มีวันหยุดเยอะ (พ.ค.) ที่ total hours สูงกว่าปกติ
+    // off_night ได้น้อยกว่า GAP ชั่วโมง
+    // total = nN × TARGET_NORMAL + nO × (TARGET_NORMAL - GAP)
+    // TARGET_NORMAL = (totalAllHours + nO × GAP) / (nN + nO)
+    const nN = normalEmpsAll.length || 1;
+    const nO = offNightEmpsAll.length || 0;
+    const GAP = 16;
+    const TARGET_NORMAL = nN > 0
+      ? Math.max(56, Math.round((totalAllHours + nO * GAP) / (nN + nO)))
+      : 60;
+    const TARGET_OFF_NIGHT = Math.max(40, TARGET_NORMAL - GAP);
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
