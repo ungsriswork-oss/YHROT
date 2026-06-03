@@ -905,8 +905,8 @@ function ScheduleManager() {
       for (const overEmp of overEmps) {
         const overHours = calcHours(overEmp.id);
 
-        // หาเวรของคนนี้ที่ swap ได้ — รวม 8h และ 2o(2h)
-        // R2 ห้าม swap, เรียงดึกก่อน
+        // หาเวรของคนนี้ที่ swap ได้ — รวม 8h, 4h และ 2o(2h)
+        // R2 ห้าม swap, เรียงดึกก่อน แล้ว 2o แล้ว 8h แล้ว 4h
         const overShifts = [];
         for (let d = 1; d <= dim; d++) {
           const ds = fmtD(d);
@@ -917,9 +917,9 @@ function ScheduleManager() {
           const u = s.name.trim().toUpperCase();
           if (u === 'R2') continue;
           const h = getShiftHours(s);
-          if (h === 8 || h === 2) overShifts.push({ d, ds, s, h });
+          if (h === 8 || h === 4 || h === 2) overShifts.push({ d, ds, s, h });
         }
-        // เรียง: ดึกก่อน แล้ว 2o (เอาออกง่าย) แล้ว 8h อื่น
+        // เรียง: ดึกก่อน → 2o → 8h → 4h
         overShifts.sort((a,b) => {
           const aCat = getShiftCategory(a.s);
           const bCat = getShiftCategory(b.s);
@@ -927,6 +927,8 @@ function ScheduleManager() {
           if (bCat === 'ดึก' && aCat !== 'ดึก') return 1;
           if (a.h === 2 && b.h !== 2) return -1;
           if (b.h === 2 && a.h !== 2) return 1;
+          if (a.h > b.h) return -1;
+          if (b.h > a.h) return 1;
           return 0;
         });
 
