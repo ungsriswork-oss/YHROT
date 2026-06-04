@@ -831,14 +831,21 @@ function ScheduleManager() {
       }
 
       // ── STEP D: จัดเวรที่เหลือทั้งหมด ──
+      // เรียง: 4h (SMC,4o) ก่อน → 8h (บ่าย,ดึก,เช้า) → 12h (As/4,A/4)
+      // เพราะ 4h ใช้คนน้อย ไม่ block rule_1 ของเวร 8h ที่จะตามมา
       const todayShifts = mainShifts.filter(s => {
         const u = s.name.trim().toUpperCase();
-        if (u === 'R2') return false;              // จัดแล้ว STEP A
-        if (u === 'T1') return false;              // จัดด้วย isT1Day ข้างบนแล้ว หรือไม่ใช่วันนี้
-        if (u === 'T2') return false;              // จัดด้วย isT2Day ข้างบนแล้ว หรือไม่ใช่วันนี้
+        if (u === 'R2') return false;
+        if (u === 'T1') return false;
+        if (u === 'T2') return false;
         return isApplicable(s, d);
       });
       shuffle(todayShifts);
+      todayShifts.sort((a, b) => {
+        const ha = getShiftHours(a), hb = getShiftHours(b);
+        if (ha !== hb) return ha - hb; // 4h ก่อน 8h ก่อน 12h
+        return 0;
+      });
       for (const shift of todayShifts) {
         for (let slot = 0; slot < (shift.min || 1); slot++) {
           const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
