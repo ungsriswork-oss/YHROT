@@ -1502,6 +1502,88 @@ function ScheduleManager() {
       doSwap(fromEmp.id, toEmp.id, gds, gShift);
     }
 
+    // ─── PHASE 3f: swap เวรวันหยุดปลายเดือน → off_night ที่ไม่มีเวรปลายเดือน ───
+    // หา off_night ที่ไม่มีเวรวันที่ 25-dim
+    // หาคนปกติที่มีเวรวันหยุดปลายเดือน → swap ให้ off_night
+    const lateStart = Math.max(1, dim - 6); // 6 วันสุดท้าย
+
+    const MAX_3F_ROUNDS = 5;
+    for (let round = 0; round < MAX_3F_ROUNDS; round++) {
+      let swapped3f = false;
+
+      // off_night ที่ไม่มีเวรปลายเดือนและยังไม่เต็ม TARGET
+      const offNightNoLate = offNightEmpsAll.filter(e => {
+        const h = calcHours(e.id);
+        if (h >= TARGET_OFF_NIGHT + 4) return false; // เต็มแล้ว
+        // ตรวจว่าไม่มีเวรวันที่ lateStart-dim
+        for (let d = lateStart; d <= dim; d++) {
+          if (newAssignments[`${e.id}_${fmtD(d)}`]) return false;
+        }
+        return true;
+      }).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+
+      for (const offEmp of offNightNoLate) {
+        if (swapped3f) break;
+        const offHours = calcHours(offEmp.id);
+
+        // หาเวรวันหยุดปลายเดือนของคนปกติ
+        for (let d = lateStart; d <= dim; d++) {
+          if (swapped3f) break;
+          if (!isHol(d)) continue; // เฉพาะวันหยุด
+          const ds = fmtD(d);
+
+          // หาคนปกติที่มีเวรวันนี้และสามารถ swap ออกได้
+          const normalWithShift = normalEmpsAll.filter(e => {
+            const sid = newAssignments[`${e.id}_${ds}`];
+            if (!sid) return false;
+            const s = shifts.find(s => s.id === sid);
+            if (!s) return false;
+            const u = s.name.trim().toUpperCase();
+            if (u === 'R2') return false; // ห้าม swap R2
+            // ตรวจว่า off_night รับเวรนี้ได้
+            if (offEmp.offShifts?.includes(sid)) return false;
+            if (isOffSpecial(offEmp) && isShiftBannedForOffSpecial(s)) return false;
+            // hours หลัง swap
+            const shiftH = getShiftHours(s);
+            if (offHours + shiftH > TARGET_OFF_NIGHT + 4) return false;
+            return true;
+          }).sort((a,b) => calcHours(b.id) - calcHours(a.id)); // คนปกติที่ hours เยอะสุดก่อน
+
+          for (const normalEmp of normalWithShift) {
+            if (swapped3f) break;
+            const sid = newAssignments[`${normalEmp.id}_${ds}`];
+            const theShift = shifts.find(s => s.id === sid);
+            if (!theShift) continue;
+
+            // ตรวจว่า off_night ว่างวันนี้และไม่ติด rule_1
+            if (newAssignments[`${offEmp.id}_${ds}`]) continue;
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${offEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${offEmp.id}_${nextDs}`]) continue;
+
+            // ตรวจว่า rule_2 (บ่ายซ้ำ)
+            const cat3f = getShiftCategory(theShift);
+            const u3f = theShift.name.trim().toUpperCase();
+            if (cat3f === 'บ่าย' && !isOffSpecial(offEmp)) {
+              let hasDup = false;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const s2 = shifts.find(s => s.id === newAssignments[`${offEmp.id}_${fmtD(d2)}`]);
+                if (s2 && s2.name.trim().toUpperCase() === u3f) { hasDup = true; break; }
+              }
+              if (hasDup) continue;
+            }
+
+            // SWAP!
+            doSwap(normalEmp.id, offEmp.id, ds, theShift);
+            swapped3f = true;
+            break;
+          }
+        }
+      }
+      if (!swapped3f) break;
+    }
+
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
