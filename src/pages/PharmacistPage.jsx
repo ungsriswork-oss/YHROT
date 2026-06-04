@@ -1409,6 +1409,75 @@ function ScheduleManager() {
       if (!swapped3d) break;
     }
 
+    // ─── PHASE 3e: swap G↔R1 pairing ───
+    // หาคนที่มี R1 แต่ไม่มี G และคนที่มี G แต่ไม่มี R1 → swap G กัน
+    const getShiftDay = (empId, shiftName) => {
+      for (let d = 1; d <= dim; d++) {
+        const ds = fmtD(d);
+        const s = shifts.find(s => s.id === newAssignments[`${empId}_${ds}`]);
+        if (s && s.name.trim().toUpperCase() === shiftName.toUpperCase()) return { d, ds, s };
+      }
+      return null;
+    };
+
+    // หาคนที่มี R1 แต่ไม่มี G
+    const r1NoG = normalEmpsAll.filter(e => {
+      const hrs = calcHours(e.id);
+      let hasR1 = false, hasG = false;
+      for (let d = 1; d <= dim; d++) {
+        const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+        if (!s) continue;
+        if (s.name.trim().toUpperCase() === 'R1') hasR1 = true;
+        if (s.name.trim().toUpperCase() === 'G') hasG = true;
+      }
+      return hasR1 && !hasG;
+    });
+
+    // หาคนที่มี G แต่ไม่มี R1
+    const gNoR1 = normalEmpsAll.filter(e => {
+      let hasR1 = false, hasG = false;
+      for (let d = 1; d <= dim; d++) {
+        const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+        if (!s) continue;
+        if (s.name.trim().toUpperCase() === 'R1') hasR1 = true;
+        if (s.name.trim().toUpperCase() === 'G') hasG = true;
+      }
+      return hasG && !hasR1;
+    });
+
+    // swap G จาก gNoR1 → r1NoG
+    for (const fromEmp of gNoR1) {
+      const toEmp = r1NoG.find(e => {
+        // ตรวจว่า toEmp ยังไม่มี G
+        for (let d = 1; d <= dim; d++) {
+          const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+          if (s && s.name.trim().toUpperCase() === 'G') return false;
+        }
+        return true;
+      });
+      if (!toEmp) continue;
+
+      const gInfo = getShiftDay(fromEmp.id, 'G');
+      if (!gInfo) continue;
+      const { d: gd, ds: gds, s: gShift } = gInfo;
+
+      // ตรวจว่า toEmp ว่างวันที่มี G
+      if (newAssignments[`${toEmp.id}_${gds}`]) continue;
+      // rule_1
+      const prevDs = fmtD(gd - 1);
+      const nextDs = fmtD(gd + 1);
+      if (prevDs && newAssignments[`${toEmp.id}_${prevDs}`]) continue;
+      if (nextDs && newAssignments[`${toEmp.id}_${nextDs}`]) continue;
+
+      // ชั่วโมงหลัง swap ต้องสมดุล
+      const fromH = calcHours(fromEmp.id);
+      const toH = calcHours(toEmp.id);
+      if (toH + 8 > fromH + 8) continue; // ไม่เพิ่มความไม่เท่าเทียม
+
+      // SWAP G!
+      doSwap(fromEmp.id, toEmp.id, gds, gShift);
+    }
+
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
