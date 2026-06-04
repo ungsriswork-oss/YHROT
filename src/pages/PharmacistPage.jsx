@@ -718,7 +718,7 @@ function ScheduleManager() {
     };
 
     // ─── sortEligible ───
-    const sortEligible = (eligible, shift) => {
+    const sortEligible = (eligible, shift, d = 1) => {
       const cat = getShiftCategory(shift);
       const u = shift.name.trim().toUpperCase();
       shuffle(eligible);
@@ -872,7 +872,7 @@ function ScheduleManager() {
         for (let slot = 0; slot < (t1Shift.min || 1); slot++) {
           const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, t1Shift));
           if (eligible.length === 0) break;
-          doAssign(sortEligible(eligible, t1Shift)[0], dateStr, d, t1Shift);
+          doAssign(sortEligible(eligible, t1Shift, d)[0], dateStr, d, t1Shift);
         }
       }
 
@@ -881,7 +881,7 @@ function ScheduleManager() {
         for (let slot = 0; slot < (t2Shift.min || 1); slot++) {
           const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, t2Shift));
           if (eligible.length === 0) break;
-          doAssign(sortEligible(eligible, t2Shift)[0], dateStr, d, t2Shift);
+          doAssign(sortEligible(eligible, t2Shift, d)[0], dateStr, d, t2Shift);
         }
       }
 
@@ -962,7 +962,7 @@ function ScheduleManager() {
           }
 
           if (eligible.length === 0) continue; // ไม่มีใครว่างจริงๆ (ทุกคนติด rule_1)
-          doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
+          doAssign(sortEligible(eligible, shift, d)[0], dateStr, d, shift);
         }
       }
     }
