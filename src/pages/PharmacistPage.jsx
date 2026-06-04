@@ -684,6 +684,31 @@ function ScheduleManager() {
       // block ถ้ายังมีคนปกติที่ชั่วโมง < TARGET_NORMAL รับได้จริง (ไม่ติด rule_1)
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
+
+        // Pace check: off_night ไม่ควรสะสม hours เร็วกว่าจังหวะเดือน
+        // เพื่อให้มี quota เหลือสำหรับวันหยุดปลายเดือน
+        const monthRatio = d / dim;
+        const empRatio = st.hours / TARGET_OFF_NIGHT;
+        // ถ้า hours ratio เกิน monthRatio + 0.15 (buffer) → รอก่อน
+        if (empRatio > monthRatio + 0.15) {
+          // ตรวจว่ามีคนอื่นใน off_night ที่ ratio น้อยกว่ารับได้ไหม
+          const hasOtherOffNight = offNightEmpsAll.some(e => {
+            if (e.id === emp.id) return false;
+            if (newAssignments[`${e.id}_${dateStr}`]) return false;
+            if (e.offShifts?.includes(shift.id)) return false;
+            const eRatio = empStats[e.id].hours / TARGET_OFF_NIGHT;
+            if (eRatio >= empRatio) return false; // ต้องน้อยกว่า
+            if (empStats[e.id].hours + shiftHrs > TARGET_OFF_NIGHT) return false;
+            // rule_1
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+            if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
+            return true;
+          });
+          if (hasOtherOffNight) return false;
+        }
+
         if (st.hours + shiftHrs > TARGET_OFF_NIGHT) {
           const hasNormalUnderTarget = normalEmpsAll.some(e => {
             if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
