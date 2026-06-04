@@ -1502,80 +1502,91 @@ function ScheduleManager() {
       doSwap(fromEmp.id, toEmp.id, gds, gShift);
     }
 
-    // ─── PHASE 3f: swap เวรวันหยุดปลายเดือน → off_night ที่ไม่มีเวรปลายเดือน ───
-    // หา off_night ที่ไม่มีเวรวันที่ 25-dim
-    // หาคนปกติที่มีเวรวันหยุดปลายเดือน → swap ให้ off_night
+    // ─── PHASE 3f: swap วันของเวรตำแหน่งเดียวกัน ───
+    // off_night มีเวร X ต้นเดือน ↔ คนปกติมีเวร X ปลายเดือน (วันหยุด)
+    // สลับวันกัน ทำให้ off_night ได้เวรวันหยุดปลายเดือน
+    // hours รวมเท่าเดิม ไม่มีใครได้เพิ่ม
     const lateStart = Math.max(1, dim - 6); // 6 วันสุดท้าย
+    const earlyEnd = Math.min(14, dim);     // 14 วันแรก
 
-    const MAX_3F_ROUNDS = 5;
+    const MAX_3F_ROUNDS = 8;
     for (let round = 0; round < MAX_3F_ROUNDS; round++) {
       let swapped3f = false;
 
-      // off_night ที่ไม่มีเวรปลายเดือนและยังไม่เต็ม TARGET
+      // หา off_night ที่ไม่มีเวรวันหยุดปลายเดือน
       const offNightNoLate = offNightEmpsAll.filter(e => {
-        const h = calcHours(e.id);
-        if (h >= TARGET_OFF_NIGHT + 4) return false; // เต็มแล้ว
-        // ตรวจว่าไม่มีเวรวันที่ lateStart-dim
         for (let d = lateStart; d <= dim; d++) {
-          if (newAssignments[`${e.id}_${fmtD(d)}`]) return false;
+          if (isHol(d) && newAssignments[`${e.id}_${fmtD(d)}`]) return false;
         }
         return true;
-      }).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+      });
 
       for (const offEmp of offNightNoLate) {
         if (swapped3f) break;
-        const offHours = calcHours(offEmp.id);
 
-        // หาเวรวันหยุดปลายเดือนของคนปกติ
-        for (let d = lateStart; d <= dim; d++) {
+        // หาเวรต้นเดือนของ off_night (วัน 1-14)
+        for (let d1 = 1; d1 <= earlyEnd; d1++) {
           if (swapped3f) break;
-          if (!isHol(d)) continue; // เฉพาะวันหยุด
-          const ds = fmtD(d);
+          const ds1 = fmtD(d1);
+          const sid1 = newAssignments[`${offEmp.id}_${ds1}`];
+          if (!sid1) continue;
+          const s1 = shifts.find(s => s.id === sid1);
+          if (!s1) continue;
+          const u1 = s1.name.trim().toUpperCase();
+          // ห้าม swap R2, G, R1, As/4, A/4
+          if (['R2','G','R1','AS/4','A/4'].includes(u1)) continue;
 
-          // หาคนปกติที่มีเวรวันนี้และสามารถ swap ออกได้
-          const normalWithShift = normalEmpsAll.filter(e => {
-            const sid = newAssignments[`${e.id}_${ds}`];
-            if (!sid) return false;
-            const s = shifts.find(s => s.id === sid);
-            if (!s) return false;
-            const u = s.name.trim().toUpperCase();
-            if (u === 'R2') return false; // ห้าม swap R2
-            // ตรวจว่า off_night รับเวรนี้ได้
-            if (offEmp.offShifts?.includes(sid)) return false;
-            if (isOffSpecial(offEmp) && isShiftBannedForOffSpecial(s)) return false;
-            // hours หลัง swap
-            const shiftH = getShiftHours(s);
-            if (offHours + shiftH > TARGET_OFF_NIGHT + 4) return false;
-            return true;
-          }).sort((a,b) => calcHours(b.id) - calcHours(a.id)); // คนปกติที่ hours เยอะสุดก่อน
-
-          for (const normalEmp of normalWithShift) {
+          // หาคนปกติที่มีเวรตำแหน่งเดียวกัน (u1) ในวันหยุดปลายเดือน
+          for (let d2 = lateStart; d2 <= dim; d2++) {
             if (swapped3f) break;
-            const sid = newAssignments[`${normalEmp.id}_${ds}`];
-            const theShift = shifts.find(s => s.id === sid);
-            if (!theShift) continue;
+            if (!isHol(d2)) continue;
+            const ds2 = fmtD(d2);
 
-            // ตรวจว่า off_night ว่างวันนี้และไม่ติด rule_1
-            if (newAssignments[`${offEmp.id}_${ds}`]) continue;
-            const prevDs = fmtD(d - 1);
-            const nextDs = fmtD(d + 1);
-            if (prevDs && newAssignments[`${offEmp.id}_${prevDs}`]) continue;
-            if (nextDs && newAssignments[`${offEmp.id}_${nextDs}`]) continue;
+            // หาคนปกติที่มีเวร u1 วันที่ d2
+            const normalEmp = normalEmpsAll.find(e => {
+              const sid2 = newAssignments[`${e.id}_${ds2}`];
+              if (!sid2) return false;
+              const s2 = shifts.find(s => s.id === sid2);
+              if (!s2) return false;
+              if (s2.name.trim().toUpperCase() !== u1) return false;
+              return true;
+            });
+            if (!normalEmp) continue;
 
-            // ตรวจว่า rule_2 (บ่ายซ้ำ)
-            const cat3f = getShiftCategory(theShift);
-            const u3f = theShift.name.trim().toUpperCase();
-            if (cat3f === 'บ่าย' && !isOffSpecial(offEmp)) {
-              let hasDup = false;
-              for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${offEmp.id}_${fmtD(d2)}`]);
-                if (s2 && s2.name.trim().toUpperCase() === u3f) { hasDup = true; break; }
-              }
-              if (hasDup) continue;
+            const sid2 = newAssignments[`${normalEmp.id}_${ds2}`];
+            const s2 = shifts.find(s => s.id === sid2);
+            if (!s2) continue;
+
+            // ตรวจ rule_1 สำหรับ off_night วันที่ d2
+            const prev2 = fmtD(d2 - 1), next2 = fmtD(d2 + 1);
+            if (prev2 && newAssignments[`${offEmp.id}_${prev2}`]) continue;
+            if (next2 && newAssignments[`${offEmp.id}_${next2}`]) continue;
+
+            // ตรวจ rule_1 สำหรับ normalEmp วันที่ d1
+            const prev1 = fmtD(d1 - 1), next1 = fmtD(d1 + 1);
+            if (prev1 && newAssignments[`${normalEmp.id}_${prev1}`]) {
+              const ps = shifts.find(s => s.id === newAssignments[`${normalEmp.id}_${prev1}`]);
+              if (!ps || ps.name.trim().toUpperCase() !== 'R2') continue;
+            }
+            if (next1 && newAssignments[`${normalEmp.id}_${next1}`]) {
+              const ns = shifts.find(s => s.id === newAssignments[`${normalEmp.id}_${next1}`]);
+              if (!ns || ns.name.trim().toUpperCase() !== 'R2') continue;
             }
 
-            // SWAP!
-            doSwap(normalEmp.id, offEmp.id, ds, theShift);
+            // ตรวจว่า off_night ไม่มีเวรวันที่ d2 แล้ว (ลบวันที่ d1 ออกแล้ว)
+            // และ normalEmp ว่างวันที่ d1 (ลบวันที่ d2 ออกแล้ว)
+
+            // SWAP วัน! off_night: d1→d2, normalEmp: d2→d1
+            delete newAssignments[`${offEmp.id}_${ds1}`];
+            delete newAssignments[`${normalEmp.id}_${ds2}`];
+            newAssignments[`${offEmp.id}_${ds2}`] = s1.id;
+            newAssignments[`${normalEmp.id}_${ds1}`] = s2.id;
+
+            // update empStats hours (hours เท่าเดิม ไม่ต้องเปลี่ยน)
+            // แต่ update lastDay
+            empStats[offEmp.id].lastDay = d2;
+            empStats[normalEmp.id].lastDay = Math.max(empStats[normalEmp.id].lastDay || 0, d1);
+
             swapped3f = true;
             break;
           }
