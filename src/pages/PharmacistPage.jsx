@@ -1220,6 +1220,76 @@ function ScheduleManager() {
       if (!swapped3c) break;
     }
 
+    // ─── PHASE 3d: swap SMC จากคนที่ได้ ≥ 3 → คนที่ได้น้อยกว่า ───
+    const countSMC = (empId) => {
+      let n = 0;
+      for (let d = 1; d <= dim; d++) {
+        const s = shifts.find(s => s.id === newAssignments[`${empId}_${fmtD(d)}`]);
+        if (s && getShiftCategory(s) === 'SMC') n++;
+      }
+      return n;
+    };
+
+    const MAX_3D_ROUNDS = 5;
+    for (let round = 0; round < MAX_3D_ROUNDS; round++) {
+      let swapped3d = false;
+
+      // หาคนที่ SMC >= 3
+      const overSMC = [...normalEmpsAll, ...offNightEmpsAll].filter(e =>
+        countSMC(e.id) >= 3
+      ).sort((a,b) => countSMC(b.id) - countSMC(a.id));
+
+      for (const overEmp of overSMC) {
+        if (swapped3d) break;
+
+        // หาเวร SMC ของคนนี้
+        const smcShifts = [];
+        for (let d = 1; d <= dim; d++) {
+          const ds = fmtD(d);
+          const sid = newAssignments[`${overEmp.id}_${ds}`];
+          if (!sid) continue;
+          const s = shifts.find(s => s.id === sid);
+          if (!s || getShiftCategory(s) !== 'SMC') continue;
+          smcShifts.push({ d, ds, s });
+        }
+
+        // หาคนที่ SMC น้อยกว่า เรียงน้อยสุดก่อน
+        const underPool = [...normalEmpsAll, ...offNightEmpsAll]
+          .filter(e => e.id !== overEmp.id && countSMC(e.id) < countSMC(overEmp.id))
+          .sort((a,b) => countSMC(a.id) - countSMC(b.id) || calcHours(a.id) - calcHours(b.id));
+
+        for (const underEmp of underPool) {
+          if (swapped3d) break;
+
+          for (const { d, ds, s: smcShift } of smcShifts) {
+            if (swapped3d) break;
+            if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // rule_1
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+            // SMC cap
+            if (countSMC(underEmp.id) >= CAP['SMC']) continue;
+
+            // hours check
+            const newUnderHrs = calcHours(underEmp.id) + 4;
+            const isNormal = canDoNight(underEmp);
+            if (isNormal && newUnderHrs > TARGET_NORMAL + 4) continue;
+            if (!isNormal && newUnderHrs > TARGET_OFF_NIGHT + 4) continue;
+
+            // SWAP!
+            doSwap(overEmp.id, underEmp.id, ds, smcShift);
+            swapped3d = true;
+            break;
+          }
+        }
+      }
+      if (!swapped3d) break;
+    }
+
     setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
@@ -1358,12 +1428,57 @@ function ScheduleManager() {
       {/* Action bar */}
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
-          {activeSchedule && TARGET_NORMAL_DISPLAY > 0 && (
-            <div className="text-xs text-gray-500 mr-auto flex gap-3">
-              <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
-              <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
-            </div>
-          )}
+          {activeSchedule && TARGET_NORMAL_DISPLAY > 0 && (() => {
+            // คำนวณ total expected hours จากวันหยุดปัจจุบัน
+            const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+            let expectedHrs = 0;
+            for (let d = 1; d <= dim; d++) {
+              const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+              const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+              const isHol = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+              shifts.forEach(s => {
+                const a = s.allowedDays || 'all';
+                const isSat = dow === 6;
+                let applicable = false;
+                if (a === 'all') applicable = true;
+                else if (a === 'weekdays' && !isHol) applicable = true;
+                else if (a === 'weekends_holidays' && isHol) applicable = true;
+                else if (a === 'saturdays_only' && isSat) applicable = true;
+                else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHol) applicable = true;
+                else if (a === 'holidays_except_saturday' && isHol && !isSat) applicable = true;
+                else if (a === 'first_day_of_holidays') {
+                  if (isHol) {
+                    const pd = d - 1;
+                    const pDow = pd >= 1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+                    const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+                    const pHol = pDow === 0 || pDow === 6 || !!(activeSchedule.holidays?.[pDs]);
+                    if (d === 1 || !pHol) applicable = true;
+                  }
+                }
+                if (applicable) expectedHrs += getShiftHours(s) * (s.min || 1);
+              });
+            }
+            // คำนวณ actual hours และเงิน
+            let actualHrs = 0, actualMoney = 0;
+            employees.forEach(emp => {
+              monthDates.forEach(d => {
+                const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                if (s) { actualHrs += getShiftHours(s); actualMoney += getShiftValue(s); }
+              });
+            });
+            const diff = actualHrs - expectedHrs;
+            const isOk = Math.abs(diff) <= 4;
+            return (
+              <div className="text-xs mr-auto flex items-center gap-3 flex-wrap">
+                <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
+                <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
+                <span className={`px-2 py-1 rounded-lg font-bold ${isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
+                  📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ขาด${Math.abs(diff)}h`}
+                </span>
+                <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
+              </div>
+            );
+          })()}
           <button type="button" onClick={handleDeleteSchedule}
             className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 mr-2">
             <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
