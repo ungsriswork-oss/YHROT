@@ -535,7 +535,36 @@ function ScheduleManager() {
       // เวรดึกห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่อาจได้หลายครั้ง)
       if (cat === 'ดึก' && u !== 'R2' && st.assignedNights.has(u)) return false;
 
-      // Rule 4+5: R1 ≠ T1/T2
+      // Rule 3: R1↔G pairing — บังคับใน canAssign
+      if (rules.rule_3) {
+        if (u === 'G') {
+          // ถ้ามีคนอื่นที่มี R1 แต่ยังไม่มี G → ให้คนนั้นได้ G ก่อน
+          const r1WithoutG = normalEmpsAll.some(e =>
+            e.id !== emp.id &&
+            empStats[e.id].hasR1 &&
+            !empStats[e.id].hasG &&
+            !newAssignments[`${e.id}_${dateStr}`] &&
+            !e.offShifts?.includes(shift.id)
+          );
+          if (r1WithoutG) return false;
+        }
+        if (u === 'R1') {
+          // ตรวจว่ายังมี G slot เหลือในเดือนนี้ไหม
+          // ถ้า G slots ที่เหลือ < คนที่มี R1 แต่ไม่มี G → block
+          let gSlotsLeft = 0;
+          const gShift = shifts.find(s => s.name.trim().toUpperCase() === 'G');
+          if (gShift) {
+            for (let d2 = d; d2 <= dim; d2++) {
+              if (isApplicable(gShift, d2)) gSlotsLeft += (gShift.min || 1);
+            }
+          }
+          const r1WithoutG = normalEmpsAll.filter(e =>
+            empStats[e.id].hasR1 && !empStats[e.id].hasG
+          ).length;
+          // ถ้า G slots เหลือน้อยกว่าคนที่ต้องการ G → block R1 ใหม่
+          if (gSlotsLeft <= r1WithoutG) return false;
+        }
+      }
       if (rules.rule_4 || rules.rule_5) {
         if (u === 'R1' && (st.hasT1 || st.hasT2)) return false;
         if ((u === 'T1' || u === 'T2') && st.hasR1) return false;
@@ -732,12 +761,24 @@ function ScheduleManager() {
         if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
 
         // Secondary: คนที่ห่างจาก TARGET มากกว่า (hours น้อยกว่า) ได้ก่อน
+        // off_night: ใช้ pace = hours / TARGET_OFF_NIGHT เทียบกับ d/dim
+        // เพื่อกระจายให้ทั่วเดือน ไม่ให้เต็มก่อนถึงปลายเดือน
         const aCanNight = canDoNight(a), bCanNight = canDoNight(b);
         if (aCanNight === bCanNight) {
           const myTarget = aCanNight ? TARGET_NORMAL : TARGET_OFF_NIGHT;
           const aGap = myTarget - sa.hours;
           const bGap = myTarget - sb.hours;
           if (aGap !== bGap) return bGap - aGap;
+        } else {
+          // off_night vs normal: ให้ off_night รับเฉพาะเมื่อ normal เต็มแล้ว
+          // ตรวจจาก hours ratio vs วันที่ในเดือน
+          const monthRatio = d / dim; // 0-1
+          const aRatio = sa.hours / (aCanNight ? TARGET_NORMAL : TARGET_OFF_NIGHT);
+          const bRatio = sb.hours / (bCanNight ? TARGET_NORMAL : TARGET_OFF_NIGHT);
+          // คนที่ ratio น้อยกว่า monthRatio ยังได้รับเวรได้
+          const aBehind = aRatio < monthRatio;
+          const bBehind = bRatio < monthRatio;
+          if (aBehind !== bBehind) return aBehind ? -1 : 1;
         }
 
         // Tertiary: catCounts ของประเภทนี้
