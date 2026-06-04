@@ -1533,7 +1533,8 @@ function ScheduleManager() {
           const s1 = shifts.find(s => s.id === sid1);
           if (!s1) continue;
           const u1 = s1.name.trim().toUpperCase();
-          // ห้าม swap R2, G, R1, As/4, A/4
+          // ห้าม swap R2, G, R1, As/4, A/4 ออกจาก off_night
+          // และห้าม swap G/R1 ออกจาก normal (เพื่อรักษา G↔R1 pairing)
           if (['R2','G','R1','AS/4','A/4'].includes(u1)) continue;
 
           // หาคนปกติที่มีเวรตำแหน่งเดียวกัน (u1) ในวันหยุดปลายเดือน
@@ -1556,6 +1557,9 @@ function ScheduleManager() {
             const sid2 = newAssignments[`${normalEmp.id}_${ds2}`];
             const s2 = shifts.find(s => s.id === sid2);
             if (!s2) continue;
+            // ห้าม swap G/R1 ออกจาก normal ด้วย (รักษา pairing)
+            const u2 = s2.name.trim().toUpperCase();
+            if (['R2','G','R1','AS/4','A/4'].includes(u2)) continue;
 
             // ตรวจ rule_1 สำหรับ off_night วันที่ d2
             const prev2 = fmtD(d2 - 1), next2 = fmtD(d2 + 1);
@@ -1573,12 +1577,14 @@ function ScheduleManager() {
               if (!ns || ns.name.trim().toUpperCase() !== 'R2') continue;
             }
 
-            // ตรวจว่า off_night ไม่มีเวรวันที่ d2 แล้ว (ลบวันที่ d1 ออกแล้ว)
-            // และ normalEmp ว่างวันที่ d1 (ลบวันที่ d2 ออกแล้ว)
+            // ตรวจว่า off ไม่มีเวรวันที่ d2 (ก่อน swap step1)
+            if (newAssignments[`${offEmp.id}_${ds2}`]) continue;
+            // ตรวจว่า normal ไม่มีเวรวันที่ d1 (นอกจาก d1 ที่จะถูก swap ออก)
+            // normalEmp มี ds2 อยู่แล้ว ซึ่งจะถูก swap ออก → OK
 
             // SWAP วัน! ใช้ doSwap เพื่อ update empStats ด้วย
-            doSwap(offEmp.id, normalEmp.id, ds1, s1); // off_night คืน s1 ที่วัน d1, normalEmp รับ s1 ที่วัน d1
-            doSwap(normalEmp.id, offEmp.id, ds2, s2); // normalEmp คืน s2 ที่วัน d2, offEmp รับ s2 ที่วัน d2
+            doSwap(offEmp.id, normalEmp.id, ds1, s1);
+            doSwap(normalEmp.id, offEmp.id, ds2, s2);
 
             swapped3f = true;
             break;
