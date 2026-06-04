@@ -848,8 +848,65 @@ function ScheduleManager() {
       });
       for (const shift of todayShifts) {
         for (let slot = 0; slot < (shift.min || 1); slot++) {
-          const eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
-          if (eligible.length === 0) continue;
+          // รอบ 1: ปกติ — ผ่านทุก rule
+          let eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
+
+          // รอบ 2: ผ่อน hours cap — ยอมให้คนที่ชั่วโมงเกิน TARGET รับได้
+          if (eligible.length === 0) {
+            eligible = activeEmployees.filter(emp => {
+              if (newAssignments[`${emp.id}_${dateStr}`]) return false;
+              if (emp.offShifts?.includes(shift.id)) return false;
+              if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
+              if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
+              if (!canDoNight(emp) && getShiftCategory(shift) === 'ดึก') return false;
+              // ตรวจ rule_1 เท่านั้น
+              if (empStats[emp.id].lastDay !== null && d - empStats[emp.id].lastDay === 1) {
+                const prevDs = fmtD(d - 1);
+                const prevShiftId = prevDs ? newAssignments[`${emp.id}_${prevDs}`] : null;
+                const prevShift = prevShiftId ? shifts.find(s => s.id === prevShiftId) : null;
+                if (!prevShift || prevShift.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              const nextDs = fmtD(d + 1);
+              if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
+                const nextShift = shifts.find(s => s.id === newAssignments[`${emp.id}_${nextDs}`]);
+                if (!nextShift || nextShift.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              return true;
+            });
+          }
+
+          // รอบ 3: fallback สุดท้าย — ผ่อน hours cap แต่ยัง keep rule_2, rule_7, cat cap
+          if (eligible.length === 0) {
+            const cat3 = getShiftCategory(shift);
+            const u3 = shift.name.trim().toUpperCase();
+            eligible = activeEmployees.filter(emp => {
+              if (newAssignments[`${emp.id}_${dateStr}`]) return false;
+              if (!canDoNight(emp) && cat3 === 'ดึก') return false;
+              if (emp.offShifts?.includes(shift.id)) return false;
+              if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
+              const st3 = empStats[emp.id];
+              // rule_1
+              const prevDs = fmtD(d - 1);
+              const nextDs = fmtD(d + 1);
+              if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) {
+                const ps = shifts.find(s => s.id === newAssignments[`${emp.id}_${prevDs}`]);
+                if (!ps || ps.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
+                const ns = shifts.find(s => s.id === newAssignments[`${emp.id}_${nextDs}`]);
+                if (!ns || ns.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              // rule_2: บ่ายซ้ำตำแหน่ง
+              if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
+              // rule_7: เช้าซ้ำตำแหน่ง
+              if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
+              // ดึก cap
+              if (cat3 === 'ดึก' && (st3.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
+              return true;
+            });
+          }
+
+          if (eligible.length === 0) continue; // ไม่มีใครว่างจริงๆ (ทุกคนติด rule_1)
           doAssign(sortEligible(eligible, shift)[0], dateStr, d, shift);
         }
       }
