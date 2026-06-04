@@ -652,19 +652,33 @@ function ScheduleManager() {
       // ไม่ต้องเพิ่มอะไรที่นี่ เพราะ CAP block ด้านบนครอบคลุมแล้ว
 
       // Hours cap กลุ่ม off_night: ไม่เกิน TARGET_OFF_NIGHT
-      // block ถ้ายังมีคนปกติที่ชั่วโมง < TARGET_NORMAL รับได้
+      // block ถ้ายังมีคนปกติที่ชั่วโมง < TARGET_NORMAL รับได้จริง (ไม่ติด rule_1)
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
         if (st.hours + shiftHrs > TARGET_OFF_NIGHT) {
-          const hasNormalUnderTarget = normalEmpsAll.some(e =>
-            empStats[e.id].hours + shiftHrs <= TARGET_NORMAL &&
-            !newAssignments[`${e.id}_${dateStr}`] &&
-            !e.offShifts?.includes(shift.id) &&
-            !(e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) &&
-            (cat !== 'เช้า' || !empStats[e.id].assignedMornings.has(u)) &&
-            (cat !== 'บ่าย' || !empStats[e.id].assignedAfternoons.has(u)) &&
-            (empStats[e.id].catCounts[cat] || 0) < (cat === 'เช้า' ? 3 : 2)
-          );
+          const hasNormalUnderTarget = normalEmpsAll.some(e => {
+            if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
+            if (newAssignments[`${e.id}_${dateStr}`]) return false;
+            if (e.offShifts?.includes(shift.id)) return false;
+            if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false;
+            if (cat === 'เช้า' && empStats[e.id].assignedMornings.has(u)) return false;
+            if (cat === 'บ่าย' && empStats[e.id].assignedAfternoons.has(u)) return false;
+            if ((empStats[e.id].catCounts[cat] || 0) >= (cat === 'เช้า' ? 3 : 2)) return false;
+            // ตรวจ rule_1 — ถ้าติดก็ไม่นับว่า "รับได้"
+            if (rules.rule_1) {
+              const prevDs = fmtD(d - 1);
+              const nextDs = fmtD(d + 1);
+              if (prevDs && newAssignments[`${e.id}_${prevDs}`]) {
+                const ps = shifts.find(s => s.id === newAssignments[`${e.id}_${prevDs}`]);
+                if (!ps || ps.name.trim().toUpperCase() !== 'R2') return false;
+              }
+              if (nextDs && newAssignments[`${e.id}_${nextDs}`]) {
+                const ns = shifts.find(s => s.id === newAssignments[`${e.id}_${nextDs}`]);
+                if (!ns || ns.name.trim().toUpperCase() !== 'R2') return false;
+              }
+            }
+            return true;
+          });
           if (hasNormalUnderTarget) return false;
         }
         // Emergency: ไม่เกิน TARGET_OFF_NIGHT + 8h ไม่ว่ากรณีใด
