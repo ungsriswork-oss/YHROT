@@ -1576,16 +1576,9 @@ function ScheduleManager() {
             // ตรวจว่า off_night ไม่มีเวรวันที่ d2 แล้ว (ลบวันที่ d1 ออกแล้ว)
             // และ normalEmp ว่างวันที่ d1 (ลบวันที่ d2 ออกแล้ว)
 
-            // SWAP วัน! off_night: d1→d2, normalEmp: d2→d1
-            delete newAssignments[`${offEmp.id}_${ds1}`];
-            delete newAssignments[`${normalEmp.id}_${ds2}`];
-            newAssignments[`${offEmp.id}_${ds2}`] = s1.id;
-            newAssignments[`${normalEmp.id}_${ds1}`] = s2.id;
-
-            // update empStats hours (hours เท่าเดิม ไม่ต้องเปลี่ยน)
-            // แต่ update lastDay
-            empStats[offEmp.id].lastDay = d2;
-            empStats[normalEmp.id].lastDay = Math.max(empStats[normalEmp.id].lastDay || 0, d1);
+            // SWAP วัน! ใช้ doSwap เพื่อ update empStats ด้วย
+            doSwap(offEmp.id, normalEmp.id, ds1, s1); // off_night คืน s1 ที่วัน d1, normalEmp รับ s1 ที่วัน d1
+            doSwap(normalEmp.id, offEmp.id, ds2, s2); // normalEmp คืน s2 ที่วัน d2, offEmp รับ s2 ที่วัน d2
 
             swapped3f = true;
             break;
