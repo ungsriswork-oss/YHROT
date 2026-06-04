@@ -1467,13 +1467,13 @@ function ScheduleManager() {
               });
             });
             const diff = actualHrs - expectedHrs;
-            const isOk = Math.abs(diff) <= 4;
+            const isOk = actualHrs >= expectedHrs;
             return (
               <div className="text-xs mr-auto flex items-center gap-3 flex-wrap">
                 <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
                 <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
                 <span className={`px-2 py-1 rounded-lg font-bold ${isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                  📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ขาด${Math.abs(diff)}h`}
+                  📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs - actualHrs}h`}
                 </span>
                 <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
               </div>
