@@ -686,11 +686,10 @@ function ScheduleManager() {
         const shiftHrs = getShiftHours(shift);
 
         // Pace check: off_night ไม่ควรสะสม hours เร็วกว่าจังหวะเดือน
-        // เพื่อให้มี quota เหลือสำหรับวันหยุดปลายเดือน
+        // buffer=0.05 → ถ้าเกินแค่ 5% ของจังหวะเดือนก็ block แล้ว
         const monthRatio = d / dim;
         const empRatio = st.hours / TARGET_OFF_NIGHT;
-        // ถ้า hours ratio เกิน monthRatio + 0.15 (buffer) → รอก่อน
-        if (empRatio > monthRatio + 0.15) {
+        if (empRatio > monthRatio + 0.05) {
           // ตรวจว่ามีคนอื่นใน off_night ที่ ratio น้อยกว่ารับได้ไหม
           const hasOtherOffNight = offNightEmpsAll.some(e => {
             if (e.id === emp.id) return false;
