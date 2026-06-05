@@ -130,7 +130,7 @@ export default function HomePage() {
         <div style={{ textAlign: 'center' }}>
           <div style={{
             fontFamily: 'IBM Plex Mono',
-            fontSize: 11,
+            fontSize: 24,
             color: '#3b82f6',
             letterSpacing: '0.15em',
             textTransform: 'uppercase',
