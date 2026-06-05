@@ -271,9 +271,9 @@ function ScheduleManager() {
   const handleDeleteSchedule = () => {
     if (!activeSchedule) return;
     if (confirm(`ลบตารางเดือน ${thaiMonths[activeSchedule.month]} ${activeSchedule.year + 543}?`)) {
-      const updated = schedules.filter(s => s.id !== activeScheduleId);
+      const updated = schedules.filter(s => s.id !== activeSchedule.id);
       setSchedules(updated);
-      setActiveScheduleId(updated.length > 0 ? updated[0].id : null);
+      setActiveScheduleId(updated.length > 0 ? updated[updated.length - 1].id : null);
     }
   };
 
@@ -1605,7 +1605,7 @@ function ScheduleManager() {
       if (!swapped3f) break;
     }
 
-    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: newAssignments } : s));
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
   };
@@ -1616,7 +1616,7 @@ function ScheduleManager() {
     const updated = { ...activeSchedule.assignments };
     if (shiftId === null) delete updated[`${empId}_${dateStr}`];
     else updated[`${empId}_${dateStr}`] = shiftId;
-    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, assignments: updated } : s));
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: updated } : s));
     setAssignmentModal({ isOpen: false, empId: null, dateStr: null });
   };
 
@@ -1625,7 +1625,7 @@ function ScheduleManager() {
     const updated = { ...activeSchedule.holidays };
     if (updated[dateStr]) delete updated[dateStr];
     else updated[dateStr] = 'วันหยุดพิเศษ';
-    setSchedules(schedules.map(s => s.id === activeScheduleId ? { ...s, holidays: updated } : s));
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, holidays: updated } : s));
   };
 
   let monthDates = [];
