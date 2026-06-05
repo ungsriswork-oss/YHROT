@@ -686,10 +686,10 @@ function ScheduleManager() {
         const shiftHrs = getShiftHours(shift);
 
         // Pace check: off_night ไม่ควรสะสม hours เร็วกว่าจังหวะเดือน
-        // buffer=0.05 → ถ้าเกินแค่ 5% ของจังหวะเดือนก็ block แล้ว
+        // buffer=0.10 → สมดุลระหว่างกระจายดีและไม่ block มากเกิน
         const monthRatio = d / dim;
         const empRatio = st.hours / TARGET_OFF_NIGHT;
-        if (empRatio > monthRatio + 0.05) {
+        if (empRatio > monthRatio + 0.10) {
           // ตรวจว่ามีคนอื่นใน off_night ที่ ratio น้อยกว่ารับได้ไหม
           const hasOtherOffNight = offNightEmpsAll.some(e => {
             if (e.id === emp.id) return false;
@@ -1279,9 +1279,9 @@ function ScheduleManager() {
       if (!swapped3b) break;
     }
 
-    // ─── PHASE 3c: swap 4s/4h ของกลุ่ม off_night ให้คนปกติที่ชั่วโมงน้อย ───
-    // เพื่อให้ off_night ได้ไม่เกิน 48h และคนปกติได้เพิ่มขึ้น
-    const MAX_OFF_HOURS = 48;
+    // ─── PHASE 3c: swap 4s/4h ของกลุ่ม off_night ที่ hours > TARGET_OFF_NIGHT ───
+    // swap ให้ off_night คนอื่นที่ hours 40-44h หรือคนปกติ
+    const MAX_OFF_HOURS = TARGET_OFF_NIGHT; // ใช้ TARGET จริง ไม่ hardcode 48
     const MAX_3C_ROUNDS = 5;
 
     for (let round = 0; round < MAX_3C_ROUNDS; round++) {
