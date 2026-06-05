@@ -844,7 +844,7 @@ function ScheduleManager() {
       'บ่าย': dynamicCap('บ่าย', 2),
       'เช้า': dynamicCap('เช้า', 2),
       'SMC':  dynamicCap('SMC',  2),
-      '4o':   dynamicCap('4o',   1),
+      '4o':   Math.max(2, Math.ceil(slotsByCat['4o'] / (normalEmpsAll.length || 1))),
       '2o':   dynamicCap('2o',   1),
       'As/4': 1,
       'A/4':  1,
@@ -922,8 +922,18 @@ function ScheduleManager() {
       shuffle(todayShifts);
       todayShifts.sort((a, b) => {
         const ha = getShiftHours(a), hb = getShiftHours(b);
-        if (ha !== hb) return ha - hb; // 4h ก่อน 8h ก่อน 12h
-        return 0;
+        // วันหยุด: 8h ก่อน (B,C,D,E,F,G ต้องได้คนก่อน) แล้ว 12h แล้ว 4h
+        // วันทำการ: 4h ก่อน (SMC,4o ใช้คนน้อย) แล้ว 8h
+        if (isHol(d)) {
+          if (ha === hb) return 0;
+          if (ha === 8) return -1;
+          if (hb === 8) return 1;
+          if (ha === 12) return -1;
+          if (hb === 12) return 1;
+          return ha - hb;
+        } else {
+          return ha - hb; // 4h ก่อน 8h วันทำการ
+        }
       });
       for (const shift of todayShifts) {
         for (let slot = 0; slot < (shift.min || 1); slot++) {
