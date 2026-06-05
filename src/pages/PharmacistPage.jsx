@@ -233,7 +233,8 @@ function ScheduleManager() {
   }, []);
   const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
   const thaiDays = ['อา','จ','อ','พ','พฤ','ศ','ส'];
-  const activeSchedule = schedules.find(s => s.id === activeScheduleId);
+  const activeSchedule = schedules.find(s => s.id === activeScheduleId) 
+    || (schedules.length > 0 ? schedules[schedules.length - 1] : null);
 
   // ─── helper: is holiday ───
   const isHoliday = (d, dow, dateStr) =>
@@ -1687,7 +1688,7 @@ function ScheduleManager() {
         <div className="flex gap-1 bg-white p-1 rounded-md border border-gray-200 flex-wrap">
           {schedules.map(sch => (
             <button key={sch.id} type="button" data-schedule-id={sch.id} onClick={() => setActiveScheduleId(sch.id)}
-              className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${activeScheduleId === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'}`}>
+              className={`px-3 py-1.5 text-sm font-bold rounded transition-colors ${activeSchedule?.id === sch.id ? 'bg-indigo-600 text-white' : 'bg-transparent text-gray-600 hover:bg-gray-100'}`}>
               {thaiMonths[sch.month]} {sch.year + 543}
             </button>
           ))}
