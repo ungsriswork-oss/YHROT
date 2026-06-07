@@ -1935,8 +1935,12 @@ function ScheduleManager() {
                   <span className="font-bold text-gray-400">{TARGET_OFF_NIGHT_DISPLAY}h</span>
                 </div>
                 {/* Hours */}
-                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${isOk ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
-                  📊 {actualHrs}/{expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs-actualHrs}h`}
+                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${
+                  !hasGenerated ? 'bg-gray-50 text-gray-400 border border-gray-200' :
+                  isOk ? 'bg-green-50 text-green-700 border border-green-200' :
+                  'bg-red-50 text-red-600 border border-red-200'
+                }`}>
+                  📊 {hasGenerated ? `${actualHrs}/${expectedHrs}h ${isOk ? '✅' : `⚠️ ขาด ${expectedHrs-actualHrs}h`}` : `${expectedHrs}h`}
                 </div>
                 {/* Money */}
                 <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">
