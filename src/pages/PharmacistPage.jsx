@@ -292,8 +292,86 @@ function ScheduleManager() {
   // ══════════════════════════════════════════════════════════════
   const handleAutoGenerate = () => {
     if (!activeSchedule) return;
+
+    const MAX_AUTO_RETRY = 20;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
-    const newAssignments = {};
+
+    // ─── helper: คำนวณ score ของผลลัพธ์ 1 รอบ ───
+    const scoreResult = (assignments) => {
+      // คำนวณชั่วโมงแต่ละคน
+      const getEmpHours = (empId) => {
+        let h = 0;
+        for (let d = 1; d <= dim; d++) {
+          const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const s = shifts.find(s => s.id === assignments[`${empId}_${ds}`]);
+          if (s) h += getShiftHours(s);
+        }
+        return h;
+      };
+
+      const normalEmps = employees.filter(e => !e.onLeave && (e.group === 'normal' || e.group === 'r2' || !e.group));
+      const offEmps = employees.filter(e => !e.onLeave && ['off_night','r2_off_night'].includes(e.group));
+
+      const normalHrs = normalEmps.map(e => getEmpHours(e.id)).filter(h => h > 0);
+      const offHrs = offEmps.map(e => getEmpHours(e.id)).filter(h => h > 0);
+
+      const calcSpread = (hrs) => hrs.length < 2 ? 0 : Math.max(...hrs) - Math.min(...hrs);
+      const calcStd = (hrs) => {
+        if (hrs.length < 2) return 0;
+        const mean = hrs.reduce((a,b) => a+b,0) / hrs.length;
+        return Math.sqrt(hrs.reduce((a,b) => a+(b-mean)**2,0) / hrs.length);
+      };
+
+      // คำนวณเวรขาด
+      const isApplicableCheck = (shift, d) => {
+        const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+        const isSat = dow === 6;
+        const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const hol = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+        const a = shift.allowedDays || 'all';
+        if (a === 'weekdays' && hol) return false;
+        if (a === 'weekends_holidays' && !hol) return false;
+        if (a === 'saturdays_only' && !isSat) return false;
+        if (a === 'mon_tue_only' && (![1,2].includes(dow) || hol)) return false;
+        if (a === 'holidays_except_saturday' && (!hol || isSat)) return false;
+        if (a === 'first_day_of_holidays') {
+          if (!hol) return false;
+          const pd = d - 1;
+          const pDow = pd >= 1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+          const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+          const pHol = pDow === 0 || pDow === 6 || !!(activeSchedule.holidays?.[pDs]);
+          return d === 1 || !pHol;
+        }
+        return true;
+      };
+
+      let missingCount = 0;
+      for (let d = 1; d <= dim; d++) {
+        const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        shifts.forEach(s => {
+          if (!isApplicableCheck(s, d)) return;
+          const filled = employees.filter(e => assignments[`${e.id}_${ds}`] === s.id).length;
+          if (filled < (s.min || 1)) missingCount += (s.min||1) - filled;
+        });
+      }
+
+      const nSpread = calcSpread(normalHrs);
+      const nStd = calcStd(normalHrs);
+      const oSpread = calcSpread(offHrs);
+      const oStd = calcStd(offHrs);
+
+      // ผ่านเกณฑ์ทั้งหมด
+      const isGood =
+        missingCount === 0 &&
+        nSpread <= 8 && nStd <= 2.5 &&
+        (offHrs.length < 2 || (oSpread <= 6 && oStd <= 2.5));
+
+      return { missingCount, nSpread, nStd, oSpread, oStd, isGood };
+    };
+
+    // ─── run 1 รอบ แล้ว return assignments ───
+    const runOnce = () => {
+      const newAssignments = {};
 
     const fmtD = (d) => {
       if (d < 1 || d > dim) return null;
@@ -467,10 +545,10 @@ function ScheduleManager() {
     const nN = normalEmpsAll.length || 1;
     const nO = offNightEmpsAll.length || 0;
     const GAP = 16;
-    const TARGET_NORMAL = nN > 0
+    TARGET_NORMAL = nN > 0
       ? Math.max(56, Math.round((totalAllHours + nO * GAP) / (nN + nO)))
       : 60;
-    const TARGET_OFF_NIGHT = Math.max(40, TARGET_NORMAL - GAP);
+    TARGET_OFF_NIGHT = Math.max(40, TARGET_NORMAL - GAP);
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
@@ -1676,11 +1754,38 @@ function ScheduleManager() {
       if (!swapped3g) break;
     }
 
-    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
-    setTargetNormalDisplay(TARGET_NORMAL);
-    setTargetOffNightDisplay(TARGET_OFF_NIGHT);
-    setHasGenerated(true);
-  };
+    return newAssignments;
+  }; // end runOnce
+
+  // ─── Auto-retry loop ───
+  let bestAssignments = null;
+  let bestScore = null;
+  let TARGET_NORMAL = 60;
+  let TARGET_OFF_NIGHT = 44;
+
+  for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
+    const assignments = runOnce();
+    const score = scoreResult(assignments);
+
+    // เก็บผลดีที่สุดไว้
+    if (
+      bestAssignments === null ||
+      score.missingCount < bestScore.missingCount ||
+      (score.missingCount === bestScore.missingCount && score.nSpread + score.oSpread < bestScore.nSpread + bestScore.oSpread)
+    ) {
+      bestAssignments = assignments;
+      bestScore = score;
+    }
+
+    // ถ้าผ่านเกณฑ์ทั้งหมดแล้ว หยุด
+    if (score.isGood) break;
+  }
+
+  setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+  setTargetNormalDisplay(TARGET_NORMAL);
+  setTargetOffNightDisplay(TARGET_OFF_NIGHT);
+  setHasGenerated(true);
+};
 
   const handleAssignShift = (shiftId) => {
     if (!activeSchedule) return;
