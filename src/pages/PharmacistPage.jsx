@@ -2062,23 +2062,54 @@ function ScheduleManager() {
               }
             }
 
-            // เวรเกิน — หาคนที่ได้เวรที่ไม่ควรได้ (เกิน rule หรือ manual เพิ่มเกิน)
+            // เวรเกิน/ผิดกฎ — ตรวจ real-time จาก assignments
             const over = [];
             if (hasData) {
+              // 1. ตรวจ slot เกิน (filled > min) เทียบกับ Firebase
+              for (let d = 1; d <= dim; d++) {
+                const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+                const isSat = dow === 6;
+                const isHolD = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+                shifts.forEach(s => {
+                  const a = s.allowedDays || 'all';
+                  let applicable = false;
+                  if (a === 'all') applicable = true;
+                  else if (a === 'weekdays' && !isHolD) applicable = true;
+                  else if (a === 'weekends_holidays' && isHolD) applicable = true;
+                  else if (a === 'saturdays_only' && isSat) applicable = true;
+                  else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHolD) applicable = true;
+                  else if (a === 'holidays_except_saturday' && isHolD && !isSat) applicable = true;
+                  else if (a === 'first_day_of_holidays') {
+                    if (isHolD) {
+                      const pd = d-1;
+                      const pDow = pd>=1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+                      const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+                      const pHolD = pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);
+                      if (d===1||!pHolD) applicable = true;
+                    }
+                  }
+                  if (!applicable) return;
+                  const filled = employees.filter(e => activeSchedule.assignments?.[`${e.id}_${ds}`] === s.id).length;
+                  if (filled > (s.min||1)) {
+                    over.push({ day: d, shiftName: s.name, shiftColor: s.color, reason: `เกิน (${filled}/${s.min||1} คน)` });
+                  }
+                });
+              }
+
+              // 2. ตรวจกฎกลุ่ม — off_special ได้เวรต้องห้าม / off_night ได้ดึก
               employees.forEach(emp => {
                 monthDates.forEach(({ dateStr, dateNum }) => {
                   const sid = activeSchedule.assignments?.[`${emp.id}_${dateStr}`];
                   if (!sid) return;
                   const s = shifts.find(s => s.id === sid);
                   if (!s) return;
-                  // ตรวจ off_special ได้เวรต้องห้าม
                   const empGrp = emp.group || 'normal';
                   if (empGrp === 'off_special' && isShiftBannedForOffSpecial(s)) {
-                    over.push({ day: dateNum, empName: emp.name, shiftName: s.name, shiftColor: s.color, reason: 'off_special ห้ามรับ' });
+                    over.push({ day: dateNum, shiftName: s.name, shiftColor: s.color, reason: `${emp.name} (off_special ห้ามรับ)` });
                   }
-                  // ตรวจ off_night ได้เวรดึก
                   if (['off_night','r2_off_night','off_special'].includes(empGrp) && getShiftCategory(s) === 'ดึก') {
-                    over.push({ day: dateNum, empName: emp.name, shiftName: s.name, shiftColor: s.color, reason: 'งดดึก' });
+                    over.push({ day: dateNum, shiftName: s.name, shiftColor: s.color, reason: `${emp.name} (งดดึก)` });
                   }
                 });
               });
@@ -2123,10 +2154,10 @@ function ScheduleManager() {
                 )}
                 {hasData && over.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm font-bold text-orange-600">⚠️ เวรผิดกฎ {over.length} slot:</span>
+                    <span className="text-sm font-bold text-orange-600">⚠️ เวรเกิน/ผิดกฎ {over.length} slot:</span>
                     {over.map((o,i) => (
                       <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400 ring-offset-1" style={{ backgroundColor: o.shiftColor }}>
-                        วัน {o.day} · {o.empName} · {o.shiftName}
+                        วัน {o.day} · {o.shiftName} · {o.reason}
                       </span>
                     ))}
                   </div>
