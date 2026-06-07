@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Users, Clock, Plus, Edit2, Trash2, UserPlus,
   Wand2, Settings, CalendarDays, CheckCircle2, X, Printer,
-  Download, ArrowLeft, ChevronDown,
+  Download, ArrowLeft,
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -14,7 +14,7 @@ export const PHARMACIST_GROUPS = [
   { id: 'r2',           label: 'R2',              color: '#0ea5e9', desc: 'มีเวร R2, ขึ้นดึกได้' },
   { id: 'r2_off_night', label: 'R2 + งดดึก',     color: '#f59e0b', desc: 'มีเวร R2, งดเวรดึก' },
   { id: 'off_night',    label: 'งดดึก',           color: '#10b981', desc: 'งดเวรดึก (di, de) แต่ขึ้นได้ทุกอย่างอื่น' },
-  { id: 'off_special',  label: 'Off พิเศษ',       color: '#ef4444', desc: 'งดดึก + งด 4s, บe, บr, R1, T1, T2, G, A — ขึ้นเฉพาะที่กำหนด' },
+  { id: 'off_special',  label: 'Off พิเศษ',       color: '#ef4444', desc: 'งดดึก + งด 4s, บe, R1, T1, T2, G, A — รับได้เฉพาะ บi, บr และเวรที่กำหนด' },
 ];
 
 // ─── Firebase Sync Hook ───
@@ -236,22 +236,6 @@ function ScheduleManager() {
   const activeSchedule = schedules.find(s => s.id === activeScheduleId) 
     || (schedules.length > 0 ? schedules[schedules.length - 1] : null);
 
-  // ─── helper: is holiday ───
-  const isHoliday = (d, dow, dateStr) =>
-    dow === 0 || dow === 6 || !!(activeSchedule?.holidays?.[dateStr]);
-
-  // ─── helper: is "first day of holiday block" ───
-  const isFirstHolidayOfBlock = (d, activeSchedule, daysInMonth) => {
-    const dateStr = fmtDateFor(activeSchedule, d);
-    const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-    if (!isHolidayRaw(d, dow, dateStr, activeSchedule)) return false;
-    if (d === 1) return true;
-    const pd = d - 1;
-    const pDow = new Date(activeSchedule.year, activeSchedule.month, pd).getDay();
-    const pStr = fmtDateFor(activeSchedule, pd);
-    return !isHolidayRaw(pd, pDow, pStr, activeSchedule);
-  };
-
   const handleCreateSchedule = () => {
     const newId = `${createYear}-${createMonth}`;
     if (schedules.find(s => s.id === newId)) return alert('มีตารางของเดือนนี้อยู่แล้ว!');
@@ -283,7 +267,7 @@ function ScheduleManager() {
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
     csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,ชั่วโมง,รวมเงิน\n';
-    employees.forEach(emp => {
+    employees.filter(e => !e.onLeave).forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
@@ -854,8 +838,6 @@ function ScheduleManager() {
     const MORNING_CAP_NORMAL = Math.min(3, dynamicCap('เช้า', 2));
     const MORNING_CAP_OFF = 2;
 
-    // SMC_CAP ยังใช้ชื่อเดิมเพื่อ backward compat
-    const SMC_CAP = CAP['SMC'];
     // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
     const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
     const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
@@ -1504,7 +1486,7 @@ function ScheduleManager() {
       // ชั่วโมงหลัง swap ต้องสมดุล
       const fromH = calcHours(fromEmp.id);
       const toH = calcHours(toEmp.id);
-      if (toH + 8 > fromH + 8) continue; // ไม่เพิ่มความไม่เท่าเทียม
+      if (toH > fromH) continue; // ไม่เพิ่มความไม่เท่าเทียม
 
       // SWAP G!
       doSwap(fromEmp.id, toEmp.id, gds, gShift);
