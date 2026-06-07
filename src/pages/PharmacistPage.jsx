@@ -299,6 +299,51 @@ function ScheduleManager() {
     if (!activeSchedule) return;
     setIsGenerating(true);
     setRetryCount(0);
+
+    let bestAssignments = null;
+    let bestScore = null;
+    let TARGET_NORMAL = 60;
+    let TARGET_OFF_NIGHT = 44;
+
+    const isBetter = (n, o) => {
+      if (!o) return true;
+      if (n.missing !== o.missing) return n.missing < o.missing;
+      if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
+      return n.nStd+n.oStd < o.nStd+o.oStd;
+    };
+
+    const runAttempt = (attempt) => {
+      if (attempt >= MAX_AUTO_RETRY) {
+        // ครบ 40 รอบ → แสดงผลดีสุด
+        setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+        setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+        setIsGenerating(false);
+        return;
+      }
+
+      // อัพเดท counter ก่อนคำนวณ
+      const counter = document.getElementById('retry-counter');
+      const progress = document.getElementById('retry-progress');
+      if (counter) counter.textContent = `รอบที่ ${attempt+1}/40`;
+      if (progress) progress.style.width = `${((attempt+1)/40)*100}%`;
+
+      setTimeout(() => {
+        const assignments = runOnce();
+        const score = scoreResult(assignments);
+        if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
+
+        if (score.isGood) {
+          // ได้ผลดีพอแล้ว หยุดก่อนครบ 40 รอบ
+          setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+          setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+          setIsGenerating(false);
+        } else {
+          // ยังไม่ดีพอ → รอบถัดไป
+          runAttempt(attempt + 1);
+        }
+      }, 0);
+    };
+
     setTimeout(() => {
     const MAX_AUTO_RETRY = 40;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
@@ -1719,29 +1764,9 @@ function ScheduleManager() {
       return newAssignments;
     }; // end runOnce
 
-    let bestAssignments = null;
-    let bestScore = null;
-    const isBetter = (n, o) => {
-      if (!o) return true;
-      if (n.missing !== o.missing) return n.missing < o.missing;
-      if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
-      return n.nStd+n.oStd < o.nStd+o.oStd;
-    };
-    for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
-      const assignments = runOnce();
-      const score = scoreResult(assignments);
-      if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
-      // อัพเดท DOM โดยตรง ไม่ผ่าน React state เพราะ synchronous loop
-      const counter = document.getElementById('retry-counter');
-      const progress = document.getElementById('retry-progress');
-      if (counter) counter.textContent = `รอบที่ ${attempt+1}/40`;
-      if (progress) progress.style.width = `${((attempt+1)/40)*100}%`;
-      if (score.isGood) break;
-    }
-    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-    setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-    setIsGenerating(false);
-    }, 50);
+      // เริ่ม async retry loop
+      runAttempt(0);
+    }, 50); // setTimeout แรกให้ React render loading ก่อน
   };
 
   const handleAssignShift = (shiftId) => {
