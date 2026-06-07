@@ -1959,7 +1959,7 @@ function ScheduleManager() {
                   };
 
                   const nScore = calcScore(normalHours, 8, 10, 2.5, 3.0);
-                  const oScore = calcScore(offHours, 4, 6, 1.5, 2.0);
+                  const oScore = calcScore(offHours, 4, 6, 2.0, 2.5);
 
                   return (
                     <>
