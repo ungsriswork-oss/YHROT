@@ -1988,6 +1988,7 @@ function ScheduleManager() {
               });
             });
             const isOk = actualHrs >= expectedHrs;
+            const hasData = actualHrs > 0; // มีเวรในตารางแล้ว ไม่ว่าจะสุ่มหรือกรอก manual
 
             // score calculation
             const calcScore = (emps, spreadGood, spreadOk, stdGood, stdOk) => {
@@ -2012,12 +2013,12 @@ function ScheduleManager() {
 
             const normalEmps = employees.filter(e => e.group === 'normal' || e.group === 'r2' || !e.group);
             const offEmps = employees.filter(e => ['off_night','r2_off_night'].includes(e.group));
-            const nScore = hasGenerated ? calcScore(normalEmps, 8, 10, 2.5, 3.0) : null;
-            const oScore = hasGenerated ? calcScore(offEmps, 4, 6, 2.0, 2.5) : null;
+            const nScore = hasData ? calcScore(normalEmps, 8, 10, 2.5, 3.0) : null;
+            const oScore = hasData ? calcScore(offEmps, 4, 6, 2.0, 2.5) : null;
 
             // missing shifts
             let missing = [];
-            if (hasGenerated) {
+            if (hasData) {
               for (let d = 1; d <= dim; d++) {
                 const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
                 const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
@@ -2059,23 +2060,23 @@ function ScheduleManager() {
                 </div>
                 {/* Hours */}
                 <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${
-                  !hasGenerated ? 'bg-gray-50 text-gray-400 border border-gray-200' :
+                  !hasData ? 'bg-gray-50 text-gray-400 border border-gray-200' :
                   isOk ? 'bg-green-50 text-green-700 border border-green-200' :
                   'bg-red-50 text-red-600 border border-red-200'
                 }`}>
-                  📊 {hasGenerated ? `${actualHrs}/${expectedHrs}h ${isOk ? '✅' : `⚠️ ขาด ${expectedHrs-actualHrs}h`}` : `${expectedHrs}h`}
+                  📊 {hasData ? `${actualHrs}/${expectedHrs}h ${isOk ? '✅' : `⚠️ ขาด ${expectedHrs-actualHrs}h`}` : `${expectedHrs}h`}
                 </div>
                 {/* Money */}
                 <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">
                   💰 {actualMoney.toLocaleString()} บ.
                 </div>
                 {/* Missing */}
-                {hasGenerated && missing.length === 0 && (
+                {hasData && missing.length === 0 && (
                   <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
                     ✅ เวรครบ
                   </div>
                 )}
-                {hasGenerated && missing.length > 0 && (
+                {hasData && missing.length > 0 && (
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="text-sm font-bold text-red-600">❌ ขาด {missing.length} slot:</span>
                     {missing.map((m,i) => (
