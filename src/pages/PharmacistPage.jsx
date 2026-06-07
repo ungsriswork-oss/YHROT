@@ -312,40 +312,42 @@ function ScheduleManager() {
       return n.nStd+n.oStd < o.nStd+o.oStd;
     };
 
+    const MAX_AUTO_RETRY = 10;
+
     const runAttempt = (attempt) => {
       if (attempt >= MAX_AUTO_RETRY) {
-        // ครบ 40 รอบ → แสดงผลดีสุด
         setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
         setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
         setIsGenerating(false);
         return;
       }
 
-      // อัพเดท counter ก่อนคำนวณ
+      const assignments = runOnce();
+      const score = scoreResult(assignments);
+      if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
+
+      // อัพเดท counter
       const counter = document.getElementById('retry-counter');
       const progress = document.getElementById('retry-progress');
-      if (counter) counter.textContent = `รอบที่ ${attempt+1}/40`;
-      if (progress) progress.style.width = `${((attempt+1)/40)*100}%`;
+      if (counter) counter.textContent = `รอบที่ ${attempt+1}/${MAX_AUTO_RETRY}`;
+      if (progress) progress.style.width = `${((attempt+1)/MAX_AUTO_RETRY)*100}%`;
 
-      setTimeout(() => {
-        const assignments = runOnce();
-        const score = scoreResult(assignments);
-        if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
+      if (score.isGood) {
+        setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+        setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+        setIsGenerating(false);
+        return;
+      }
 
-        if (score.isGood) {
-          // ได้ผลดีพอแล้ว หยุดก่อนครบ 40 รอบ
-          setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-          setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-          setIsGenerating(false);
-        } else {
-          // ยังไม่ดีพอ → รอบถัดไป
-          runAttempt(attempt + 1);
-        }
-      }, 0);
+      // yield ให้ browser หายใจทุก 2 รอบ
+      if (attempt % 2 === 1) {
+        setTimeout(() => runAttempt(attempt + 1), 0);
+      } else {
+        runAttempt(attempt + 1);
+      }
     };
 
     setTimeout(() => {
-    const MAX_AUTO_RETRY = 40;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
