@@ -1804,7 +1804,7 @@ function ScheduleManager() {
     setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
     setIsGenerating(false);
   }, 50); // end setTimeout
-};
+  };
 
   const handleAssignShift = (shiftId) => {
     if (!activeSchedule) return;
