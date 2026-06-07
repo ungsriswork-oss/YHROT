@@ -219,6 +219,7 @@ function ScheduleManager() {
   const [sortByMoney, setSortByMoney] = useState(false);
   const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
+  const [hasGenerated, setHasGenerated] = useState(false);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
     const handleKey = (e) => {
@@ -1586,6 +1587,7 @@ function ScheduleManager() {
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
+    setHasGenerated(true);
   };
 
   const handleAssignShift = (shiftId) => {
@@ -1769,7 +1771,7 @@ function ScheduleManager() {
                   📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs - actualHrs}h`}
                 </span>
                 <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
-                {(() => {
+                {hasGenerated && (() => {
                   // คำนวณ missingShifts real-time จาก assignments ปัจจุบัน
                   const missing = [];
                   for (let d = 1; d <= dim; d++) {
