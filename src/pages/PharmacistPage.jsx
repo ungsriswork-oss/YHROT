@@ -219,8 +219,6 @@ function ScheduleManager() {
   const [sortByMoney, setSortByMoney] = useState(false);
   const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
-  const [missingShifts, setMissingShifts] = useState([]);
-
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
     const handleKey = (e) => {
@@ -1588,28 +1586,6 @@ function ScheduleManager() {
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
-
-    // ─── คำนวณเวรที่ขาด ───
-    const missing = [];
-    for (let d = 1; d <= dim; d++) {
-      const ds = fmtD(d);
-      shifts.forEach(s => {
-        if (!isApplicable(s, d)) return;
-        const needed = s.min || 1;
-        const filled = activeEmployees.filter(e => newAssignments[`${e.id}_${ds}`] === s.id).length;
-        if (filled < needed) {
-          missing.push({
-            day: d,
-            shiftName: s.name,
-            shiftColor: s.color,
-            needed,
-            filled,
-            lack: needed - filled,
-          });
-        }
-      });
-    }
-    setMissingShifts(missing);
   };
 
   const handleAssignShift = (shiftId) => {
@@ -1793,21 +1769,56 @@ function ScheduleManager() {
                   📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs - actualHrs}h`}
                 </span>
                 <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
-                {missingShifts.length > 0 && (
-                  <span className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-red-600 font-bold">❌ เวรขาด {missingShifts.length} slot:</span>
-                    {missingShifts.map((m, i) => (
-                      <span key={i}
-                        className="px-2 py-0.5 rounded-md text-white text-[10px] font-bold"
-                        style={{ backgroundColor: m.shiftColor }}>
-                        วัน {m.day} · {m.shiftName} (ขาด {m.lack})
-                      </span>
-                    ))}
-                  </span>
-                )}
-                {missingShifts.length === 0 && TARGET_NORMAL_DISPLAY > 0 && (
-                  <span className="text-green-600 font-bold text-[11px]">✅ เวรครบทุก slot</span>
-                )}
+                {(() => {
+                  // คำนวณ missingShifts real-time จาก assignments ปัจจุบัน
+                  const missing = [];
+                  for (let d = 1; d <= dim; d++) {
+                    const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                    const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+                    const isSat = dow === 6;
+                    const isHol = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+                    shifts.forEach(s => {
+                      const a = s.allowedDays || 'all';
+                      let applicable = false;
+                      if (a === 'all') applicable = true;
+                      else if (a === 'weekdays' && !isHol) applicable = true;
+                      else if (a === 'weekends_holidays' && isHol) applicable = true;
+                      else if (a === 'saturdays_only' && isSat) applicable = true;
+                      else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHol) applicable = true;
+                      else if (a === 'holidays_except_saturday' && isHol && !isSat) applicable = true;
+                      else if (a === 'first_day_of_holidays') {
+                        if (isHol) {
+                          const pd = d - 1;
+                          const pDow = pd >= 1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+                          const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+                          const pHol = pDow === 0 || pDow === 6 || !!(activeSchedule.holidays?.[pDs]);
+                          if (d === 1 || !pHol) applicable = true;
+                        }
+                      }
+                      if (!applicable) return;
+                      const needed = s.min || 1;
+                      const filled = employees.filter(e => activeSchedule.assignments?.[`${e.id}_${ds}`] === s.id).length;
+                      if (filled < needed) {
+                        missing.push({ day: d, shiftName: s.name, shiftColor: s.color, lack: needed - filled });
+                      }
+                    });
+                  }
+                  if (missing.length === 0) return (
+                    <span className="text-green-600 font-bold text-[11px]">✅ เวรครบทุก slot</span>
+                  );
+                  return (
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-red-600 font-bold">❌ เวรขาด {missing.length} slot:</span>
+                      {missing.map((m, i) => (
+                        <span key={i}
+                          className="px-2 py-0.5 rounded-md text-white text-[10px] font-bold"
+                          style={{ backgroundColor: m.shiftColor }}>
+                          วัน {m.day} · {m.shiftName} (ขาด {m.lack})
+                        </span>
+                      ))}
+                    </span>
+                  );
+                })()}
               </div>
             );
           })()}
