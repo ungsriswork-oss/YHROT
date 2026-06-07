@@ -1777,46 +1777,58 @@ function ScheduleManager() {
         </div>
       </div>
 
-      {/* Rules bar */}
-      <div className="flex flex-col mb-4 bg-indigo-50/50 p-3 rounded-xl border border-indigo-100 shrink-0 print-hidden">
-        <div className="flex justify-between items-center mb-2">
-          <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-1"><Settings className="w-4 h-4" /> กฎการสุ่มเวร</h3>
-          <div className="relative">
-            <button type="button" onClick={() => setShowRuleDropdown(!showRuleDropdown)}
-              className="text-xs bg-white border border-dashed border-indigo-300 text-indigo-600 px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1 font-medium">
-              <Plus className="w-3.5 h-3.5" /> เพิ่มเงื่อนไข
-            </button>
-            {showRuleDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-[380px] bg-white border border-gray-200 shadow-xl rounded-xl z-50 py-2 max-h-[50vh] overflow-y-auto">
-                {inactiveRules.length === 0 ? (
-                  <div className="px-5 py-4 text-xs text-gray-400 text-center">ไม่มีเงื่อนไขเพิ่มเติม</div>
-                ) : inactiveRules.map(r => (
-                  <button key={r.id} type="button" onClick={() => { setRules({...rules,[r.id]:true}); setShowRuleDropdown(false); }}
-                    className="w-full text-left px-5 py-2.5 text-xs text-gray-600 hover:bg-indigo-50">{r.label}</button>
+      {/* Rules bar — Collapsible */}
+      <div className="mb-3 shrink-0 print-hidden">
+        <button type="button"
+          onClick={() => setShowRuleDropdown(v => !v)}
+          className="w-full flex items-center justify-between px-3 py-2 bg-indigo-50/70 border border-indigo-100 rounded-xl hover:bg-indigo-100/50 transition-colors">
+          <div className="flex items-center gap-2">
+            <Settings className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="text-xs font-bold text-indigo-800">กฎการสุ่มเวร</span>
+            <span className="px-2 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded-full">
+              {activeRules.length}/{RULES_LIST.length} ข้อ
+            </span>
+            {inactiveRules.length > 0 && (
+              <span className="text-[10px] text-indigo-400">(ปิด {inactiveRules.length} ข้อ)</span>
+            )}
+          </div>
+          <span className="text-indigo-400 text-xs">{showRuleDropdown ? '▲ ซ่อน' : '▼ แสดง'}</span>
+        </button>
+
+        {showRuleDropdown && (
+          <div className="mt-2 px-3 py-2.5 bg-indigo-50/50 border border-indigo-100 rounded-xl">
+            <div className="flex items-center gap-2 flex-wrap mb-2">
+              {activeRules.map(r => (
+                <div key={r.id} className="flex items-center gap-1.5 px-2.5 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm">
+                  <CheckCircle2 className="w-3 h-3 text-green-500 shrink-0" />
+                  <span className="truncate max-w-[280px]">{r.label}</span>
+                  <button type="button" onClick={() => setRules({...rules,[r.id]:false})} className="ml-1 text-gray-400 hover:text-red-500">
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+              {activeRules.length === 0 && <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่เปิดใช้งาน</span>}
+            </div>
+            {inactiveRules.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 pt-2 border-t border-indigo-100">
+                <span className="text-[10px] text-indigo-400 font-medium self-center">เพิ่มกฎ:</span>
+                {inactiveRules.map(r => (
+                  <button key={r.id} type="button"
+                    onClick={() => setRules({...rules,[r.id]:true})}
+                    className="px-2.5 py-1 bg-white border border-dashed border-indigo-300 text-indigo-600 text-[11px] rounded-lg hover:bg-indigo-50 font-medium">
+                    + {r.label}
+                  </button>
                 ))}
               </div>
             )}
           </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap min-h-[30px]">
-          {activeRules.length === 0 ? <span className="text-xs text-gray-400 italic">ไม่มีเงื่อนไขที่เปิดใช้งาน</span>
-            : activeRules.map(r => (
-              <div key={r.id} className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-gray-700 rounded-lg text-[11px] font-medium border border-gray-200 shadow-sm">
-                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 shrink-0" />
-                <span className="truncate max-w-[300px]">{r.label}</span>
-                <button type="button" onClick={() => setRules({...rules,[r.id]:false})} className="ml-1 text-gray-400 hover:text-red-500">
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ))}
-        </div>
+        )}
       </div>
 
-      {/* Action bar */}
+      {/* Action bar — redesigned */}
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
           {activeSchedule && TARGET_NORMAL_DISPLAY > 0 && (() => {
-            // คำนวณ total expected hours จากวันหยุดปัจจุบัน
             const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
             let expectedHrs = 0;
             for (let d = 1; d <= dim; d++) {
@@ -1845,7 +1857,6 @@ function ScheduleManager() {
                 if (applicable) expectedHrs += getShiftHours(s) * (s.min || 1);
               });
             }
-            // คำนวณ actual hours และเงิน
             let actualHrs = 0, actualMoney = 0;
             employees.forEach(emp => {
               monthDates.forEach(d => {
@@ -1853,129 +1864,111 @@ function ScheduleManager() {
                 if (s) { actualHrs += getShiftHours(s); actualMoney += getShiftValue(s); }
               });
             });
-            const diff = actualHrs - expectedHrs;
             const isOk = actualHrs >= expectedHrs;
-            return (
-              <div className="text-base mr-auto flex items-center gap-3 flex-wrap">
-                <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
-                <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
-                <span className={`px-2 py-1 rounded-lg font-bold ${isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
-                  📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs - actualHrs}h`}
-                </span>
-                <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
-                {hasGenerated && (() => {
-                  // คำนวณ missingShifts real-time จาก assignments ปัจจุบัน
-                  const missing = [];
-                  for (let d = 1; d <= dim; d++) {
-                    const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                    const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-                    const isSat = dow === 6;
-                    const isHol = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
-                    shifts.forEach(s => {
-                      const a = s.allowedDays || 'all';
-                      let applicable = false;
-                      if (a === 'all') applicable = true;
-                      else if (a === 'weekdays' && !isHol) applicable = true;
-                      else if (a === 'weekends_holidays' && isHol) applicable = true;
-                      else if (a === 'saturdays_only' && isSat) applicable = true;
-                      else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHol) applicable = true;
-                      else if (a === 'holidays_except_saturday' && isHol && !isSat) applicable = true;
-                      else if (a === 'first_day_of_holidays') {
-                        if (isHol) {
-                          const pd = d - 1;
-                          const pDow = pd >= 1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
-                          const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
-                          const pHol = pDow === 0 || pDow === 6 || !!(activeSchedule.holidays?.[pDs]);
-                          if (d === 1 || !pHol) applicable = true;
-                        }
-                      }
-                      if (!applicable) return;
-                      const needed = s.min || 1;
-                      const filled = employees.filter(e => activeSchedule.assignments?.[`${e.id}_${ds}`] === s.id).length;
-                      if (filled < needed) {
-                        missing.push({ day: d, shiftName: s.name, shiftColor: s.color, lack: needed - filled });
-                      }
-                    });
-                  }
-                  if (missing.length === 0) return (
-                    <span className="text-green-600 font-bold text-[11px]">✅ เวรครบทุก slot</span>
-                  );
-                  return (
-                    <span className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-red-600 font-bold">❌ เวรขาด {missing.length} slot:</span>
-                      {missing.map((m, i) => (
-                        <span key={i}
-                          className="px-2 py-0.5 rounded-md text-white text-[10px] font-bold"
-                          style={{ backgroundColor: m.shiftColor }}>
-                          วัน {m.day} · {m.shiftName} (ขาด {m.lack})
-                        </span>
-                      ))}
-                    </span>
-                  );
-                })()}
-                {hasGenerated && (() => {
-                  // score ปกติ/R2
-                  const normalEmps = employees.filter(e =>
-                    !e.onLeave && (e.group === 'normal' || e.group === 'r2' || !e.group)
-                  );
-                  const normalHours = normalEmps.map(emp => {
-                    let h = 0;
-                    monthDates.forEach(d => {
-                      const s = shifts.find(s => s.id === activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);
-                      if (s) h += getShiftHours(s);
-                    });
-                    return h;
-                  }).filter(h => h > 0);
 
-                  // score off_night
-                  const offEmps = employees.filter(e =>
-                    !e.onLeave && ['off_night','r2_off_night'].includes(e.group)
-                  );
-                  const offHours = offEmps.map(emp => {
-                    let h = 0;
-                    monthDates.forEach(d => {
-                      const s = shifts.find(s => s.id === activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);
-                      if (s) h += getShiftHours(s);
-                    });
-                    return h;
-                  }).filter(h => h > 0);
+            // score calculation
+            const calcScore = (emps, spreadGood, spreadOk, stdGood, stdOk) => {
+              const hrs = emps.filter(e => !e.onLeave).map(emp => {
+                let h = 0;
+                monthDates.forEach(d => {
+                  const s = shifts.find(s => s.id === activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);
+                  if (s) h += getShiftHours(s);
+                });
+                return h;
+              }).filter(h => h > 0);
+              if (hrs.length < 2) return null;
+              const spread = Math.max(...hrs) - Math.min(...hrs);
+              const mean = hrs.reduce((a,b) => a+b,0) / hrs.length;
+              const std = Math.sqrt(hrs.reduce((a,b) => a+(b-mean)**2,0) / hrs.length);
+              let icon, color;
+              if (spread <= spreadGood && std <= stdGood) { icon='✅'; color='text-green-600'; }
+              else if (spread <= spreadOk && std <= stdOk) { icon='⚠️'; color='text-yellow-600'; }
+              else { icon='❌'; color='text-red-600'; }
+              return { spread, std: std.toFixed(1), icon, color };
+            };
 
-                  const calcScore = (hoursArr, spreadGood, spreadOk, stdGood, stdOk) => {
-                    if (hoursArr.length < 2) return null;
-                    const minH = Math.min(...hoursArr);
-                    const maxH = Math.max(...hoursArr);
-                    const spread = maxH - minH;
-                    const mean = hoursArr.reduce((a,b) => a+b, 0) / hoursArr.length;
-                    const std = Math.sqrt(hoursArr.reduce((a,b) => a+(b-mean)**2, 0) / hoursArr.length);
-                    let level, color, icon;
-                    if (spread <= spreadGood && std <= stdGood) {
-                      level = 'กระจายดี'; color = 'bg-green-50 text-green-700'; icon = '✅';
-                    } else if (spread <= spreadOk && std <= stdOk) {
-                      level = 'พอใช้'; color = 'bg-yellow-50 text-yellow-700'; icon = '⚠️';
-                    } else {
-                      level = 'ควรสุ่มใหม่'; color = 'bg-red-50 text-red-600'; icon = '❌';
+            const normalEmps = employees.filter(e => e.group === 'normal' || e.group === 'r2' || !e.group);
+            const offEmps = employees.filter(e => ['off_night','r2_off_night'].includes(e.group));
+            const nScore = hasGenerated ? calcScore(normalEmps, 8, 10, 2.5, 3.0) : null;
+            const oScore = hasGenerated ? calcScore(offEmps, 4, 6, 2.0, 2.5) : null;
+
+            // missing shifts
+            let missing = [];
+            if (hasGenerated) {
+              for (let d = 1; d <= dim; d++) {
+                const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+                const isSat = dow === 6;
+                const isHol = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+                shifts.forEach(s => {
+                  const a = s.allowedDays || 'all';
+                  let applicable = false;
+                  if (a === 'all') applicable = true;
+                  else if (a === 'weekdays' && !isHol) applicable = true;
+                  else if (a === 'weekends_holidays' && isHol) applicable = true;
+                  else if (a === 'saturdays_only' && isSat) applicable = true;
+                  else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHol) applicable = true;
+                  else if (a === 'holidays_except_saturday' && isHol && !isSat) applicable = true;
+                  else if (a === 'first_day_of_holidays') {
+                    if (isHol) {
+                      const pd = d-1;
+                      const pDow = pd>=1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+                      const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+                      const pHol = pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);
+                      if (d===1||!pHol) applicable = true;
                     }
-                    return { spread, std, level, color, icon };
-                  };
+                  }
+                  if (!applicable) return;
+                  const filled = employees.filter(e => activeSchedule.assignments?.[`${e.id}_${ds}`] === s.id).length;
+                  if (filled < (s.min||1)) missing.push({ day: d, shiftName: s.name, shiftColor: s.color, lack: (s.min||1)-filled });
+                });
+              }
+            }
 
-                  const nScore = calcScore(normalHours, 8, 10, 2.5, 3.0);
-                  const oScore = calcScore(offHours, 4, 6, 2.0, 2.5);
-
-                  return (
-                    <>
-                      {nScore && (
-                        <span className={`px-2 py-1 rounded-lg font-bold text-[13px] ${nScore.color}`}>
-                          ⚖️ ปกติ: {nScore.icon} {nScore.level} (spread {nScore.spread}h, std {nScore.std.toFixed(1)})
-                        </span>
-                      )}
-                      {oScore && (
-                        <span className={`px-2 py-1 rounded-lg font-bold text-[13px] ${oScore.color}`}>
-                          ⚖️ off_night: {oScore.icon} {oScore.level} (spread {oScore.spread}h, std {oScore.std.toFixed(1)})
-                        </span>
-                      )}
-                    </>
-                  );
-                })()}
+            return (
+              <div className="mr-auto flex items-center gap-2 flex-wrap">
+                {/* Target */}
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                  <span className="text-gray-500">🎯</span>
+                  <span className="font-bold text-indigo-600">{TARGET_NORMAL_DISPLAY}h</span>
+                  <span className="text-gray-300">|</span>
+                  <span className="font-bold text-gray-400">{TARGET_OFF_NIGHT_DISPLAY}h</span>
+                </div>
+                {/* Hours */}
+                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${isOk ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-600 border border-red-200'}`}>
+                  📊 {actualHrs}/{expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs-actualHrs}h`}
+                </div>
+                {/* Money */}
+                <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">
+                  💰 {actualMoney.toLocaleString()} บ.
+                </div>
+                {/* Missing */}
+                {hasGenerated && missing.length === 0 && (
+                  <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
+                    ✅ เวรครบ
+                  </div>
+                )}
+                {hasGenerated && missing.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-bold text-red-600">❌ ขาด {missing.length} slot:</span>
+                    {missing.map((m,i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{ backgroundColor: m.shiftColor }}>
+                        วัน {m.day} · {m.shiftName}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* Scores */}
+                {nScore && (
+                  <div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`}>
+                    ⚖️ ปกติ {nScore.icon} {nScore.spread}h
+                  </div>
+                )}
+                {oScore && (
+                  <div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`}>
+                    ⚖️ off {oScore.icon} {oScore.spread}h
+                  </div>
+                )}
               </div>
             );
           })()}
