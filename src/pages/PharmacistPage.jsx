@@ -998,11 +998,13 @@ function ScheduleManager() {
       // ── STEP D: จัดเวรที่เหลือทั้งหมด ──
       // เรียง: 4h (SMC,4o) ก่อน → 8h (บ่าย,ดึก,เช้า) → 12h (As/4,A/4)
       // เพราะ 4h ใช้คนน้อย ไม่ block rule_1 ของเวร 8h ที่จะตามมา
+      // หมายเหตุ: ดึก ถูก pre-assign ใน Phase 0 แล้ว ไม่ต้องจัดซ้ำ
       const todayShifts = mainShifts.filter(s => {
         const u = s.name.trim().toUpperCase();
         if (u === 'R2') return false;
         if (u === 'T1') return false;
         if (u === 'T2') return false;
+        if (getShiftCategory(s) === 'ดึก') return false; // Phase 0 จัดแล้ว
         return isApplicable(s, d);
       });
       shuffle(todayShifts);
