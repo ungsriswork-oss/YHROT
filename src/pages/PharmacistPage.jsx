@@ -1829,6 +1829,43 @@ function ScheduleManager() {
                     </span>
                   );
                 })()}
+                {hasGenerated && (() => {
+                  // คำนวณ spread และ std ของกลุ่มปกติ/R2
+                  const normalEmps = employees.filter(e =>
+                    !e.onLeave && (e.group === 'normal' || e.group === 'r2' || !e.group)
+                  );
+                  const normalHours = normalEmps.map(emp => {
+                    let h = 0;
+                    monthDates.forEach(d => {
+                      const s = shifts.find(s => s.id === activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);
+                      if (s) h += getShiftHours(s);
+                    });
+                    return h;
+                  }).filter(h => h > 0);
+
+                  if (normalHours.length < 2) return null;
+
+                  const minH = Math.min(...normalHours);
+                  const maxH = Math.max(...normalHours);
+                  const spread = maxH - minH;
+                  const mean = normalHours.reduce((a, b) => a + b, 0) / normalHours.length;
+                  const std = Math.sqrt(normalHours.reduce((a, b) => a + (b - mean) ** 2, 0) / normalHours.length);
+
+                  let level, color, icon;
+                  if (spread <= 8 && std <= 2.5) {
+                    level = 'กระจายดี'; color = 'bg-green-50 text-green-700'; icon = '✅';
+                  } else if (spread <= 10 && std <= 3.0) {
+                    level = 'พอใช้'; color = 'bg-yellow-50 text-yellow-700'; icon = '⚠️';
+                  } else {
+                    level = 'ควรสุ่มใหม่'; color = 'bg-red-50 text-red-600'; icon = '❌';
+                  }
+
+                  return (
+                    <span className={`px-2 py-1 rounded-lg font-bold text-[11px] ${color}`}>
+                      ⚖️ {icon} {level} (spread {spread}h, std {std.toFixed(1)})
+                    </span>
+                  );
+                })()}
               </div>
             );
           })()}
