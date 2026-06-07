@@ -30,7 +30,8 @@ function useFirebaseSync(key, initialValue) {
           data = { ...initialValue, ...data };
         setStoredValue(data);
       } else {
-        setDoc(docRef, { value: initialValue }).catch(console.error);
+        // document ไม่มี → ใช้ค่า default ใน memory เท่านั้น
+        // ไม่เขียนทับ Firebase เพราะอาจเป็น network error หรือ timeout
         setStoredValue(initialValue);
       }
     }, console.error);
@@ -2507,4 +2508,3 @@ function fmtDateFor(schedule, d) {
 function isHolidayRaw(d, dow, dateStr, schedule) {
   return dow === 0 || dow === 6 || !!(schedule?.holidays?.[dateStr]);
 }
-
