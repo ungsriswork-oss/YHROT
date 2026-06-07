@@ -2266,6 +2266,38 @@ function ShiftTypesManager() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [formData, setFormData] = useState({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all', category: '' });
 
+  // ─── Password modal state ───
+  const [pwdModal, setPwdModal] = useState({ isOpen: false, action: null, payload: null });
+  const [pwdInput, setPwdInput] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const EDIT_PASSWORD = 'MSMSRX';
+
+  const requirePassword = (action, payload = null) => {
+    setPwdModal({ isOpen: true, action, payload });
+    setPwdInput('');
+    setPwdError('');
+  };
+
+  const handlePwdConfirm = () => {
+    if (pwdInput !== EDIT_PASSWORD) {
+      setPwdError('รหัสผ่านไม่ถูกต้อง');
+      setPwdInput('');
+      return;
+    }
+    const { action, payload } = pwdModal;
+    setPwdModal({ isOpen: false, action: null, payload: null });
+
+    if (action === 'add') {
+      setFormData({ name: '', color: '#3b82f6', start: '', end: '', min: 1, allowedDays: 'all', category: '' });
+      setIsModalOpen(true);
+    } else if (action === 'edit') {
+      setFormData(payload);
+      setIsModalOpen(true);
+    } else if (action === 'delete') {
+      setShifts(shifts.filter(x => x.id !== payload.id));
+    }
+  };
+
   const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#06b6d4','#84cc16','#f43f5e','#d946ef','#0ea5e9','#eab308','#64748b'];
 
   const handleSave = () => {
@@ -2294,7 +2326,7 @@ function ShiftTypesManager() {
     <div className="w-full h-full flex flex-col">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold">จัดการประเภทเวร (เภสัชกร)</h2>
-        <button type="button" onClick={() => { setFormData({ name:'', color:'#3b82f6', start:'', end:'', min:1, allowedDays:'all', category:'' }); setIsModalOpen(true); }}
+        <button type="button" onClick={() => requirePassword('add')}
           className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-blue-700 shadow-sm">
           <Plus className="w-4 h-4" /> เพิ่มเวร
         </button>
@@ -2312,8 +2344,8 @@ function ShiftTypesManager() {
                 }
               </div>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button type="button" onClick={() => { setFormData(s); setIsModalOpen(true); }} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
-                <button type="button" onClick={() => { if (confirm('ลบเวรนี้?')) setShifts(shifts.filter(x => x.id !== s.id)); }} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
+                <button type="button" onClick={() => requirePassword('edit', s)} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
+                <button type="button" onClick={() => requirePassword('delete', s)} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
               </div>
             </div>
             <div className="space-y-3 text-sm text-gray-600">
@@ -2326,6 +2358,7 @@ function ShiftTypesManager() {
         ))}
       </div>
 
+      {/* Add/Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
           <div className="bg-white rounded-3xl w-full max-w-md p-7 shadow-2xl">
@@ -2382,6 +2415,51 @@ function ShiftTypesManager() {
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
               <button type="button" onClick={() => setIsModalOpen(false)} className="px-5 py-2.5 border border-gray-300 rounded-xl text-sm font-bold text-gray-600 hover:bg-gray-50">ยกเลิก</button>
               <button type="button" onClick={handleSave} className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 shadow-md">บันทึกเวร</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Password Modal */}
+      {pwdModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 backdrop-blur-sm"
+          onClick={() => setPwdModal({ isOpen: false, action: null, payload: null })}>
+          <div className="bg-white rounded-2xl w-full max-w-xs p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="text-center mb-4">
+              <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                {pwdModal.action === 'delete'
+                  ? <Trash2 className="w-5 h-5 text-red-500" />
+                  : <Edit2 className="w-5 h-5 text-blue-600" />}
+              </div>
+              <h3 className="text-base font-bold text-gray-900">
+                {pwdModal.action === 'add' ? 'เพิ่มเวรใหม่'
+                  : pwdModal.action === 'edit' ? 'แก้ไขเวร'
+                  : 'ลบเวร'}
+              </h3>
+              {pwdModal.payload?.name && (
+                <p className="text-xs text-gray-500 mt-1">{pwdModal.payload.name}</p>
+              )}
+            </div>
+            <input
+              type="password"
+              value={pwdInput}
+              onChange={e => { setPwdInput(e.target.value); setPwdError(''); }}
+              onKeyDown={e => e.key === 'Enter' && handlePwdConfirm()}
+              placeholder="รหัสผ่าน"
+              autoFocus
+              className={`w-full border rounded-xl px-4 py-2.5 text-sm text-center tracking-widest mb-2 outline-none focus:ring-2 focus:ring-blue-500 ${pwdError ? 'border-red-300 bg-red-50' : 'border-gray-300'}`}
+            />
+            {pwdError && <p className="text-xs text-red-500 text-center mb-2">{pwdError}</p>}
+            <div className="flex gap-2 mt-3">
+              <button type="button" onClick={() => setPwdModal({ isOpen: false, action: null, payload: null })}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-xl text-sm font-medium hover:bg-gray-50">
+                ยกเลิก
+              </button>
+              <button type="button" onClick={handlePwdConfirm}
+                disabled={!pwdInput}
+                className={`flex-1 px-4 py-2 text-white rounded-xl text-sm font-medium disabled:opacity-50 ${pwdModal.action === 'delete' ? 'bg-red-500 hover:bg-red-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
+                ยืนยัน
+              </button>
             </div>
           </div>
         </div>
