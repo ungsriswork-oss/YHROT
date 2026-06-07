@@ -2062,6 +2062,28 @@ function ScheduleManager() {
               }
             }
 
+            // เวรเกิน — หาคนที่ได้เวรที่ไม่ควรได้ (เกิน rule หรือ manual เพิ่มเกิน)
+            const over = [];
+            if (hasData) {
+              employees.forEach(emp => {
+                monthDates.forEach(({ dateStr, dateNum }) => {
+                  const sid = activeSchedule.assignments?.[`${emp.id}_${dateStr}`];
+                  if (!sid) return;
+                  const s = shifts.find(s => s.id === sid);
+                  if (!s) return;
+                  // ตรวจ off_special ได้เวรต้องห้าม
+                  const empGrp = emp.group || 'normal';
+                  if (empGrp === 'off_special' && isShiftBannedForOffSpecial(s)) {
+                    over.push({ day: dateNum, empName: emp.name, shiftName: s.name, shiftColor: s.color, reason: 'off_special ห้ามรับ' });
+                  }
+                  // ตรวจ off_night ได้เวรดึก
+                  if (['off_night','r2_off_night','off_special'].includes(empGrp) && getShiftCategory(s) === 'ดึก') {
+                    over.push({ day: dateNum, empName: emp.name, shiftName: s.name, shiftColor: s.color, reason: 'งดดึก' });
+                  }
+                });
+              });
+            }
+
             return (
               <div className="mr-auto flex items-center gap-2 flex-wrap">
                 {/* Target */}
@@ -2084,7 +2106,7 @@ function ScheduleManager() {
                   💰 {actualMoney.toLocaleString()} บ.
                 </div>
                 {/* Missing */}
-                {hasData && missing.length === 0 && (
+                {hasData && missing.length === 0 && over.length === 0 && (
                   <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
                     ✅ เวรครบ
                   </div>
@@ -2095,6 +2117,16 @@ function ScheduleManager() {
                     {missing.map((m,i) => (
                       <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{ backgroundColor: m.shiftColor }}>
                         วัน {m.day} · {m.shiftName}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {hasData && over.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-bold text-orange-600">⚠️ เวรผิดกฎ {over.length} slot:</span>
+                    {over.map((o,i) => (
+                      <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400 ring-offset-1" style={{ backgroundColor: o.shiftColor }}>
+                        วัน {o.day} · {o.empName} · {o.shiftName}
                       </span>
                     ))}
                   </div>
