@@ -52,8 +52,8 @@ function useFirebaseSync(key, initialValue) {
 const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
   const n = shift.name.trim().toLowerCase();
-  // 4s1-4s4: hardcode 720 เพราะไม่มี start/end ที่คำนวณได้ถูก
-  if (['4s1','4s2','4s3','4s4'].includes(n)) return 720;
+  // SMC category ทุกตัว (4s1-4s5 หรือเพิ่มในอนาคต): hardcode 720
+  if (getShiftCategory(shift) === 'SMC') return 720;
   // เวรอื่นคำนวณจาก start/end ที่ตั้งใน Firebase
   if (!shift.start || !shift.end) return 0;
   const [h1,m1] = shift.start.split(':').map(Number);
