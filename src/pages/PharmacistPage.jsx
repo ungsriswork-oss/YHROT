@@ -297,7 +297,7 @@ function ScheduleManager() {
     setIsGenerating(true);
     setTimeout(() => { // ให้ React render loading ก่อน แล้วค่อยสุ่ม
 
-    const MAX_AUTO_RETRY = 20;
+    const MAX_AUTO_RETRY = 40;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
 
     // ─── helper: คำนวณ score ของผลลัพธ์ 1 รอบ ───
@@ -1772,11 +1772,24 @@ function ScheduleManager() {
     const score = scoreResult(assignments);
 
     // เก็บผลดีที่สุดไว้
-    if (
-      bestAssignments === null ||
-      score.missingCount < bestScore.missingCount ||
-      (score.missingCount === bestScore.missingCount && score.nSpread + score.oSpread < bestScore.nSpread + bestScore.oSpread)
-    ) {
+    // เกณฑ์เลือก (priority สูง → ต่ำ):
+    // 1. เวรขาดน้อยที่สุด
+    // 2. spread ปกติ + spread off_night รวมน้อยที่สุด
+    // 3. std ปกติ + std off_night รวมน้อยที่สุด
+    const isBetter = (newScore, oldScore) => {
+      if (!oldScore) return true;
+      if (newScore.missingCount !== oldScore.missingCount)
+        return newScore.missingCount < oldScore.missingCount;
+      const newSpreadTotal = newScore.nSpread + newScore.oSpread;
+      const oldSpreadTotal = oldScore.nSpread + oldScore.oSpread;
+      if (newSpreadTotal !== oldSpreadTotal)
+        return newSpreadTotal < oldSpreadTotal;
+      const newStdTotal = newScore.nStd + newScore.oStd;
+      const oldStdTotal = oldScore.nStd + oldScore.oStd;
+      return newStdTotal < oldStdTotal;
+    };
+
+    if (isBetter(score, bestScore)) {
       bestAssignments = assignments;
       bestScore = score;
     }
