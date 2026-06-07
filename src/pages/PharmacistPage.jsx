@@ -219,7 +219,9 @@ function ScheduleManager() {
   const [sortByMoney, setSortByMoney] = useState(false);
   const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
-  const [hasGenerated, setHasGenerated] = useState(false);
+  const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
+  const [isGenerating, setIsGenerating] = useState(false);
+  const hasGenerated = generatedScheduleIds.has(activeScheduleId);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
     const handleKey = (e) => {
@@ -292,6 +294,8 @@ function ScheduleManager() {
   // ══════════════════════════════════════════════════════════════
   const handleAutoGenerate = () => {
     if (!activeSchedule) return;
+    setIsGenerating(true);
+    setTimeout(() => { // ให้ React render loading ก่อน แล้วค่อยสุ่ม
 
     const MAX_AUTO_RETRY = 20;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
@@ -1784,7 +1788,9 @@ function ScheduleManager() {
   setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
   setTargetNormalDisplay(TARGET_NORMAL);
   setTargetOffNightDisplay(TARGET_OFF_NIGHT);
-  setHasGenerated(true);
+  setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+  setIsGenerating(false);
+  }, 50); // end setTimeout
 };
 
   const handleAssignShift = (shiftId) => {
@@ -1854,6 +1860,18 @@ function ScheduleManager() {
 
   return (
     <div className="flex flex-col h-full w-full">
+      {/* Loading overlay */}
+      {isGenerating && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] backdrop-blur-sm">
+          <div className="bg-white rounded-2xl px-10 py-8 shadow-2xl flex flex-col items-center gap-4">
+            <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
+            <div className="text-center">
+              <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
+              <div className="text-sm text-gray-400 mt-1">ระบบกำลังหาการจัดเวรที่ดีที่สุด</div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Warning: ไม่มีคนกลุ่ม R2 */}
       {!hasR2Group && (
         <div className="mb-3 px-4 py-2.5 bg-amber-50 border border-amber-300 rounded-xl text-amber-800 text-xs font-medium flex items-center gap-2 print-hidden shrink-0">
