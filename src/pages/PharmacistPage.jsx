@@ -89,7 +89,7 @@ const getShiftCategory = (shift) => {
   if (['B','C','D','E','F','G','R1','R2','T1','T2'].includes(u)) return 'เช้า';
   if (['บI','บR','บE'].includes(u)) return 'บ่าย';
   if (['ดI','ดE'].includes(u)) return 'ดึก';
-  if (['4s1','4s2','4s3','4s4'].includes(l)) return 'SMC';
+  if (/^4s\d+$/i.test(shift.name.trim())) return 'SMC';
   if (u === '4O') return '4o';
   if (u === '2O') return '2o';
   return 'อื่นๆ';
@@ -222,6 +222,7 @@ function ScheduleManager() {
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
   const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
   const hasGenerated = generatedScheduleIds.has(activeScheduleId);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
@@ -296,6 +297,7 @@ function ScheduleManager() {
   const handleAutoGenerate = () => {
     if (!activeSchedule) return;
     setIsGenerating(true);
+    setRetryCount(0);
     setTimeout(() => {
     const MAX_AUTO_RETRY = 40;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
@@ -1728,7 +1730,8 @@ function ScheduleManager() {
       const assignments = runOnce();
       const score = scoreResult(assignments);
       if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
-      if (score.isGood) break;
+      if (score.isGood) { setRetryCount(attempt + 1); break; }
+      setRetryCount(attempt + 1);
     }
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
     setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
@@ -1810,7 +1813,10 @@ function ScheduleManager() {
             <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
             <div className="text-center">
               <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
-              <div className="text-sm text-gray-400 mt-1">ระบบกำลังหาการจัดเวรที่ดีที่สุด</div>
+              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/40</div>
+              <div className="w-48 bg-gray-200 rounded-full h-1.5 mt-2">
+                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/40)*100}%`}} />
+              </div>
             </div>
           </div>
         </div>
@@ -1886,92 +1892,40 @@ function ScheduleManager() {
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
           {(() => {
             const dim = new Date(activeSchedule.year, activeSchedule.month+1, 0).getDate();
-            let expectedHrs = 0;
+            // TARGET real-time
+            let totalAllHrs = 0;
             for (let d = 1; d <= dim; d++) {
-              const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-              const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-              const isSat = dow===6, hol=dow===0||dow===6||!!(activeSchedule.holidays?.[ds]);
-              shifts.forEach(s => {
-                const a=s.allowedDays||'all'; let ok=false;
-                if(a==='all') ok=true;
-                else if(a==='weekdays'&&!hol) ok=true;
-                else if(a==='weekends_holidays'&&hol) ok=true;
-                else if(a==='saturdays_only'&&isSat) ok=true;
-                else if(a==='mon_tue_only'&&[1,2].includes(dow)&&!hol) ok=true;
-                else if(a==='holidays_except_saturday'&&hol&&!isSat) ok=true;
-                else if(a==='first_day_of_holidays'){
-                  if(hol){const pd=d-1,pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
-                  const pDs=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
-                  const pH=pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);if(d===1||!pH)ok=true;}
-                }
-                if(ok) expectedHrs+=getShiftHours(s)*(s.min||1);
-              });
+              shifts.forEach(s => { if(isApplicableGlobal(s,d,activeSchedule)) totalAllHrs+=getShiftHours(s)*(s.min||1); });
             }
+            const activeEmps = employees.filter(e=>!e.onLeave);
+            const nNrt = activeEmps.filter(e=>e.group==='normal'||e.group==='r2'||!e.group).length||1;
+            const nOrt = activeEmps.filter(e=>['off_night','r2_off_night'].includes(e.group)).length||0;
+            const TARGET_N = Math.max(56, Math.round((totalAllHrs + nOrt*16) / (nNrt+nOrt)));
+            const TARGET_O = Math.max(40, TARGET_N - 16);
             let actualHrs=0, actualMoney=0;
-            employees.forEach(emp => { monthDates.forEach(d => {
-              const s=shifts.find(s=>s.id===activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
-              if(s){actualHrs+=getShiftHours(s);actualMoney+=getShiftValue(s);}
-            });});
-            const isOk=actualHrs>=expectedHrs, hasData=actualHrs>0;
-
-            // score
+            employees.forEach(emp=>{ monthDates.forEach(d=>{ const s=shifts.find(s=>s.id===activeSchedule.assignments[`${emp.id}_${d.dateStr}`]); if(s){actualHrs+=getShiftHours(s);actualMoney+=getShiftValue(s);} }); });
+            const isOk=actualHrs>=totalAllHrs, hasData=actualHrs>0;
             const calcScore=(emps,sG,sO,stdG,stdO)=>{
               const hrs=emps.filter(e=>!e.onLeave).map(emp=>{let h=0;monthDates.forEach(d=>{const s=shifts.find(s=>s.id===activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);if(s)h+=getShiftHours(s);});return h;}).filter(h=>h>0);
               if(hrs.length<2)return null;
               const sp=Math.max(...hrs)-Math.min(...hrs),m=hrs.reduce((a,b)=>a+b,0)/hrs.length,st=Math.sqrt(hrs.reduce((a,b)=>a+(b-m)**2,0)/hrs.length);
               let icon,color;
-              if(sp<=sG&&st<=stdG){icon='✅';color='text-green-600';}
-              else if(sp<=sO&&st<=stdO){icon='⚠️';color='text-yellow-600';}
-              else{icon='❌';color='text-red-600';}
+              if(sp<=sG&&st<=stdG){icon='✅';color='text-green-600';}else if(sp<=sO&&st<=stdO){icon='⚠️';color='text-yellow-600';}else{icon='❌';color='text-red-600';}
               return{sp,st:st.toFixed(1),icon,color};
             };
             const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),8,10,2.5,3.0):null;
             const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),4,6,2.0,2.5):null;
-
-            // missing
-            const missing=[];
+            const missing=[], over=[];
             if(hasData){
               for(let d=1;d<=dim;d++){
-                const ds=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const dow=new Date(activeSchedule.year,activeSchedule.month,d).getDay();
-                const isSat=dow===6,hol=dow===0||dow===6||!!(activeSchedule.holidays?.[ds]);
+                const ds=fmtDateFor(activeSchedule,d);
                 shifts.forEach(s=>{
-                  const a=s.allowedDays||'all';let ok=false;
-                  if(a==='all')ok=true;else if(a==='weekdays'&&!hol)ok=true;else if(a==='weekends_holidays'&&hol)ok=true;
-                  else if(a==='saturdays_only'&&isSat)ok=true;else if(a==='mon_tue_only'&&[1,2].includes(dow)&&!hol)ok=true;
-                  else if(a==='holidays_except_saturday'&&hol&&!isSat)ok=true;
-                  else if(a==='first_day_of_holidays'){if(hol){const pd=d-1,pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
-                  const pDs=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
-                  const pH=pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);if(d===1||!pH)ok=true;}}
-                  if(!ok)return;
+                  if(!isApplicableGlobal(s,d,activeSchedule))return;
                   const filled=employees.filter(e=>activeSchedule.assignments?.[`${e.id}_${ds}`]===s.id).length;
                   if(filled<(s.min||1))missing.push({day:d,shiftName:s.name,shiftColor:s.color});
-                });
-              }
-            }
-
-            // over/wrong shifts
-            const over=[];
-            if(hasData){
-              // slot เกิน min
-              for(let d=1;d<=dim;d++){
-                const ds=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-                const dow=new Date(activeSchedule.year,activeSchedule.month,d).getDay();
-                const isSat=dow===6,hol=dow===0||dow===6||!!(activeSchedule.holidays?.[ds]);
-                shifts.forEach(s=>{
-                  const a=s.allowedDays||'all';let ok=false;
-                  if(a==='all')ok=true;else if(a==='weekdays'&&!hol)ok=true;else if(a==='weekends_holidays'&&hol)ok=true;
-                  else if(a==='saturdays_only'&&isSat)ok=true;else if(a==='mon_tue_only'&&[1,2].includes(dow)&&!hol)ok=true;
-                  else if(a==='holidays_except_saturday'&&hol&&!isSat)ok=true;
-                  else if(a==='first_day_of_holidays'){if(hol){const pd=d-1,pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
-                  const pDs=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
-                  const pH=pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);if(d===1||!pH)ok=true;}}
-                  if(!ok)return;
-                  const filled=employees.filter(e=>activeSchedule.assignments?.[`${e.id}_${ds}`]===s.id).length;
                   if(filled>(s.min||1))over.push({day:d,shiftName:s.name,shiftColor:s.color,reason:`เกิน(${filled}/${s.min||1})`});
                 });
               }
-              // กฎกลุ่ม + ผิดวัน
               employees.forEach(emp=>{
                 monthDates.forEach(({dateStr,dateNum})=>{
                   const sid=activeSchedule.assignments?.[`${emp.id}_${dateStr}`];if(!sid)return;
@@ -1979,57 +1933,27 @@ function ScheduleManager() {
                   const g=emp.group||'normal';
                   if(g==='off_special'&&isShiftBannedForOffSpecial(s))over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(off_special)`});
                   if(['off_night','r2_off_night','off_special'].includes(g)&&getShiftCategory(s)==='ดึก')over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(งดดึก)`});
-                  const dow=new Date(activeSchedule.year,activeSchedule.month,dateNum).getDay();
-                  const isSat=dow===6,hol=dow===0||dow===6||!!(activeSchedule.holidays?.[dateStr]);
-                  const a=s.allowedDays||'all';let ok=false;
-                  if(a==='all')ok=true;else if(a==='weekdays'&&!hol)ok=true;else if(a==='weekends_holidays'&&hol)ok=true;
-                  else if(a==='saturdays_only'&&isSat)ok=true;else if(a==='mon_tue_only'&&[1,2].includes(dow)&&!hol)ok=true;
-                  else if(a==='holidays_except_saturday'&&hol&&!isSat)ok=true;
-                  else if(a==='first_day_of_holidays'){if(hol){const pd=dateNum-1,pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
-                  const pDs=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
-                  const pH=pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);if(dateNum===1||!pH)ok=true;}}
-                  if(!ok)over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(ผิดวัน)`});
+                  if(!isApplicableGlobal(s,dateNum,activeSchedule))over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(ผิดวัน)`});
                 });
               });
             }
-
             return (
               <div className="mr-auto flex items-center gap-2 flex-wrap">
                 <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm">
                   <span className="text-gray-500">🎯</span>
-                  <span className="font-bold text-indigo-600">{TARGET_NORMAL_DISPLAY}h</span>
+                  <span className="font-bold text-indigo-600">{TARGET_N}h</span>
                   <span className="text-gray-300">|</span>
-                  <span className="font-bold text-gray-400">{TARGET_OFF_NIGHT_DISPLAY}h</span>
+                  <span className="font-bold text-gray-400">{TARGET_O}h</span>
                 </div>
-                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${
-                  !hasData?'bg-gray-50 text-gray-400 border border-gray-200':
-                  isOk?'bg-green-50 text-green-700 border border-green-200':'bg-red-50 text-red-600 border border-red-200'}`}>
-                  📊 {hasData?`${actualHrs}/${expectedHrs}h ${isOk?'✅':`⚠️ ขาด ${expectedHrs-actualHrs}h`}`:`${expectedHrs}h`}
+                <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-bold ${!hasData?'bg-gray-50 text-gray-400 border border-gray-200':isOk?'bg-green-50 text-green-700 border border-green-200':'bg-red-50 text-red-600 border border-red-200'}`}>
+                  📊 {hasData?`${actualHrs}/${totalAllHrs}h ${isOk?'✅':`⚠️ ขาด ${totalAllHrs-actualHrs}h`}`:`${totalAllHrs}h`}
                 </div>
-                <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">
-                  💰 {actualMoney.toLocaleString()} บ.
-                </div>
-                {hasData && missing.length===0 && over.length===0 && (
-                  <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">✅ เวรครบ</div>
-                )}
-                {hasData && missing.length>0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm font-bold text-red-600">❌ ขาด {missing.length} slot:</span>
-                    {missing.map((m,i)=>(
-                      <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{backgroundColor:m.shiftColor}}>วัน {m.day} · {m.shiftName}</span>
-                    ))}
-                  </div>
-                )}
-                {hasData && over.length>0 && (
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm font-bold text-orange-600">⚠️ เวรเกิน/ผิดกฎ {over.length}:</span>
-                    {over.map((o,i)=>(
-                      <span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400 ring-offset-1" style={{backgroundColor:o.shiftColor}}>วัน {o.day} · {o.shiftName} · {o.reason}</span>
-                    ))}
-                  </div>
-                )}
-                {nScore && <div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`}>⚖️ ปกติ {nScore.icon} {nScore.sp}h</div>}
-                {oScore && <div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`}>⚖️ off {oScore.icon} {oScore.sp}h</div>}
+                <div className="flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">💰 {actualMoney.toLocaleString()} บ.</div>
+                {hasData&&missing.length===0&&over.length===0&&<div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">✅ เวรครบ</div>}
+                {hasData&&missing.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-red-600">❌ ขาด {missing.length}:</span>{missing.map((m,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{backgroundColor:m.shiftColor}}>วัน {m.day}·{m.shiftName}</span>)}</div>)}
+                {hasData&&over.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-orange-600">⚠️ เกิน/ผิด {over.length}:</span>{over.map((o,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400" style={{backgroundColor:o.shiftColor}}>วัน {o.day}·{o.shiftName}·{o.reason}</span>)}</div>)}
+                {nScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`}>⚖️ ปกติ {nScore.icon} {nScore.sp}h</div>}
+                {oScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`}>⚖️ off {oScore.icon} {oScore.sp}h</div>}
               </div>
             );
           })()}
@@ -2254,12 +2178,12 @@ function EmployeesManager() {
 
   const displayed = filterGroup === 'all' ? employees : employees.filter(e => (e.group || 'normal') === filterGroup);
 
-  // จัดกลุ่มเวรตามหมวด สำหรับ checkbox
+  // จัดกลุ่มเวรตามหมวด dynamic จาก Firebase — รองรับเวรใหม่อัตโนมัติ
   const shiftGroups = [
-    { label: 'เวรบ่าย', names: ['บi','บr','บe'] },
-    { label: 'เวรดึก', names: ['ดi','ดe'] },
-    { label: 'เวรเช้า', names: ['As/4','A/4','B','C','D','E','F','G','R1','R2','T1','T2'] },
-    { label: 'เวร 4o/4s/2o', names: ['4o','4s1','4s2','4s3','4s4','2o'] },
+    { label: 'เวรบ่าย', cats: ['บ่าย'] },
+    { label: 'เวรดึก', cats: ['ดึก'] },
+    { label: 'เวรเช้า', cats: ['เช้า','As/4','A/4'] },
+    { label: 'เวร 4o/SMC/2o', cats: ['4o','SMC','2o','อื่นๆ'] },
   ];
 
   const renderShiftCheckboxes = (section) => {
@@ -2268,7 +2192,7 @@ function EmployeesManager() {
     const otherIds = isSpecific ? (formData.offShifts || []) : (formData.specificShifts || []);
 
     return shiftGroups.map(grp => {
-      const grpShifts = shifts.filter(s => grp.names.some(n => s.name.trim().toUpperCase() === n.toUpperCase()));
+      const grpShifts = shifts.filter(s => grp.cats.includes(getShiftCategory(s)));
       if (grpShifts.length === 0) return null;
       return (
         <div key={grp.label} className="mb-3">
@@ -2556,7 +2480,7 @@ function ShiftTypesManager() {
     { value: 'ดึก', label: 'ดึก (ดi,ดe)' },
     { value: 'As/4', label: 'As/4 (วันเสาร์)' },
     { value: 'A/4', label: 'A/4 (วันหยุดอื่น)' },
-    { value: 'SMC', label: 'SMC (4s1-4s4)' },
+    { value: 'SMC', label: 'SMC (4s1, 4s2, ... ทุกตัว)' },
     { value: '4o', label: '4o' },
     { value: '2o', label: '2o' },
     { value: 'อื่นๆ', label: 'อื่นๆ' },
@@ -2717,4 +2641,29 @@ function fmtDateFor(schedule, d) {
 
 function isHolidayRaw(d, dow, dateStr, schedule) {
   return dow === 0 || dow === 6 || !!(schedule?.holidays?.[dateStr]);
+}
+
+// ─── isApplicable module-level — ใช้ทุกที่ แก้ที่เดียว ───
+function isApplicableGlobal(shift, d, schedule) {
+  if (!schedule) return false;
+  const dow = new Date(schedule.year, schedule.month, d).getDay();
+  const isSat = dow === 6;
+  const ds = fmtDateFor(schedule, d);
+  const hol = dow === 0 || dow === 6 || !!(schedule.holidays?.[ds]);
+  const a = shift.allowedDays || 'all';
+  if (a === 'all') return true;
+  if (a === 'weekdays') return !hol;
+  if (a === 'weekends_holidays') return hol;
+  if (a === 'saturdays_only') return isSat;
+  if (a === 'mon_tue_only') return [1,2].includes(dow) && !hol;
+  if (a === 'holidays_except_saturday') return hol && !isSat;
+  if (a === 'first_day_of_holidays') {
+    if (!hol) return false;
+    const pd = d - 1;
+    const pDow = pd >= 1 ? new Date(schedule.year, schedule.month, pd).getDay() : -1;
+    const pDs = fmtDateFor(schedule, pd);
+    const pHol = pDow === 0 || pDow === 6 || !!(schedule.holidays?.[pDs]);
+    return d === 1 || !pHol;
+  }
+  return true;
 }
