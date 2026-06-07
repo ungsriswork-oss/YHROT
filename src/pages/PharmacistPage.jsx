@@ -223,6 +223,7 @@ function ScheduleManager() {
   const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const retryCountRef = React.useRef(0);
   const hasGenerated = generatedScheduleIds.has(activeScheduleId);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
@@ -1730,8 +1731,12 @@ function ScheduleManager() {
       const assignments = runOnce();
       const score = scoreResult(assignments);
       if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
-      if (score.isGood) { setRetryCount(attempt + 1); break; }
-      setRetryCount(attempt + 1);
+      // อัพเดท DOM โดยตรง ไม่ผ่าน React state เพราะ synchronous loop
+      const counter = document.getElementById('retry-counter');
+      const progress = document.getElementById('retry-progress');
+      if (counter) counter.textContent = `รอบที่ ${attempt+1}/40`;
+      if (progress) progress.style.width = `${((attempt+1)/40)*100}%`;
+      if (score.isGood) break;
     }
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
     setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
@@ -1813,9 +1818,9 @@ function ScheduleManager() {
             <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
             <div className="text-center">
               <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
-              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/40</div>
+              <div id="retry-counter" className="text-sm text-gray-400 mt-1">รอบที่ 0/40</div>
               <div className="w-48 bg-gray-200 rounded-full h-1.5 mt-2">
-                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/40)*100}%`}} />
+                <div id="retry-progress" className="bg-purple-600 h-1.5 rounded-full transition-none" style={{width:'0%'}} />
               </div>
             </div>
           </div>
