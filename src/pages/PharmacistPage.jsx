@@ -843,6 +843,113 @@ function ScheduleManager() {
     const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2');
     const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
+    // ══════════════════════════════════════════════════════════════
+    // PHASE 0: Pre-assign เวรดึกล่วงหน้าทั้งเดือน
+    // เหตุผล: ดึกมีแค่ 2 ตำแหน่ง (ดi,ดe) ไม่มี rule กระจาย
+    // ถ้าปล่อยให้ greedy ตัดสิน → บางคนได้ดึก 2 ครั้ง บางคน 0 ครั้ง
+    // → ชั่วโมงต่างกัน 8-16h → ต้องกดสุ่มหลายรอบ
+    // แก้โดย: แจกดึกให้ทุกคนก่อน โดยให้วันห่างกัน ≥ 2 วัน (rule_1)
+    // ══════════════════════════════════════════════════════════════
+    const nightShifts = shifts.filter(s => getShiftCategory(s) === 'ดึก');
+    if (nightShifts.length > 0) {
+      // รวมวันหยุดทั้งเดือนที่มีเวรดึก
+      const nightDays = [];
+      for (let d = 1; d <= dim; d++) {
+        if (nightShifts.some(s => isApplicable(s, d))) nightDays.push(d);
+      }
+
+      // นับ total night slots ทั้งเดือน
+      let totalNightSlots = 0;
+      nightDays.forEach(d => {
+        nightShifts.forEach(s => { if (isApplicable(s, d)) totalNightSlots += (s.min || 1); });
+      });
+
+      // คนที่รับดึกได้ (normal + r2)
+      const nightEmps = activeEmployees.filter(e => canDoNight(e));
+      const nightCount = nightEmps.length || 1;
+
+      // แต่ละคนควรได้ดึกกี่ครั้ง
+      // R2 group: 80% ได้ 1 ครั้ง, 20% ได้ 2 ครั้ง (ตาม empId seed เหมือนเดิม)
+      // normal: กระจายให้ครบ totalNightSlots
+      const nightTarget = {}; // empId → จำนวนดึกที่ควรได้
+      nightEmps.forEach(e => {
+        if (getGroup(e) === 'r2') {
+          const allow2 = (parseInt(e.id, 36) % 10) < 2;
+          nightTarget[e.id] = allow2 ? 2 : 1;
+        } else {
+          nightTarget[e.id] = 1; // เริ่มต้นทุกคนได้ 1
+        }
+      });
+
+      // ถ้า total slots > คนได้ 1 ครั้ง → เพิ่มให้บางคนได้ 2 ครั้ง
+      let assigned1 = Object.values(nightTarget).reduce((a, b) => a + b, 0);
+      const normalEmpsForNight = nightEmps.filter(e => getGroup(e) === 'normal');
+      shuffle(normalEmpsForNight);
+      let ni = 0;
+      while (assigned1 < totalNightSlots && ni < normalEmpsForNight.length) {
+        nightTarget[normalEmpsForNight[ni].id] = 2;
+        assigned1++;
+        ni++;
+      }
+
+      // สุ่มวันดึกให้แต่ละคน โดยให้ห่างกัน ≥ 2 วัน (rule_1)
+      // และไม่ซ้ำวันกัน (แต่ละวันมี slot จำกัด)
+      // นับ slot ที่ถูก assign แล้วต่อวัน
+      const nightSlotUsed = {}; // dateStr → จำนวนที่ใช้แล้ว
+
+      // เรียงคนตาม nightTarget มากไปน้อย (คนได้ 2 ครั้งก่อน)
+      const nightEmpsOrdered = [...nightEmps].sort((a, b) => (nightTarget[b.id] || 1) - (nightTarget[a.id] || 1));
+      shuffle(nightEmpsOrdered);
+      nightEmpsOrdered.sort((a, b) => (nightTarget[b.id] || 1) - (nightTarget[a.id] || 1));
+
+      for (const emp of nightEmpsOrdered) {
+        const needed = nightTarget[emp.id] || 1;
+        let got = 0;
+
+        // สุ่มลำดับวันดึก
+        const shuffledNightDays = [...nightDays];
+        shuffle(shuffledNightDays);
+
+        for (const d of shuffledNightDays) {
+          if (got >= needed) break;
+          const ds = fmtD(d);
+
+          // ตรวจ rule_1: วันก่อน/หลังต้องว่าง
+          const prevDs = fmtD(d - 1);
+          const nextDs = fmtD(d + 1);
+          if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) continue;
+          if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) continue;
+          if (newAssignments[`${emp.id}_${ds}`]) continue;
+
+          // ตรวจว่า slot วันนี้ยังว่าง
+          const totalSlotThisDay = nightShifts.filter(s => isApplicable(s, d))
+            .reduce((sum, s) => sum + (s.min || 1), 0);
+          const usedThisDay = nightSlotUsed[ds] || 0;
+          if (usedThisDay >= totalSlotThisDay) continue;
+
+          // เลือก shift ดึกที่ยังไม่ซ้ำตำแหน่ง
+          const availNightShifts = nightShifts.filter(s => {
+            if (!isApplicable(s, d)) return false;
+            const u = s.name.trim().toUpperCase();
+            if (empStats[emp.id].assignedNights.has(u)) return false;
+            return true;
+          });
+          if (availNightShifts.length === 0) continue;
+
+          // เลือก shift ที่มี slot เหลือ
+          shuffle(availNightShifts);
+          const chosenShift = availNightShifts[0];
+
+          doAssign(emp, ds, d, chosenShift);
+          nightSlotUsed[ds] = (nightSlotUsed[ds] || 0) + 1;
+          got++;
+        }
+      }
+    }
+    // ══════════════════════════════════════════════════════════════
+    // END PHASE 0
+    // ══════════════════════════════════════════════════════════════
+
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       const hol = isHol(d);
