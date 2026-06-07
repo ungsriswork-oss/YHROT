@@ -2507,3 +2507,4 @@ function fmtDateFor(schedule, d) {
 function isHolidayRaw(d, dow, dateStr, schedule) {
   return dow === 0 || dow === 6 || !!(schedule?.holidays?.[dateStr]);
 }
+
