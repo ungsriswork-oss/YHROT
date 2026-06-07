@@ -1311,14 +1311,24 @@ function ScheduleManager() {
         }
 
         // หาคนรับ: คนปกติ + off_night ที่ชั่วโมงน้อยกว่าและไม่เกิน MAX_OFF_HOURS
+        // priority: off_night ที่ hours+4 ≤ TARGET และ 4o < 2 ก่อน → คนปกติ
         const underPool = [
           ...normalEmpsAll.filter(e => calcHours(e.id) + 4 <= 60),
           ...offNightEmpsAll.filter(e =>
             e.id !== overEmp.id &&
             calcHours(e.id) < overHours &&
-            calcHours(e.id) + 4 <= MAX_OFF_HOURS
+            calcHours(e.id) + 4 <= MAX_OFF_HOURS &&
+            (empStats[e.id].catCounts['4o'] || 0) < CAP['4o']
           )
-        ].sort((a,b) => calcHours(a.id) - calcHours(b.id));
+        ].sort((a,b) => {
+          const aIsOff = !canDoNight(a), bIsOff = !canDoNight(b);
+          // off_night ที่ hours+4 ≤ TARGET ได้ก่อน
+          const aOk = aIsOff && calcHours(a.id) + 4 <= MAX_OFF_HOURS;
+          const bOk = bIsOff && calcHours(b.id) + 4 <= MAX_OFF_HOURS;
+          if (aOk !== bOk) return aOk ? -1 : 1;
+          // รองลงมา: hours น้อยก่อน
+          return calcHours(a.id) - calcHours(b.id);
+        });
 
         for (const underEmp of underPool) {
           if (swapped3c) break;
