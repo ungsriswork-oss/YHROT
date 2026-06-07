@@ -686,20 +686,17 @@ function ScheduleManager() {
       if (u !== 'R2' && !canDoNight(emp) && !isOffSpecial(emp)) {
         const shiftHrs = getShiftHours(shift);
 
-        // Pace check: off_night ไม่ควรสะสม hours เร็วกว่าจังหวะเดือน
-        // buffer=0.10 → สมดุลระหว่างกระจายดีและไม่ block มากเกิน
-        const monthRatio = d / dim;
-        const empRatio = st.hours / TARGET_OFF_NIGHT;
-        if (empRatio > monthRatio + 0.10) {
-          // ตรวจว่ามีคนอื่นใน off_night ที่ ratio น้อยกว่ารับได้ไหม
+        // Pace check: off_night ไม่ควรสะสม hours เร็วเกินไป
+        // ใช้ expected hours ณ วันนั้น = TARGET_OFF_NIGHT * (d/dim) + buffer 1 shift
+        const expectedHrsAtDay = TARGET_OFF_NIGHT * (d / dim) + getShiftHours(shift);
+        if (st.hours >= expectedHrsAtDay) {
+          // ตรวจว่ามีคน off_night อื่นที่ hours น้อยกว่ารับได้ไหม
           const hasOtherOffNight = offNightEmpsAll.some(e => {
             if (e.id === emp.id) return false;
             if (newAssignments[`${e.id}_${dateStr}`]) return false;
             if (e.offShifts?.includes(shift.id)) return false;
-            const eRatio = empStats[e.id].hours / TARGET_OFF_NIGHT;
-            if (eRatio >= empRatio) return false; // ต้องน้อยกว่า
+            if (empStats[e.id].hours >= expectedHrsAtDay) return false;
             if (empStats[e.id].hours + shiftHrs > TARGET_OFF_NIGHT) return false;
-            // rule_1
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
             if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
