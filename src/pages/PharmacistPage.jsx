@@ -1951,7 +1951,7 @@ function ScheduleManager() {
       {/* Action bar — redesigned */}
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3 print-hidden">
-          {activeSchedule && TARGET_NORMAL_DISPLAY > 0 && (() => {
+          {activeSchedule && (() => {
             const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
             let expectedHrs = 0;
             for (let d = 1; d <= dim; d++) {
