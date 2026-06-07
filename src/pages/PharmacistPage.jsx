@@ -1048,13 +1048,13 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 10;
+    const MAX_SWAP_ROUNDS = 20;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
-      // หาคนที่เกิน TARGET+1h (จับ 62h ด้วย ไม่ใช่แค่ 64h)
+      // หาคนที่เกิน TARGET (จับทุกคนที่เกินเลย ไม่มี buffer)
       const overEmps = normalEmpsAll.filter(e =>
-        calcHours(e.id) > TARGET_NORMAL + 1
+        calcHours(e.id) > TARGET_NORMAL
       ).sort((a,b) => calcHours(b.id) - calcHours(a.id));
 
       for (const overEmp of overEmps) {
