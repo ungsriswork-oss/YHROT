@@ -1187,8 +1187,8 @@ function ScheduleManager() {
     for (let round = 0; round < MAX_AFT_SWAP; round++) {
       let swapped3b = false;
 
-      // หาคนที่บ่าย >= 3
-      const overAft = normalEmpsAll.filter(e => countAfternoon(e.id) >= 3)
+      // หาคนที่บ่าย >= 3 — รวม off_night ด้วย (เช่น นิชาภาที่ได้บ่าย 4)
+      const overAft = [...normalEmpsAll, ...offNightEmpsAll].filter(e => countAfternoon(e.id) >= 3)
         .sort((a,b) => countAfternoon(b.id) - countAfternoon(a.id));
 
       for (const overEmp of overAft) {
@@ -1265,6 +1265,8 @@ function ScheduleManager() {
             const newOverHours = overHours - 8 + 4;   // -บ่าย +4h
             if (newUnderHours > 64) continue; // ไม่ให้ under เกิน
             if (newOverHours >= overHours) continue;
+            // off_night overEmp: หลัง swap ต้องไม่เกิน TARGET_OFF_NIGHT
+            if (!canDoNight(overEmp) && newOverHours > TARGET_OFF_NIGHT) continue;
 
             // ─ 2-WAY SWAP ─
             doSwap(overEmp.id, underEmp.id, ds, aftShift);
