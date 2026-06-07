@@ -1604,6 +1604,78 @@ function ScheduleManager() {
       if (!swapped3f) break;
     }
 
+    // ─── PHASE 3g: สมดุลชั่วโมงในกลุ่ม off_night ───
+    // หา off_night ที่ hours ต่างกันมาก → swap 4h ให้สมดุล
+    // เช่น 52h ↔ 44h → ควรเป็น 48h 48h
+    const MAX_3G_ROUNDS = 5;
+    for (let round = 0; round < MAX_3G_ROUNDS; round++) {
+      let swapped3g = false;
+
+      // เรียง off_night จากมากไปน้อย
+      const offSorted = [...offNightEmpsAll].sort((a,b) => calcHours(b.id) - calcHours(a.id));
+      if (offSorted.length < 2) break;
+
+      for (const overEmp of offSorted) {
+        if (swapped3g) break;
+        const overHours = calcHours(overEmp.id);
+
+        // หาคนที่ hours น้อยกว่าอย่างน้อย 8h
+        const underEmps = offSorted.filter(e =>
+          e.id !== overEmp.id && calcHours(e.id) <= overHours - 8
+        ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+
+        if (underEmps.length === 0) continue;
+
+        // หาเวร 4h ของ overEmp ที่ swap ออกได้
+        for (const underEmp of underEmps) {
+          if (swapped3g) break;
+          const underHours = calcHours(underEmp.id);
+
+          for (let d = 1; d <= dim; d++) {
+            if (swapped3g) break;
+            const ds = fmtD(d);
+            const sid = newAssignments[`${overEmp.id}_${ds}`];
+            if (!sid) continue;
+            const s = shifts.find(s => s.id === sid);
+            if (!s || getShiftHours(s) !== 4) continue;
+            const u = s.name.trim().toUpperCase();
+            if (u === 'R2') continue;
+
+            // underEmp ต้องว่างวันนี้
+            if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // rule_1
+            const prevDs = fmtD(d - 1);
+            const nextDs = fmtD(d + 1);
+            if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+            if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+            // ชั่วโมงหลัง swap ต้องสมดุลกว่าเดิม
+            const newOverHours = overHours - 4;
+            const newUnderHours = underHours + 4;
+            if (newUnderHours > MAX_OFF_HOURS) continue;
+            if (newUnderHours >= overHours) continue; // ไม่ให้ under แซง over
+
+            // SMC cap ของ underEmp
+            if (getShiftCategory(s) === 'SMC') {
+              let smcCount = 0;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
+              }
+              if (smcCount >= CAP['SMC']) continue;
+            }
+
+            // SWAP!
+            doSwap(overEmp.id, underEmp.id, ds, s);
+            swapped3g = true;
+            break;
+          }
+        }
+      }
+      if (!swapped3g) break;
+    }
+
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
@@ -1784,7 +1856,7 @@ function ScheduleManager() {
             const diff = actualHrs - expectedHrs;
             const isOk = actualHrs >= expectedHrs;
             return (
-              <div className="text-xs mr-auto flex items-center gap-3 flex-wrap">
+              <div className="text-base mr-auto flex items-center gap-3 flex-wrap">
                 <span>🎯 ปกติ <b className="text-indigo-600">{TARGET_NORMAL_DISPLAY}h</b></span>
                 <span>🎯 off_night <b className="text-gray-500">{TARGET_OFF_NIGHT_DISPLAY}h</b></span>
                 <span className={`px-2 py-1 rounded-lg font-bold ${isOk ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>
@@ -1842,7 +1914,7 @@ function ScheduleManager() {
                   );
                 })()}
                 {hasGenerated && (() => {
-                  // คำนวณ spread และ std ของกลุ่มปกติ/R2
+                  // score ปกติ/R2
                   const normalEmps = employees.filter(e =>
                     !e.onLeave && (e.group === 'normal' || e.group === 'r2' || !e.group)
                   );
@@ -1855,27 +1927,53 @@ function ScheduleManager() {
                     return h;
                   }).filter(h => h > 0);
 
-                  if (normalHours.length < 2) return null;
+                  // score off_night
+                  const offEmps = employees.filter(e =>
+                    !e.onLeave && ['off_night','r2_off_night'].includes(e.group)
+                  );
+                  const offHours = offEmps.map(emp => {
+                    let h = 0;
+                    monthDates.forEach(d => {
+                      const s = shifts.find(s => s.id === activeSchedule.assignments?.[`${emp.id}_${d.dateStr}`]);
+                      if (s) h += getShiftHours(s);
+                    });
+                    return h;
+                  }).filter(h => h > 0);
 
-                  const minH = Math.min(...normalHours);
-                  const maxH = Math.max(...normalHours);
-                  const spread = maxH - minH;
-                  const mean = normalHours.reduce((a, b) => a + b, 0) / normalHours.length;
-                  const std = Math.sqrt(normalHours.reduce((a, b) => a + (b - mean) ** 2, 0) / normalHours.length);
+                  const calcScore = (hoursArr, spreadGood, spreadOk, stdGood, stdOk) => {
+                    if (hoursArr.length < 2) return null;
+                    const minH = Math.min(...hoursArr);
+                    const maxH = Math.max(...hoursArr);
+                    const spread = maxH - minH;
+                    const mean = hoursArr.reduce((a,b) => a+b, 0) / hoursArr.length;
+                    const std = Math.sqrt(hoursArr.reduce((a,b) => a+(b-mean)**2, 0) / hoursArr.length);
+                    let level, color, icon;
+                    if (spread <= spreadGood && std <= stdGood) {
+                      level = 'กระจายดี'; color = 'bg-green-50 text-green-700'; icon = '✅';
+                    } else if (spread <= spreadOk && std <= stdOk) {
+                      level = 'พอใช้'; color = 'bg-yellow-50 text-yellow-700'; icon = '⚠️';
+                    } else {
+                      level = 'ควรสุ่มใหม่'; color = 'bg-red-50 text-red-600'; icon = '❌';
+                    }
+                    return { spread, std, level, color, icon };
+                  };
 
-                  let level, color, icon;
-                  if (spread <= 8 && std <= 2.5) {
-                    level = 'กระจายดี'; color = 'bg-green-50 text-green-700'; icon = '✅';
-                  } else if (spread <= 10 && std <= 3.0) {
-                    level = 'พอใช้'; color = 'bg-yellow-50 text-yellow-700'; icon = '⚠️';
-                  } else {
-                    level = 'ควรสุ่มใหม่'; color = 'bg-red-50 text-red-600'; icon = '❌';
-                  }
+                  const nScore = calcScore(normalHours, 8, 10, 2.5, 3.0);
+                  const oScore = calcScore(offHours, 4, 6, 1.5, 2.0);
 
                   return (
-                    <span className={`px-2 py-1 rounded-lg font-bold text-[11px] ${color}`}>
-                      ⚖️ {icon} {level} (spread {spread}h, std {std.toFixed(1)})
-                    </span>
+                    <>
+                      {nScore && (
+                        <span className={`px-2 py-1 rounded-lg font-bold text-[13px] ${nScore.color}`}>
+                          ⚖️ ปกติ: {nScore.icon} {nScore.level} (spread {nScore.spread}h, std {nScore.std.toFixed(1)})
+                        </span>
+                      )}
+                      {oScore && (
+                        <span className={`px-2 py-1 rounded-lg font-bold text-[13px] ${oScore.color}`}>
+                          ⚖️ off_night: {oScore.icon} {oScore.level} (spread {oScore.spread}h, std {oScore.std.toFixed(1)})
+                        </span>
+                      )}
+                    </>
                   );
                 })()}
               </div>
