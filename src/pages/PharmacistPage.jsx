@@ -1798,11 +1798,11 @@ function ScheduleManager() {
     if (score.isGood) break;
   }
 
-  setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-  setTargetNormalDisplay(TARGET_NORMAL);
-  setTargetOffNightDisplay(TARGET_OFF_NIGHT);
-  setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-  setIsGenerating(false);
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+    setTargetNormalDisplay(TARGET_NORMAL);
+    setTargetOffNightDisplay(TARGET_OFF_NIGHT);
+    setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+    setIsGenerating(false);
   }, 50); // end setTimeout
 };
 
