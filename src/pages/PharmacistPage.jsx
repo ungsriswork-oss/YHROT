@@ -2097,7 +2097,38 @@ function ScheduleManager() {
                 });
               }
 
-              // 2. ตรวจกฎกลุ่ม — off_special ได้เวรต้องห้าม / off_night ได้ดึก
+              // 3. ตรวจเวรที่ได้ในวันที่ไม่ควรมี (isApplicable = false)
+              employees.forEach(emp => {
+                monthDates.forEach(({ dateStr, dateNum }) => {
+                  const sid = activeSchedule.assignments?.[`${emp.id}_${dateStr}`];
+                  if (!sid) return;
+                  const s = shifts.find(s => s.id === sid);
+                  if (!s) return;
+                  const dow = new Date(activeSchedule.year, activeSchedule.month, dateNum).getDay();
+                  const isSat = dow === 6;
+                  const isHolD = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[dateStr]);
+                  const a = s.allowedDays || 'all';
+                  let applicable = false;
+                  if (a === 'all') applicable = true;
+                  else if (a === 'weekdays' && !isHolD) applicable = true;
+                  else if (a === 'weekends_holidays' && isHolD) applicable = true;
+                  else if (a === 'saturdays_only' && isSat) applicable = true;
+                  else if (a === 'mon_tue_only' && [1,2].includes(dow) && !isHolD) applicable = true;
+                  else if (a === 'holidays_except_saturday' && isHolD && !isSat) applicable = true;
+                  else if (a === 'first_day_of_holidays') {
+                    if (isHolD) {
+                      const pd = dateNum-1;
+                      const pDow = pd>=1 ? new Date(activeSchedule.year, activeSchedule.month, pd).getDay() : -1;
+                      const pDs = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+                      const pHolD = pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);
+                      if (dateNum===1||!pHolD) applicable = true;
+                    }
+                  }
+                  if (!applicable) {
+                    over.push({ day: dateNum, shiftName: s.name, shiftColor: s.color, reason: `${emp.name} (ผิดวัน)` });
+                  }
+                });
+              });
               employees.forEach(emp => {
                 monthDates.forEach(({ dateStr, dateNum }) => {
                   const sid = activeSchedule.assignments?.[`${emp.id}_${dateStr}`];
