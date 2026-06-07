@@ -219,6 +219,7 @@ function ScheduleManager() {
   const [sortByMoney, setSortByMoney] = useState(false);
   const [TARGET_NORMAL_DISPLAY, setTargetNormalDisplay] = useState(60);
   const [TARGET_OFF_NIGHT_DISPLAY, setTargetOffNightDisplay] = useState(44);
+  const [missingShifts, setMissingShifts] = useState([]);
 
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
@@ -1587,6 +1588,28 @@ function ScheduleManager() {
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
+
+    // ─── คำนวณเวรที่ขาด ───
+    const missing = [];
+    for (let d = 1; d <= dim; d++) {
+      const ds = fmtD(d);
+      shifts.forEach(s => {
+        if (!isApplicable(s, d)) return;
+        const needed = s.min || 1;
+        const filled = activeEmployees.filter(e => newAssignments[`${e.id}_${ds}`] === s.id).length;
+        if (filled < needed) {
+          missing.push({
+            day: d,
+            shiftName: s.name,
+            shiftColor: s.color,
+            needed,
+            filled,
+            lack: needed - filled,
+          });
+        }
+      });
+    }
+    setMissingShifts(missing);
   };
 
   const handleAssignShift = (shiftId) => {
@@ -1770,6 +1793,21 @@ function ScheduleManager() {
                   📊 {actualHrs}h / {expectedHrs}h {isOk ? '✅' : `⚠️ ขาด ${expectedHrs - actualHrs}h`}
                 </span>
                 <span className="text-emerald-600 font-bold">💰 {actualMoney.toLocaleString()} บ.</span>
+                {missingShifts.length > 0 && (
+                  <span className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-red-600 font-bold">❌ เวรขาด {missingShifts.length} slot:</span>
+                    {missingShifts.map((m, i) => (
+                      <span key={i}
+                        className="px-2 py-0.5 rounded-md text-white text-[10px] font-bold"
+                        style={{ backgroundColor: m.shiftColor }}>
+                        วัน {m.day} · {m.shiftName} (ขาด {m.lack})
+                      </span>
+                    ))}
+                  </span>
+                )}
+                {missingShifts.length === 0 && TARGET_NORMAL_DISPLAY > 0 && (
+                  <span className="text-green-600 font-bold text-[11px]">✅ เวรครบทุก slot</span>
+                )}
               </div>
             );
           })()}
