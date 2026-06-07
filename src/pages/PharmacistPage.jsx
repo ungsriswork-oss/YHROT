@@ -763,6 +763,14 @@ function ScheduleManager() {
           if (aUnder !== bUnder) return aUnder ? -1 : 1;
         }
 
+        // ดึก: คนที่ได้ดึกน้อยกว่าได้ก่อน — กระจาย deterministic ไม่ให้ random ตัดสิน
+        // เป็น priority สูงสุดสำหรับดึก เพราะดึก 8h ต่อครั้ง ถ้ากระจุกจะทำชั่วโมงต่างกัน 8-16h
+        if (cat === 'ดึก') {
+          const aNight = sa.catCounts['ดึก'] || 0;
+          const bNight = sb.catCounts['ดึก'] || 0;
+          if (aNight !== bNight) return aNight - bNight; // คนได้ดึกน้อยกว่าได้ก่อน
+        }
+
         // Primary: กระจาย totalShifts ก่อน — ป้องกันคนเดิมได้เวรสะสม
         if (sa.totalShifts !== sb.totalShifts) return sa.totalShifts - sb.totalShifts;
 
