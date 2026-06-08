@@ -51,10 +51,11 @@ function useFirebaseSync(key, initialValue) {
 // ─── ค่าเวรและชั่วโมง ───
 const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
-  const n = shift.name.trim().toLowerCase();
-  // SMC category ทุกตัว (4s1-4s5 หรือเพิ่มในอนาคต): hardcode 720
+  // SMC category ทุกตัว: hardcode 720
   if (getShiftCategory(shift) === 'SMC') return 720;
-  // เวรอื่นคำนวณจาก start/end ที่ตั้งใน Firebase
+  // ถ้ามี customHours → ใช้คำนวณเงิน (100 บ./ชม.)
+  if (shift.customHours && shift.customHours > 0) return shift.customHours * 100;
+  // เวรอื่นคำนวณจาก start/end
   if (!shift.start || !shift.end) return 0;
   const [h1,m1] = shift.start.split(':').map(Number);
   const [h2,m2] = shift.end.split(':').map(Number);
