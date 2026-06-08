@@ -227,7 +227,6 @@ function ScheduleManager() {
   const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const hasGenerated = generatedScheduleIds.has(activeScheduleId);
   const [telemedModal, setTelemedModal] = useState(false);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
@@ -671,9 +670,12 @@ function ScheduleManager() {
           if (totalMorning >= mornCap) return false;
         }
 
-        // เวรอื่นๆ (4T, เวรใหม่ในอนาคต) คำนวณ cap จาก Firebase อัตโนมัติ
+        // เวรอื่นๆ (Telemed, Morning, เวรใหม่ในอนาคต) คำนวณ cap จาก CAP object
         if (!['ดึก','เช้า','บ่าย','4o','2o','SMC','As/4','A/4'].includes(cat)) {
-          const otherCap = isOffSpecial(emp) ? 2 : Math.max(2, CAP[cat] || 3);
+          // ถ้า CAP มีค่าสำหรับ category นี้ → ใช้ตรงๆ (เช่น Morning=1, Telemed=1)
+          // ถ้าไม่มี → fallback เป็น 3
+          const capVal = CAP[cat] !== undefined ? CAP[cat] : 3;
+          const otherCap = isOffSpecial(emp) ? Math.min(2, capVal) : capVal;
           if ((st.catCounts[cat] || 0) >= otherCap) return false;
         }
       }
@@ -936,8 +938,7 @@ function ScheduleManager() {
       return shift.min || 1;
     };
 
-    // identify เวร Telemed (category = 'อื่นๆ' และ isTelemed = true)
-    const telemedShifts = shifts.filter(s => s.isTelemed);
+    // identify เวร Telemed (category = 'Telemed')
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
