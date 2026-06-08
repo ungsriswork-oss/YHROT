@@ -223,8 +223,8 @@ function ScheduleManager() {
   const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
-  const retryCountRef = React.useRef(0);
   const hasGenerated = generatedScheduleIds.has(activeScheduleId);
+  const [telemedModal, setTelemedModal] = useState(false);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
     const handleKey = (e) => {
@@ -299,55 +299,8 @@ function ScheduleManager() {
     if (!activeSchedule) return;
     setIsGenerating(true);
     setRetryCount(0);
-
-    let bestAssignments = null;
-    let bestScore = null;
-    let TARGET_NORMAL = 60;
-    let TARGET_OFF_NIGHT = 44;
-
-    const isBetter = (n, o) => {
-      if (!o) return true;
-      if (n.missing !== o.missing) return n.missing < o.missing;
-      if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
-      return n.nStd+n.oStd < o.nStd+o.oStd;
-    };
-
-    const MAX_AUTO_RETRY = 10;
-
-    const runAttempt = (attempt) => {
-      if (attempt >= MAX_AUTO_RETRY) {
-        setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-        setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-        setIsGenerating(false);
-        return;
-      }
-
-      const assignments = runOnce();
-      const score = scoreResult(assignments);
-      if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
-
-      // อัพเดท counter
-      const counter = document.getElementById('retry-counter');
-      const progress = document.getElementById('retry-progress');
-      if (counter) counter.textContent = `รอบที่ ${attempt+1}/${MAX_AUTO_RETRY}`;
-      if (progress) progress.style.width = `${((attempt+1)/MAX_AUTO_RETRY)*100}%`;
-
-      if (score.isGood) {
-        setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-        setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-        setIsGenerating(false);
-        return;
-      }
-
-      // yield ให้ browser หายใจทุก 2 รอบ
-      if (attempt % 2 === 1) {
-        setTimeout(() => runAttempt(attempt + 1), 0);
-      } else {
-        runAttempt(attempt + 1);
-      }
-    };
-
     setTimeout(() => {
+    const MAX_AUTO_RETRY = 40;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
@@ -964,6 +917,18 @@ function ScheduleManager() {
     const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2');
     const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
+    // ─── helper: นับ min ต่อวัน (รองรับ Telemed ที่ min ต่างกันแต่ละวัน) ───
+    const getShiftMinForDay = (shift, dateStr) => {
+      // เวร Telemed: ใช้ค่าจาก schedule.telemed[dateStr] แทน shift.min
+      if (shift.isTelemed && activeSchedule?.telemed) {
+        return activeSchedule.telemed[dateStr] ?? 0;
+      }
+      return shift.min || 1;
+    };
+
+    // identify เวร Telemed (category = 'อื่นๆ' และ isTelemed = true)
+    const telemedShifts = shifts.filter(s => s.isTelemed);
+
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       const hol = isHol(d);
@@ -1036,7 +1001,9 @@ function ScheduleManager() {
         }
       });
       for (const shift of todayShifts) {
-        for (let slot = 0; slot < (shift.min || 1); slot++) {
+        const shiftMinToday = getShiftMinForDay(shift, dateStr);
+        if (shiftMinToday === 0) continue; // Telemed วันนี้ไม่ต้องการคน
+        for (let slot = 0; slot < shiftMinToday; slot++) {
           // รอบ 1: ปกติ — ผ่านทุก rule
           let eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
 
@@ -1766,9 +1733,25 @@ function ScheduleManager() {
       return newAssignments;
     }; // end runOnce
 
-      // เริ่ม async retry loop
-      runAttempt(0);
-    }, 50); // setTimeout แรกให้ React render loading ก่อน
+    let bestAssignments = null;
+    let bestScore = null;
+    const isBetter = (n, o) => {
+      if (!o) return true;
+      if (n.missing !== o.missing) return n.missing < o.missing;
+      if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
+      return n.nStd+n.oStd < o.nStd+o.oStd;
+    };
+    for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
+      const assignments = runOnce();
+      const score = scoreResult(assignments);
+      if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
+      if (score.isGood) { setRetryCount(attempt + 1); break; }
+      setRetryCount(attempt + 1);
+    }
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+    setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+    setIsGenerating(false);
+    }, 50);
   };
 
   const handleAssignShift = (shiftId) => {
@@ -1779,6 +1762,20 @@ function ScheduleManager() {
     else updated[`${empId}_${dateStr}`] = shiftId;
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: updated } : s));
     setAssignmentModal({ isOpen: false, empId: null, dateStr: null });
+  };
+
+  // ─── Telemed: อ่าน min ต่อวัน จาก schedule.telemed ───
+  const getTelemedMin = (dateStr) => {
+    if (!activeSchedule?.telemed) return 0;
+    return activeSchedule.telemed[dateStr] ?? 0;
+  };
+
+  const handleSetTelemed = (dateStr, val) => {
+    if (!activeSchedule) return;
+    const updated = { ...(activeSchedule.telemed || {}) };
+    if (val === 0) delete updated[dateStr];
+    else updated[dateStr] = val;
+    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, telemed: updated } : s));
   };
 
   const handleToggleHoliday = (dateStr) => {
@@ -1845,9 +1842,9 @@ function ScheduleManager() {
             <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
             <div className="text-center">
               <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
-              <div id="retry-counter" className="text-sm text-gray-400 mt-1">รอบที่ 0/40</div>
+              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/40</div>
               <div className="w-48 bg-gray-200 rounded-full h-1.5 mt-2">
-                <div id="retry-progress" className="bg-purple-600 h-1.5 rounded-full transition-none" style={{width:'0%'}} />
+                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/40)*100}%`}} />
               </div>
             </div>
           </div>
@@ -1993,6 +1990,10 @@ function ScheduleManager() {
             className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 mr-2">
             <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
           </button>
+          <button type="button" onClick={() => setTelemedModal(true)}
+            className="text-cyan-700 bg-cyan-50 border border-cyan-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-cyan-100">
+            <CalendarDays className="w-3.5 h-3.5" /> ตั้งค่า Telemed
+          </button>
           <button type="button" onClick={() => setSortByMoney(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
             <span>⇅</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
@@ -2095,6 +2096,69 @@ function ScheduleManager() {
           </div>
         )}
       </div>
+
+      {/* Telemed Modal */}
+      {telemedModal && activeSchedule && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm"
+          onClick={() => setTelemedModal(false)}>
+          <div className="bg-white rounded-2xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4 pb-3 border-b border-gray-100">
+              <h3 className="text-lg font-bold text-gray-800">ตั้งค่า Telemed</h3>
+              <button type="button" onClick={() => setTelemedModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+            </div>
+            <p className="text-xs text-gray-400 mb-4">กำหนดจำนวนเภสัชกรที่ต้องการต่อวัน (0 = ไม่มี Telemed วันนั้น)</p>
+            {(() => {
+              const telemedShift = shifts.find(s => s.isTelemed);
+              if (!telemedShift) return (
+                <div className="text-center py-8 text-gray-400">
+                  <p className="font-medium">ยังไม่มีเวร Telemed</p>
+                  <p className="text-xs mt-1">กรุณาไปแท็บ <b>ประเภทเวร</b> → เพิ่มเวร → เปิด "เวร Telemed"</p>
+                </div>
+              );
+              return (
+                <div className="overflow-y-auto flex-1">
+                  <div className="grid grid-cols-5 gap-2">
+                    {monthDates.map(({ dateNum, dateStr, dayStr, isHoliday }) => (
+                      <div key={dateStr} className={`rounded-xl p-2 border text-center ${isHoliday ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
+                        <div className="text-[10px] text-gray-400">{dayStr}</div>
+                        <div className="text-sm font-bold text-gray-700 mb-1.5">{dateNum}</div>
+                        <div className="flex justify-center gap-1">
+                          {[0,1,2].map(v => {
+                            const cur = getTelemedMin(dateStr);
+                            return (
+                              <button key={v} type="button"
+                                onClick={() => handleSetTelemed(dateStr, v)}
+                                className={`w-6 h-6 rounded-md text-xs font-bold transition-all ${
+                                  cur === v
+                                    ? 'bg-cyan-500 text-white shadow-sm'
+                                    : 'bg-white text-gray-400 border border-gray-200 hover:border-cyan-300'
+                                }`}>
+                                {v}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-100">
+              <div className="text-xs text-gray-400">
+                รวม Telemed เดือนนี้: <b className="text-cyan-600">
+                  {monthDates.reduce((sum, d) => sum + getTelemedMin(d.dateStr), 0)} slot
+                </b>
+              </div>
+              <button type="button" onClick={() => setTelemedModal(false)}
+                className="px-5 py-2 bg-cyan-600 text-white rounded-xl text-sm font-bold hover:bg-cyan-700">
+                บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create modal */}
       {isCreateModalOpen && (
@@ -2608,6 +2672,17 @@ function ShiftTypesManager() {
                   value={formData.allowedDays} onChange={e => setFormData({ ...formData, allowedDays: e.target.value })}>
                   {Object.entries(dayLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
+              </div>
+              <div>
+                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl border border-cyan-200 bg-cyan-50/50 hover:bg-cyan-50">
+                  <input type="checkbox" checked={!!formData.isTelemed}
+                    onChange={e => setFormData({ ...formData, isTelemed: e.target.checked })}
+                    className="w-4 h-4 accent-cyan-600" />
+                  <div>
+                    <div className="text-sm font-bold text-cyan-800">เวร Telemed</div>
+                    <div className="text-xs text-cyan-600">จำนวนคนต่อวันจะถูกกำหนดจากหน้าตารางเวร ไม่ใช้ค่า min ด้านบน</div>
+                  </div>
+                </label>
               </div>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
