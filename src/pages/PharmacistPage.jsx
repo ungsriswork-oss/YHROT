@@ -64,7 +64,10 @@ const getShiftValue = (shift) => {
 };
 
 const getShiftHours = (shift) => {
-  if (!shift?.start || !shift?.end) return 0;
+  if (!shift) return 0;
+  // ถ้ามี customHours → ใช้เลย (สำหรับเวรที่เวลาไม่ต่อเนื่อง เช่น เวร M)
+  if (shift.customHours && shift.customHours > 0) return shift.customHours;
+  if (!shift.start || !shift.end) return 0;
   const [h1,m1] = shift.start.split(':').map(Number);
   const [h2,m2] = shift.end.split(':').map(Number);
   let hrs = h2 - h1 + (m2 - m1) / 60;
@@ -271,12 +274,12 @@ function ScheduleManager() {
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,ชั่วโมง,รวมเงิน\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,M,ชั่วโมง,รวมเงิน\n';
     employees.filter(e => !e.onLeave).forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
-      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0 };
+      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0, 'M':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
@@ -285,10 +288,11 @@ function ScheduleManager() {
           money += getShiftValue(s);
           hours += getShiftHours(s);
           if (s.isTelemed) cnt['4T']++;
+          else if (s.name.trim().toUpperCase() === 'M') cnt['M']++;
           else { const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
         }
       }
-      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A/4'], cnt['SMC'], cnt['4o'], cnt['2o'], cnt['4T'], hours, money);
+      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A/4'], cnt['SMC'], cnt['4o'], cnt['2o'], cnt['4T'], cnt['M'], hours, money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
@@ -2053,7 +2057,7 @@ function ScheduleManager() {
                       <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
                   ))}
-                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A/4','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['4T','bg-cyan-50/50','text-cyan-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
+                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A/4','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['4T','bg-cyan-50/50','text-cyan-700'],['M','bg-violet-50/50','text-violet-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
                     <th key={label} className={`p-1 border-b border-r border-gray-200 w-[30px] text-[10px] font-bold ${bg} ${tc}`}>{label}</th>
                   ))}
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold">รวม(บ.)</th>
@@ -2062,7 +2066,7 @@ function ScheduleManager() {
               <tbody>
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
-                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0 };
+                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0, 'M':0 };
                   // pre-calculate cnt ก่อน render เพื่อใช้ highlight
                   monthDates.forEach(d => {
                     const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
@@ -2071,6 +2075,7 @@ function ScheduleManager() {
                       totalHours += getShiftHours(s);
                       const c = getShiftCategory(s);
                       if (s.isTelemed) cnt['4T']++;
+                      else if (s.name.trim().toUpperCase() === 'M') cnt['M']++;
                       else if (cnt[c] !== undefined) cnt[c]++;
                     }
                   });
@@ -2100,7 +2105,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['4T']].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['4T'],cnt['M']].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
                       <td className={`px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold
@@ -2674,6 +2679,25 @@ function ShiftTypesManager() {
                   <input type="time" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
                     value={formData.end} onChange={e => setFormData({ ...formData, end: e.target.value })} />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  ชั่วโมงจริง (กรอกเฉพาะเวรที่เวลาไม่ต่อเนื่อง เช่น เวร M)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input type="number" min="0" step="0.5"
+                    placeholder="ปล่อยว่าง = คำนวณจากเวลาเริ่ม-สิ้นสุด"
+                    className="flex-1 border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+                    value={formData.customHours || ''}
+                    onChange={e => setFormData({ ...formData, customHours: e.target.value ? parseFloat(e.target.value) : 0 })} />
+                  <span className="text-sm text-gray-400 shrink-0">ชั่วโมง</span>
+                </div>
+                {formData.customHours > 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ ระบบจะใช้ <b>{formData.customHours}h</b> แทนการคำนวณจากเวลาเริ่ม-สิ้นสุด
+                    ({formData.customHours * 100} บ./เวร)
+                  </p>
+                )}
               </div>
               <div className={formData.isTelemed ? 'opacity-40 pointer-events-none' : ''}>
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">
