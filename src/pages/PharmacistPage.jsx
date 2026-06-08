@@ -2675,9 +2675,12 @@ function ShiftTypesManager() {
                     value={formData.end} onChange={e => setFormData({ ...formData, end: e.target.value })} />
                 </div>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">จำนวนคนต้องการ / วัน</label>
-                <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none"
+              <div className={formData.isTelemed ? 'opacity-40 pointer-events-none' : ''}>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  จำนวนคนต้องการ / วัน
+                  {formData.isTelemed && <span className="ml-2 text-xs font-normal text-gray-400">(ไม่ใช้)</span>}
+                </label>
+                <input type="number" min="1" className="w-full border border-gray-300 rounded-xl p-3 outline-none bg-gray-50"
                   value={formData.min} onChange={e => setFormData({ ...formData, min: parseInt(e.target.value) || 1 })} />
               </div>
               <div>
@@ -2688,9 +2691,12 @@ function ShiftTypesManager() {
                   {CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
-              <div>
-                <label className="block text-sm font-bold text-gray-700 mb-1.5">เงื่อนไขวันที่จัดได้</label>
-                <select className="w-full border border-gray-300 rounded-xl p-3 focus:ring-2 focus:ring-blue-500 outline-none bg-white"
+              <div className={formData.isTelemed ? 'opacity-40 pointer-events-none' : ''}>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  เงื่อนไขวันที่จัดได้
+                  {formData.isTelemed && <span className="ml-2 text-xs font-normal text-gray-400">(ไม่ใช้)</span>}
+                </label>
+                <select className="w-full border border-gray-300 rounded-xl p-3 outline-none bg-gray-50"
                   value={formData.allowedDays} onChange={e => setFormData({ ...formData, allowedDays: e.target.value })}>
                   {Object.entries(dayLabels).map(([v,l]) => <option key={v} value={v}>{l}</option>)}
                 </select>
