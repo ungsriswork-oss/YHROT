@@ -269,12 +269,12 @@ function ScheduleManager() {
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportCSV = () => {
     if (!activeSchedule) return;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,M,ชั่วโมง,รวมเงิน\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,M,ชม.,รวม(บ.)\n';
     employees.filter(e => !e.onLeave).forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
@@ -285,19 +285,103 @@ function ScheduleManager() {
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
         row.push(s ? `"${s.name}"` : '');
         if (s) {
-          money += getShiftValue(s);
-          hours += getShiftHours(s);
+          money += getShiftValue(s); hours += getShiftHours(s);
           const c = getShiftCategory(s);
           if (cnt[c] !== undefined) cnt[c]++;
         }
       }
-      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A/4'], cnt['SMC'], cnt['4o'], cnt['2o'], cnt['Telemed'], cnt['Morning'], hours, money);
+      row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['Morning'],hours,money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    a.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}.csv`;
+    a.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}_${activeSchedule.year+543}.csv`;
     a.click();
+  };
+
+  const handleExportExcel = () => {
+    if (!activeSchedule) return;
+    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+
+    // โหลด SheetJS จาก CDN
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.onload = () => {
+      const XLSX = window.XLSX;
+      const wb = XLSX.utils.book_new();
+
+      // header row 1: พนักงาน, กลุ่ม, วันที่ 1-31, สรุป
+      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','M','ชม.','รวม(บ.)'];
+      const header = ['พนักงาน','กลุ่ม', ...Array.from({length:dim},(_,i)=>i+1), ...summaryHeaders];
+
+      const wsData = [header];
+
+      // ข้อมูลแต่ละคน
+      employees.filter(e => !e.onLeave).forEach(emp => {
+        const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
+        const row = [emp.name, grp];
+        let money = 0, hours = 0;
+        let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'Morning':0 };
+        for (let d = 1; d <= dim; d++) {
+          const ds = fmtDateFor(activeSchedule, d);
+          const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
+          row.push(s ? s.name : '');
+          if (s) {
+            money += getShiftValue(s); hours += getShiftHours(s);
+            const c = getShiftCategory(s);
+            if (cnt[c] !== undefined) cnt[c]++;
+          }
+        }
+        row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['Morning'],hours,money);
+        wsData.push(row);
+      });
+
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+      // ─── กำหนด column width ───
+      ws['!cols'] = [
+        {wch:14}, {wch:10},
+        ...Array.from({length:dim}, ()=>({wch:5})),
+        ...summaryHeaders.map(()=>({wch:5}))
+      ];
+
+      // ─── ไฮไลต์วันหยุด (header row และทุก row) ───
+      const HOL_BG = 'FFFFD6D6'; // สีแดงอ่อน
+      const HOL_HEADER_BG = 'FFFF9999'; // สีแดงเข้มขึ้นสำหรับ header
+
+      for (let d = 1; d <= dim; d++) {
+        const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
+        const ds = fmtDateFor(activeSchedule, d);
+        const isHolDay = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
+        if (!isHolDay) continue;
+
+        const colIdx = d + 1; // col 0=พนักงาน, 1=กลุ่ม, 2=วันที่1 ...
+        const colLetter = XLSX.utils.encode_col(colIdx);
+
+        // ไฮไลต์ header
+        const headerCell = colLetter + '1';
+        if (!ws[headerCell]) ws[headerCell] = {v: d, t:'n'};
+        ws[headerCell].s = {
+          fill: {patternType:'solid', fgColor:{rgb: HOL_HEADER_BG}},
+          font: {bold:true, color:{rgb:'FF990000'}},
+          alignment: {horizontal:'center'}
+        };
+
+        // ไฮไลต์ทุก row ของวันนั้น
+        for (let r = 2; r <= wsData.length; r++) {
+          const cellRef = colLetter + r;
+          if (!ws[cellRef]) ws[cellRef] = {v:'', t:'s'};
+          ws[cellRef].s = {
+            fill: {patternType:'solid', fgColor:{rgb: HOL_BG}},
+            alignment: {horizontal:'center'}
+          };
+        }
+      }
+
+      XLSX.utils.book_append_sheet(wb, ws, 'ตารางเวร');
+      XLSX.writeFile(wb, `ตารางเวร_${thaiMonths[activeSchedule.month]}_${activeSchedule.year+543}.xlsx`);
+    };
+    document.head.appendChild(script);
   };
 
   // ══════════════════════════════════════════════════════════════
@@ -2019,6 +2103,10 @@ function ScheduleManager() {
           <button type="button" onClick={() => setSortByMoney(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
             <span>⇅</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
+          </button>
+          <button type="button" onClick={handleExportCSV}
+            className="text-gray-600 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-gray-100">
+            <Download className="w-4 h-4" /> CSV
           </button>
           <button type="button" onClick={handleExportExcel}
             className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100">
