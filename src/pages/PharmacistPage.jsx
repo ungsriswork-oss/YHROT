@@ -1448,14 +1448,15 @@ function ScheduleManager() {
             if (fourHOfUnder.length === 0) {
               // ─── Fallback: 1-way swap ───
               // ไม่มี 4h ให้คืน → ลองย้ายบ่ายให้ underEmp ตรงๆ โดยไม่ต้องคืนอะไร
+              // priority: ลดบ่าย=3 สำคัญกว่าคุม hours เป๊ะ — PHASE 3c/3g จะช่วยปรับสมดุลทีหลัง
               // เงื่อนไข: หลัง swap แล้ว
-              //   - underEmp ต้องไม่เกิน TARGET ของกลุ่มตัวเอง +4h (ยอมเกินเล็กน้อยเพื่อแก้ปัญหาบ่าย3)
-              //   - overEmp ต้องไม่ต่ำกว่า TARGET ของกลุ่มตัวเอง -8h (ยอมต่ำเล็กน้อย)
+              //   - underEmp ไม่เกิน TARGET+8h (ยอมเกินได้พอสมควร)
+              //   - overEmp ไม่ต่ำกว่า TARGET-8h
               const underTarget = canDoNight(underEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
               const overTarget = canDoNight(overEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
               const newUnderHours1way = underHours + 8;
               const newOverHours1way = overHours - 8;
-              if (newUnderHours1way > underTarget + 4) continue;
+              if (newUnderHours1way > underTarget + 8) continue;
               if (newOverHours1way < overTarget - 8) continue;
 
               // ─ 1-WAY SWAP: ย้ายบ่ายจาก overEmp → underEmp ───
