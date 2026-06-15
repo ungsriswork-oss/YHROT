@@ -1963,6 +1963,70 @@ function ScheduleManager() {
             swapped3h = true;
             break;
           }
+
+          // ─── Fallback: ไม่มี 8h ให้ swap → ลองหา 4h shift มาให้ underEmp ทีละ 4h ───
+          // เหมาะกับคนที่ขาดแค่ 4-8h และวันว่างไม่ตรงกับเวร 8h ของ overEmp
+          if (!swapped3h) {
+            const fourHShifts3h = [];
+            for (let d = 1; d <= dim; d++) {
+              const ds = fmtD(d);
+              const sid = newAssignments[`${overEmp.id}_${ds}`];
+              if (!sid) continue;
+              const s = shifts.find(s => s.id === sid);
+              if (!s || getShiftHours(s) !== 4) continue;
+              const u = s.name.trim().toUpperCase();
+              if (u === 'R2') continue;
+              fourHShifts3h.push({ d, ds, s });
+            }
+
+            for (const { d, ds, s: fourShift } of fourHShifts3h) {
+              if (swapped3h) break;
+
+              // underEmp ต้องว่างวันนี้
+              if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+              // ตรวจ specificShifts/offShifts
+              if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(fourShift.id)) continue;
+              if (underEmp.offShifts?.includes(fourShift.id)) continue;
+
+              // rule_1: ไม่ติดกัน
+              const prevDs = fmtD(d - 1);
+              const nextDs = fmtD(d + 1);
+              if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
+              if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
+
+              // SMC cap check (ถ้าเป็น 4s)
+              const cat4 = getShiftCategory(fourShift);
+              if (cat4 === 'SMC') {
+                let smcCount = 0;
+                for (let d2 = 1; d2 <= dim; d2++) {
+                  const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                  if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
+                }
+                if (smcCount >= CAP['SMC']) continue;
+              }
+              // 4o cap check
+              if (cat4 === '4o') {
+                if ((empStats[underEmp.id].catCounts['4o'] || 0) >= CAP['4o']) continue;
+                if (empStats[underEmp.id].countA_As4 > 0) continue; // มี As/4 แล้วห้าม 4o
+              }
+              // Telemed/Morning cap check
+              if ((cat4 === 'Telemed' || cat4 === 'Morning') && (empStats[underEmp.id].catCounts[cat4] || 0) >= (CAP[cat4] || 1)) continue;
+
+              // ตรวจ hours หลัง swap — เพิ่ม 4h ให้ under, ลด 4h จาก over
+              const newUnderHours4 = underHours + 4;
+              const newOverHours4 = overHours - 4;
+              if (newUnderHours4 > TARGET_NORMAL) continue; // ไม่ให้เกิน TARGET
+              if (newOverHours4 < TARGET_NORMAL - 6) continue; // overEmp ไม่ต่ำเกินไป
+              // ต้องช่วยลด spread จริง — under ขยับเข้าใกล้ target มากกว่าหรือเท่าเดิม
+              if (Math.abs(newUnderHours4 - TARGET_NORMAL) >= Math.abs(underHours - TARGET_NORMAL)) continue;
+
+              // SWAP! (4h)
+              doSwap(overEmp.id, underEmp.id, ds, fourShift);
+              swapped3h = true;
+              break;
+            }
+          }
         }
       }
       if (!swapped3h) break;
