@@ -1366,7 +1366,7 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_AFT_SWAP = 5;
+    const MAX_AFT_SWAP = 10;
     for (let round = 0; round < MAX_AFT_SWAP; round++) {
       let swapped3b = false;
 
@@ -1445,7 +1445,24 @@ function ScheduleManager() {
               fourHOfUnder.push({ d: d2, ds: ds2, s: s2 });
             }
 
-            if (fourHOfUnder.length === 0) continue;
+            if (fourHOfUnder.length === 0) {
+              // ─── Fallback: 1-way swap ───
+              // ไม่มี 4h ให้คืน → ลองย้ายบ่ายให้ underEmp ตรงๆ โดยไม่ต้องคืนอะไร
+              // เงื่อนไข: หลัง swap แล้ว
+              //   - underEmp ต้องไม่เกิน TARGET ของกลุ่มตัวเอง +4h (ยอมเกินเล็กน้อยเพื่อแก้ปัญหาบ่าย3)
+              //   - overEmp ต้องไม่ต่ำกว่า TARGET ของกลุ่มตัวเอง -8h (ยอมต่ำเล็กน้อย)
+              const underTarget = canDoNight(underEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+              const overTarget = canDoNight(overEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+              const newUnderHours1way = underHours + 8;
+              const newOverHours1way = overHours - 8;
+              if (newUnderHours1way > underTarget + 4) continue;
+              if (newOverHours1way < overTarget - 8) continue;
+
+              // ─ 1-WAY SWAP: ย้ายบ่ายจาก overEmp → underEmp ───
+              doSwap(overEmp.id, underEmp.id, ds, aftShift);
+              swapped3b = true;
+              break;
+            }
 
             // ตรวจ hours หลัง 2-way swap
             const { d: d4, ds: ds4, s: s4 } = fourHOfUnder[0];
