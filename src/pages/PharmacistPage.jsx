@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Users, Clock, Plus, Edit2, Trash2, UserPlus,
   Wand2, Settings, CalendarDays, CheckCircle2, X, Printer,
-  Download, ArrowLeft, PauseCircle, PlayCircle,
+  Download, ArrowLeft,
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -51,11 +51,10 @@ function useFirebaseSync(key, initialValue) {
 // ─── ค่าเวรและชั่วโมง ───
 const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
-  // SMC category ทุกตัว: hardcode 720
+  const n = shift.name.trim().toLowerCase();
+  // SMC category ทุกตัว (4s1-4s5 หรือเพิ่มในอนาคต): hardcode 720
   if (getShiftCategory(shift) === 'SMC') return 720;
-  // ถ้ามี customHours → ใช้คำนวณเงิน (100 บ./ชม.)
-  if (shift.customHours && shift.customHours > 0) return shift.customHours * 100;
-  // เวรอื่นคำนวณจาก start/end
+  // เวรอื่นคำนวณจาก start/end ที่ตั้งใน Firebase
   if (!shift.start || !shift.end) return 0;
   const [h1,m1] = shift.start.split(':').map(Number);
   const [h2,m2] = shift.end.split(':').map(Number);
@@ -227,6 +226,7 @@ function ScheduleManager() {
   const [generatedScheduleIds, setGeneratedScheduleIds] = useState(new Set());
   const [isGenerating, setIsGenerating] = useState(false);
   const [retryCount, setRetryCount] = useState(0);
+  const hasGenerated = generatedScheduleIds.has(activeScheduleId);
   const [telemedModal, setTelemedModal] = useState(false);
   // Spacebar shortcut → สุ่มเวร
   useEffect(() => {
@@ -269,119 +269,36 @@ function ScheduleManager() {
     }
   };
 
-  const handleExportCSV = () => {
+  const handleExportExcel = () => {
     if (!activeSchedule) return;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,M,ชม.,รวม(บ.)\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,M,ชั่วโมง,รวมเงิน\n';
     employees.filter(e => !e.onLeave).forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
-      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'Morning':0 };
+      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0, 'M':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
         row.push(s ? `"${s.name}"` : '');
         if (s) {
-          money += getShiftValue(s); hours += getShiftHours(s);
-          const c = getShiftCategory(s);
-          if (cnt[c] !== undefined) cnt[c]++;
+          money += getShiftValue(s);
+          hours += getShiftHours(s);
+          if (s.isTelemed) cnt['4T']++;
+          else if (s.name.trim().toUpperCase() === 'M') cnt['M']++;
+          else { const c = getShiftCategory(s); if (cnt[c] !== undefined) cnt[c]++; }
         }
       }
-      row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['Morning'],hours,money);
+      row.push(cnt['เช้า'], cnt['บ่าย'], cnt['ดึก'], cnt['As/4'], cnt['A/4'], cnt['SMC'], cnt['4o'], cnt['2o'], cnt['4T'], cnt['M'], hours, money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
-    a.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}_${activeSchedule.year+543}.csv`;
+    a.download = `ตารางเวร_${thaiMonths[activeSchedule.month]}.csv`;
     a.click();
-  };
-
-  const handleExportExcel = () => {
-    if (!activeSchedule) return;
-    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
-
-    // โหลด SheetJS จาก CDN
-    const script = document.createElement('script');
-    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
-    script.onload = () => {
-      const XLSX = window.XLSX;
-      const wb = XLSX.utils.book_new();
-
-      // header row 1: พนักงาน, กลุ่ม, วันที่ 1-31, สรุป
-      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','M','ชม.','รวม(บ.)'];
-      const header = ['พนักงาน','กลุ่ม', ...Array.from({length:dim},(_,i)=>i+1), ...summaryHeaders];
-
-      const wsData = [header];
-
-      // ข้อมูลแต่ละคน
-      employees.filter(e => !e.onLeave).forEach(emp => {
-        const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
-        const row = [emp.name, grp];
-        let money = 0, hours = 0;
-        let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'Morning':0 };
-        for (let d = 1; d <= dim; d++) {
-          const ds = fmtDateFor(activeSchedule, d);
-          const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
-          row.push(s ? s.name : '');
-          if (s) {
-            money += getShiftValue(s); hours += getShiftHours(s);
-            const c = getShiftCategory(s);
-            if (cnt[c] !== undefined) cnt[c]++;
-          }
-        }
-        row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['Morning'],hours,money);
-        wsData.push(row);
-      });
-
-      const ws = XLSX.utils.aoa_to_sheet(wsData);
-
-      // ─── กำหนด column width ───
-      ws['!cols'] = [
-        {wch:14}, {wch:10},
-        ...Array.from({length:dim}, ()=>({wch:5})),
-        ...summaryHeaders.map(()=>({wch:5}))
-      ];
-
-      // ─── ไฮไลต์วันหยุด (header row และทุก row) ───
-      const HOL_BG = 'FFFFD6D6'; // สีแดงอ่อน
-      const HOL_HEADER_BG = 'FFFF9999'; // สีแดงเข้มขึ้นสำหรับ header
-
-      for (let d = 1; d <= dim; d++) {
-        const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-        const ds = fmtDateFor(activeSchedule, d);
-        const isHolDay = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
-        if (!isHolDay) continue;
-
-        const colIdx = d + 1; // col 0=พนักงาน, 1=กลุ่ม, 2=วันที่1 ...
-        const colLetter = XLSX.utils.encode_col(colIdx);
-
-        // ไฮไลต์ header
-        const headerCell = colLetter + '1';
-        if (!ws[headerCell]) ws[headerCell] = {v: d, t:'n'};
-        ws[headerCell].s = {
-          fill: {patternType:'solid', fgColor:{rgb: HOL_HEADER_BG}},
-          font: {bold:true, color:{rgb:'FF990000'}},
-          alignment: {horizontal:'center'}
-        };
-
-        // ไฮไลต์ทุก row ของวันนั้น
-        for (let r = 2; r <= wsData.length; r++) {
-          const cellRef = colLetter + r;
-          if (!ws[cellRef]) ws[cellRef] = {v:'', t:'s'};
-          ws[cellRef].s = {
-            fill: {patternType:'solid', fgColor:{rgb: HOL_BG}},
-            alignment: {horizontal:'center'}
-          };
-        }
-      }
-
-      XLSX.utils.book_append_sheet(wb, ws, 'ตารางเวร');
-      XLSX.writeFile(wb, `ตารางเวร_${thaiMonths[activeSchedule.month]}_${activeSchedule.year+543}.xlsx`);
-    };
-    document.head.appendChild(script);
   };
 
   // ══════════════════════════════════════════════════════════════
@@ -446,7 +363,7 @@ function ScheduleManager() {
         });
       }
       const nSpread=spread(nH), nStd=std(nH), oSpread=spread(oH), oStd=std(oH);
-      const isGood = missing===0 && nSpread<=6 && nStd<=2.5 && (oH.length<2||(oSpread<=4&&oStd<=2.5));
+      const isGood = missing===0 && nSpread<=8 && nStd<=2.5 && (oH.length<2||(oSpread<=6&&oStd<=2.5));
       return { missing, nSpread, nStd, oSpread, oStd, isGood };
     };
 
@@ -587,8 +504,6 @@ function ScheduleManager() {
 
     // ─── isApplicable: วันที่จัดได้ ───
     const isApplicable = (shift, d) => {
-      // เวรที่ถูกระงับ — ไม่นำมาสุ่มเลย
-      if (shift.suspended) return false;
       const dow = getDow(d);
       const isSat = dow === 6;
       const hol = isHol(d);
@@ -634,9 +549,6 @@ function ScheduleManager() {
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
-      // เวรที่ถูกระงับ — ห้าม assign เด็ดขาด (safety net)
-      if (shift.suspended) return false;
-
       const cat = getShiftCategory(shift);
       const u = shift.name.trim().toUpperCase();
       const st = empStats[emp.id];
@@ -759,12 +671,9 @@ function ScheduleManager() {
           if (totalMorning >= mornCap) return false;
         }
 
-        // เวรอื่นๆ (Telemed, Morning, เวรใหม่ในอนาคต) คำนวณ cap จาก CAP object
+        // เวรอื่นๆ (4T, เวรใหม่ในอนาคต) คำนวณ cap จาก Firebase อัตโนมัติ
         if (!['ดึก','เช้า','บ่าย','4o','2o','SMC','As/4','A/4'].includes(cat)) {
-          // ถ้า CAP มีค่าสำหรับ category นี้ → ใช้ตรงๆ (เช่น Morning=1, Telemed=1)
-          // ถ้าไม่มี → fallback เป็น 3
-          const capVal = CAP[cat] !== undefined ? CAP[cat] : 3;
-          const otherCap = isOffSpecial(emp) ? Math.min(2, capVal) : capVal;
+          const otherCap = isOffSpecial(emp) ? 2 : Math.max(2, CAP[cat] || 3);
           if ((st.catCounts[cat] || 0) >= otherCap) return false;
         }
       }
@@ -1003,8 +912,6 @@ function ScheduleManager() {
       '2o':   dynamicCap('2o',   1),
       'As/4': 1,
       'A/4':  1,
-      'Telemed': 1,  // 4T: ไม่เกิน 1 ครั้ง/เดือน
-      'Morning': 1,  // M: ไม่เกิน 1 ครั้ง/เดือน
     };
 
     // morning cap รวม (เช้า + As/4 + A/4)
@@ -1014,20 +921,22 @@ function ScheduleManager() {
     const MORNING_CAP_OFF = 2;
 
     // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
-    const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2' && !s.suspended);
-    const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1' && !s.suspended);
-    const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2' && !s.suspended);
-    const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o' && !s.suspended);
+    const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
+    const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
+    const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2');
+    const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
 
     // ─── helper: นับ min ต่อวัน (รองรับ Telemed ที่ min ต่างกันแต่ละวัน) ───
     const getShiftMinForDay = (shift, dateStr) => {
-      if (getShiftCategory(shift) === 'Telemed' && activeSchedule?.telemed) {
+      // เวร Telemed: ใช้ค่าจาก schedule.telemed[dateStr] แทน shift.min
+      if (shift.isTelemed && activeSchedule?.telemed) {
         return activeSchedule.telemed[dateStr] ?? 0;
       }
       return shift.min || 1;
     };
 
-    // identify เวร Telemed (category = 'Telemed')
+    // identify เวร Telemed (category = 'อื่นๆ' และ isTelemed = true)
+    const telemedShifts = shifts.filter(s => s.isTelemed);
 
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
@@ -1139,7 +1048,6 @@ function ScheduleManager() {
               if (newAssignments[`${emp.id}_${dateStr}`]) return false;
               if (!canDoNight(emp) && cat3 === 'ดึก') return false;
               if (emp.offShifts?.includes(shift.id)) return false;
-              if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
               const st3 = empStats[emp.id];
               // rule_1
@@ -1170,7 +1078,7 @@ function ScheduleManager() {
     }
 
     // ─── PHASE 2: เวร 2o ───
-    const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o' && !s.suspended);
+    const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
     const MAX_2O = 1; // กระจายคนละ 1 ครั้ง
 
     for (let d = 1; d <= dim; d++) {
@@ -1299,9 +1207,6 @@ function ScheduleManager() {
             // ตรวจว่า underEmp ว่างวันนี้ไหม
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
-            // ตรวจ specificShifts: underEmp ต้องรับเวรนี้ได้ (ถ้ามี list เฉพาะ)
-            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(overShift.id)) continue;
-
             // ตรวจ rule_1: ไม่ติดกับวันก่อน/หลัง
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1366,7 +1271,7 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_AFT_SWAP = 10;
+    const MAX_AFT_SWAP = 5;
     for (let round = 0; round < MAX_AFT_SWAP; round++) {
       let swapped3b = false;
 
@@ -1404,9 +1309,6 @@ function ScheduleManager() {
             // underEmp ต้องว่างวันนี้
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
-            // ตรวจ specificShifts: underEmp ต้องรับ aftShift ได้
-            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(aftShift.id)) continue;
-
             // rule_1: ไม่ติดกัน
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1440,30 +1342,10 @@ function ScheduleManager() {
               const pd2 = fmtD(d2-1), nd2 = fmtD(d2+1);
               if (pd2 && newAssignments[`${overEmp.id}_${pd2}`]) continue;
               if (nd2 && newAssignments[`${overEmp.id}_${nd2}`]) continue;
-              // ตรวจ specificShifts: overEmp ต้องรับ s2 ได้
-              if (overEmp.specificShifts?.length > 0 && !overEmp.specificShifts.includes(s2.id)) continue;
               fourHOfUnder.push({ d: d2, ds: ds2, s: s2 });
             }
 
-            if (fourHOfUnder.length === 0) {
-              // ─── Fallback: 1-way swap ───
-              // ไม่มี 4h ให้คืน → ลองย้ายบ่ายให้ underEmp ตรงๆ โดยไม่ต้องคืนอะไร
-              // priority: ลดบ่าย=3 สำคัญกว่าคุม hours เป๊ะ — PHASE 3c/3g จะช่วยปรับสมดุลทีหลัง
-              // เงื่อนไข: หลัง swap แล้ว
-              //   - underEmp ไม่เกิน TARGET+8h (ยอมเกินได้พอสมควร)
-              //   - overEmp ไม่ต่ำกว่า TARGET-8h
-              const underTarget = canDoNight(underEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
-              const overTarget = canDoNight(overEmp) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
-              const newUnderHours1way = underHours + 8;
-              const newOverHours1way = overHours - 8;
-              if (newUnderHours1way > underTarget + 8) continue;
-              if (newOverHours1way < overTarget - 8) continue;
-
-              // ─ 1-WAY SWAP: ย้ายบ่ายจาก overEmp → underEmp ───
-              doSwap(overEmp.id, underEmp.id, ds, aftShift);
-              swapped3b = true;
-              break;
-            }
+            if (fourHOfUnder.length === 0) continue;
 
             // ตรวจ hours หลัง 2-way swap
             const { d: d4, ds: ds4, s: s4 } = fourHOfUnder[0];
@@ -1542,9 +1424,6 @@ function ScheduleManager() {
             // underEmp ต้องว่าง
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
-            // ตรวจ specificShifts: underEmp ต้องรับ fourShift ได้
-            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(fourShift.id)) continue;
-
             // rule_1
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1622,9 +1501,6 @@ function ScheduleManager() {
           for (const { d, ds, s: smcShift } of smcShifts) {
             if (swapped3d) break;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
-
-            // ตรวจ specificShifts: underEmp ต้องรับ smcShift ได้
-            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(smcShift.id)) continue;
 
             // rule_1
             const prevDs = fmtD(d - 1);
@@ -1705,8 +1581,6 @@ function ScheduleManager() {
 
       // ตรวจว่า toEmp ว่างวันที่มี G
       if (newAssignments[`${toEmp.id}_${gds}`]) continue;
-      // ตรวจ specificShifts: toEmp ต้องรับ G ได้
-      if (toEmp.specificShifts?.length > 0 && !toEmp.specificShifts.includes(gShift.id)) continue;
       // rule_1
       const prevDs = fmtD(gd - 1);
       const nextDs = fmtD(gd + 1);
@@ -1802,10 +1676,6 @@ function ScheduleManager() {
             // ตรวจว่า normal ไม่มีเวรวันที่ d1 (นอกจาก d1 ที่จะถูก swap ออก)
             // normalEmp มี ds2 อยู่แล้ว ซึ่งจะถูก swap ออก → OK
 
-            // ตรวจ specificShifts: offEmp ต้องรับ s2 ได้, normalEmp ต้องรับ s1 ได้
-            if (offEmp.specificShifts?.length > 0 && !offEmp.specificShifts.includes(s2.id)) continue;
-            if (normalEmp.specificShifts?.length > 0 && !normalEmp.specificShifts.includes(s1.id)) continue;
-
             // SWAP วัน! ใช้ doSwap เพื่อ update empStats ด้วย
             doSwap(offEmp.id, normalEmp.id, ds1, s1);
             doSwap(normalEmp.id, offEmp.id, ds2, s2);
@@ -1843,8 +1713,6 @@ function ScheduleManager() {
             if (!s || getShiftHours(s) !== 4) continue;
             if (s.name.trim().toUpperCase() === 'R2') continue;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
-            // ตรวจ specificShifts: underEmp ต้องรับ s ได้
-            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(s.id)) continue;
             const prevDs = fmtD(d-1), nextDs = fmtD(d+1);
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
@@ -2068,7 +1936,7 @@ function ScheduleManager() {
               const ds = fmtDateFor(activeSchedule, d);
               shifts.forEach(s => {
                 if (!isApplicableGlobal(s, d, activeSchedule)) return;
-                const minToday = getShiftCategory(s) === 'Telemed'
+                const minToday = s.isTelemed
                   ? (activeSchedule?.telemed?.[ds] ?? 0)
                   : (s.min || 1);
                 totalAllHrs += getShiftHours(s) * minToday;
@@ -2090,7 +1958,7 @@ function ScheduleManager() {
               if(sp<=sG&&st<=stdG){icon='✅';color='text-green-600';}else if(sp<=sO&&st<=stdO){icon='⚠️';color='text-yellow-600';}else{icon='❌';color='text-red-600';}
               return{sp,st:st.toFixed(1),icon,color};
             };
-            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),6,8,2.5,3.0):null;
+            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),8,10,2.5,3.0):null;
             const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),4,6,2.0,2.5):null;
             const missing=[], over=[];
             if(hasData){
@@ -2098,7 +1966,7 @@ function ScheduleManager() {
                 const ds=fmtDateFor(activeSchedule,d);
                 shifts.forEach(s=>{
                   if(!isApplicableGlobal(s,d,activeSchedule))return;
-                  const minToday = getShiftCategory(s) === 'Telemed'
+                  const minToday = s.isTelemed
                     ? (activeSchedule?.telemed?.[ds] ?? 0)
                     : (s.min||1);
                   if (minToday === 0) return; // Telemed วันนี้ไม่มี → ข้าม
@@ -2133,8 +2001,8 @@ function ScheduleManager() {
                 {hasData&&missing.length===0&&over.length===0&&<div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">✅ เวรครบ</div>}
                 {hasData&&missing.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-red-600">❌ ขาด {missing.length}:</span>{missing.map((m,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{backgroundColor:m.shiftColor}}>วัน {m.day}·{m.shiftName}</span>)}</div>)}
                 {hasData&&over.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-orange-600">⚠️ เกิน/ผิด {over.length}:</span>{over.map((o,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400" style={{backgroundColor:o.shiftColor}}>วัน {o.day}·{o.shiftName}·{o.reason}</span>)}</div>)}
-                {nScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`} title="ช่วงห่างชั่วโมงทำงานสูงสุด-ต่ำสุดในกลุ่มปกติ (ยิ่งน้อยยิ่งกระจายเท่ากัน)">⚖️ ช่วงห่าง ปกติ {nScore.icon} {nScore.sp}h</div>}
-                {oScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`} title="ช่วงห่างชั่วโมงทำงานสูงสุด-ต่ำสุดในกลุ่มงดดึก (ยิ่งน้อยยิ่งกระจายเท่ากัน)">⚖️ ช่วงห่าง งดดึก {oScore.icon} {oScore.sp}h</div>}
+                {nScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`}>⚖️ ปกติ {nScore.icon} {nScore.sp}h</div>}
+                {oScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`}>⚖️ off {oScore.icon} {oScore.sp}h</div>}
               </div>
             );
           })()}
@@ -2149,10 +2017,6 @@ function ScheduleManager() {
           <button type="button" onClick={() => setSortByMoney(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 border ${sortByMoney ? 'bg-amber-500 text-white border-amber-500' : 'text-amber-700 bg-amber-50 border-amber-200'}`}>
             <span>⇅</span> {sortByMoney ? 'เรียงตามกลุ่ม ✓' : 'เรียงตามกลุ่ม'}
-          </button>
-          <button type="button" onClick={handleExportCSV}
-            className="text-gray-600 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-gray-100">
-            <Download className="w-4 h-4" /> CSV
           </button>
           <button type="button" onClick={handleExportExcel}
             className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100">
@@ -2202,14 +2066,17 @@ function ScheduleManager() {
               <tbody>
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
-                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'Morning':0 };
+                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, '4T':0, 'M':0 };
+                  // pre-calculate cnt ก่อน render เพื่อใช้ highlight
                   monthDates.forEach(d => {
                     const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
                     if (s) {
                       totalMoney += getShiftValue(s);
                       totalHours += getShiftHours(s);
                       const c = getShiftCategory(s);
-                      if (cnt[c] !== undefined) cnt[c]++;
+                      if (s.isTelemed) cnt['4T']++;
+                      else if (s.name.trim().toUpperCase() === 'M') cnt['M']++;
+                      else if (cnt[c] !== undefined) cnt[c]++;
                     }
                   });
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
@@ -2238,7 +2105,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['Morning']].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['4T'],cnt['M']].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
                       <td className={`px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold
@@ -2374,7 +2241,7 @@ function ScheduleManager() {
               );
             })()}
             <div className="grid grid-cols-3 gap-2.5 max-h-[60vh] overflow-y-auto pr-1">
-              {shifts.filter(s => !s.suspended).map(s => (
+              {shifts.map(s => (
                 <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)}
                   className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform" style={{ backgroundColor: s.color }}>
                   {s.name}
@@ -2722,13 +2589,6 @@ function ShiftTypesManager() {
 
   const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#06b6d4','#84cc16','#f43f5e','#d946ef','#0ea5e9','#eab308','#64748b'];
 
-  // ─── ระงับ/เปิดเวร — ไม่ลบข้อมูล แค่ flag suspended ───
-  // เวรที่ suspended=true → isApplicableGlobal คืน false เสมอ → ไม่ถูกสุ่มเลือก
-  // ไม่กระทบ assignments เดือนที่ผ่านมา, เปิดกลับมาใช้ได้ทันที
-  const handleToggleSuspend = (shift) => {
-    setShifts(shifts.map(x => x.id === shift.id ? { ...x, suspended: !x.suspended } : x));
-  };
-
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อเวร');
     if (!formData.category) return alert('กรุณาเลือกหมวดเวร');
@@ -2746,8 +2606,6 @@ function ShiftTypesManager() {
     { value: 'SMC', label: 'SMC (4s1, 4s2, ... ทุกตัว)' },
     { value: '4o', label: '4o' },
     { value: '2o', label: '2o' },
-    { value: 'Telemed', label: 'Telemed (4T — จำนวนคนต่อวันกำหนดในตารางเวร)' },
-    { value: 'Morning', label: 'Morning (M — เวรเช้าควบเย็น)' },
     { value: 'อื่นๆ', label: 'อื่นๆ' },
   ];
 
@@ -2764,8 +2622,8 @@ function ShiftTypesManager() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 overflow-y-auto pr-2 pb-4">
         {shifts.map(s => (
-          <div key={s.id} className={`border rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group ${s.suspended ? 'border-gray-200 opacity-50' : 'border-gray-200'}`}>
-            <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.suspended ? '#9ca3af' : s.color }}></div>
+          <div key={s.id} className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group">
+            <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.color }}></div>
             <div className="flex justify-between items-start mb-4 mt-1">
               <div>
                 <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
@@ -2773,14 +2631,8 @@ function ShiftTypesManager() {
                   ? <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-full">{s.category}</span>
                   : <span className="ml-1 px-2 py-0.5 bg-red-100 text-red-500 text-[10px] font-bold rounded-full">⚠️ ไม่มีหมวด</span>
                 }
-                {s.suspended && <span className="ml-1 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] font-bold rounded-full">⏸ ระงับ</span>}
               </div>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button type="button" onClick={() => handleToggleSuspend(s)}
-                  title={s.suspended ? 'เปิดใช้เวรนี้' : 'ระงับเวรนี้ (ไม่นำมาสุ่มเดือนหน้า)'}
-                  className={s.suspended ? 'text-emerald-600 bg-emerald-50 p-1.5 rounded-lg hover:bg-emerald-100' : 'text-gray-500 bg-gray-100 p-1.5 rounded-lg hover:bg-gray-200'}>
-                  {s.suspended ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
-                </button>
                 <button type="button" onClick={() => requirePassword('edit', s)} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
                 <button type="button" onClick={() => requirePassword('delete', s)} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
               </div>
@@ -2953,7 +2805,6 @@ function isHolidayRaw(d, dow, dateStr, schedule) {
 // ─── isApplicable module-level — ใช้ทุกที่ แก้ที่เดียว ───
 function isApplicableGlobal(shift, d, schedule) {
   if (!schedule) return false;
-  if (shift.suspended) return false; // เวรที่ถูกระงับ — ไม่นับใน action bar/missing/over
   const dow = new Date(schedule.year, schedule.month, d).getDay();
   const isSat = dow === 6;
   const ds = fmtDateFor(schedule, d);
