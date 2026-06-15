@@ -1299,6 +1299,9 @@ function ScheduleManager() {
             // ตรวจว่า underEmp ว่างวันนี้ไหม
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
+            // ตรวจ specificShifts: underEmp ต้องรับเวรนี้ได้ (ถ้ามี list เฉพาะ)
+            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(overShift.id)) continue;
+
             // ตรวจ rule_1: ไม่ติดกับวันก่อน/หลัง
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1401,6 +1404,9 @@ function ScheduleManager() {
             // underEmp ต้องว่างวันนี้
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
+            // ตรวจ specificShifts: underEmp ต้องรับ aftShift ได้
+            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(aftShift.id)) continue;
+
             // rule_1: ไม่ติดกัน
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1434,6 +1440,8 @@ function ScheduleManager() {
               const pd2 = fmtD(d2-1), nd2 = fmtD(d2+1);
               if (pd2 && newAssignments[`${overEmp.id}_${pd2}`]) continue;
               if (nd2 && newAssignments[`${overEmp.id}_${nd2}`]) continue;
+              // ตรวจ specificShifts: overEmp ต้องรับ s2 ได้
+              if (overEmp.specificShifts?.length > 0 && !overEmp.specificShifts.includes(s2.id)) continue;
               fourHOfUnder.push({ d: d2, ds: ds2, s: s2 });
             }
 
@@ -1516,6 +1524,9 @@ function ScheduleManager() {
             // underEmp ต้องว่าง
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
+            // ตรวจ specificShifts: underEmp ต้องรับ fourShift ได้
+            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(fourShift.id)) continue;
+
             // rule_1
             const prevDs = fmtD(d - 1);
             const nextDs = fmtD(d + 1);
@@ -1593,6 +1604,9 @@ function ScheduleManager() {
           for (const { d, ds, s: smcShift } of smcShifts) {
             if (swapped3d) break;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+
+            // ตรวจ specificShifts: underEmp ต้องรับ smcShift ได้
+            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(smcShift.id)) continue;
 
             // rule_1
             const prevDs = fmtD(d - 1);
@@ -1673,6 +1687,8 @@ function ScheduleManager() {
 
       // ตรวจว่า toEmp ว่างวันที่มี G
       if (newAssignments[`${toEmp.id}_${gds}`]) continue;
+      // ตรวจ specificShifts: toEmp ต้องรับ G ได้
+      if (toEmp.specificShifts?.length > 0 && !toEmp.specificShifts.includes(gShift.id)) continue;
       // rule_1
       const prevDs = fmtD(gd - 1);
       const nextDs = fmtD(gd + 1);
@@ -1768,6 +1784,10 @@ function ScheduleManager() {
             // ตรวจว่า normal ไม่มีเวรวันที่ d1 (นอกจาก d1 ที่จะถูก swap ออก)
             // normalEmp มี ds2 อยู่แล้ว ซึ่งจะถูก swap ออก → OK
 
+            // ตรวจ specificShifts: offEmp ต้องรับ s2 ได้, normalEmp ต้องรับ s1 ได้
+            if (offEmp.specificShifts?.length > 0 && !offEmp.specificShifts.includes(s2.id)) continue;
+            if (normalEmp.specificShifts?.length > 0 && !normalEmp.specificShifts.includes(s1.id)) continue;
+
             // SWAP วัน! ใช้ doSwap เพื่อ update empStats ด้วย
             doSwap(offEmp.id, normalEmp.id, ds1, s1);
             doSwap(normalEmp.id, offEmp.id, ds2, s2);
@@ -1805,6 +1825,8 @@ function ScheduleManager() {
             if (!s || getShiftHours(s) !== 4) continue;
             if (s.name.trim().toUpperCase() === 'R2') continue;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
+            // ตรวจ specificShifts: underEmp ต้องรับ s ได้
+            if (underEmp.specificShifts?.length > 0 && !underEmp.specificShifts.includes(s.id)) continue;
             const prevDs = fmtD(d-1), nextDs = fmtD(d+1);
             if (prevDs && newAssignments[`${underEmp.id}_${prevDs}`]) continue;
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
