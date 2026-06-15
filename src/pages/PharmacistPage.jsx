@@ -446,7 +446,7 @@ function ScheduleManager() {
         });
       }
       const nSpread=spread(nH), nStd=std(nH), oSpread=spread(oH), oStd=std(oH);
-      const isGood = missing===0 && nSpread<=8 && nStd<=2.5 && (oH.length<2||(oSpread<=6&&oStd<=2.5));
+      const isGood = missing===0 && nSpread<=6 && nStd<=2.5 && (oH.length<2||(oSpread<=4&&oStd<=2.5));
       return { missing, nSpread, nStd, oSpread, oStd, isGood };
     };
 
@@ -2090,7 +2090,7 @@ function ScheduleManager() {
               if(sp<=sG&&st<=stdG){icon='✅';color='text-green-600';}else if(sp<=sO&&st<=stdO){icon='⚠️';color='text-yellow-600';}else{icon='❌';color='text-red-600';}
               return{sp,st:st.toFixed(1),icon,color};
             };
-            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),8,10,2.5,3.0):null;
+            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),6,8,2.5,3.0):null;
             const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),4,6,2.0,2.5):null;
             const missing=[], over=[];
             if(hasData){
@@ -2133,8 +2133,8 @@ function ScheduleManager() {
                 {hasData&&missing.length===0&&over.length===0&&<div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">✅ เวรครบ</div>}
                 {hasData&&missing.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-red-600">❌ ขาด {missing.length}:</span>{missing.map((m,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold" style={{backgroundColor:m.shiftColor}}>วัน {m.day}·{m.shiftName}</span>)}</div>)}
                 {hasData&&over.length>0&&(<div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-bold text-orange-600">⚠️ เกิน/ผิด {over.length}:</span>{over.map((o,i)=><span key={i} className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400" style={{backgroundColor:o.shiftColor}}>วัน {o.day}·{o.shiftName}·{o.reason}</span>)}</div>)}
-                {nScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`}>⚖️ ปกติ {nScore.icon} {nScore.sp}h</div>}
-                {oScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`}>⚖️ off {oScore.icon} {oScore.sp}h</div>}
+                {nScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${nScore.color}`} title="ช่วงห่างชั่วโมงทำงานสูงสุด-ต่ำสุดในกลุ่มปกติ (ยิ่งน้อยยิ่งกระจายเท่ากัน)">⚖️ ช่วงห่าง ปกติ {nScore.icon} {nScore.sp}h</div>}
+                {oScore&&<div className={`px-2.5 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold ${oScore.color}`} title="ช่วงห่างชั่วโมงทำงานสูงสุด-ต่ำสุดในกลุ่มงดดึก (ยิ่งน้อยยิ่งกระจายเท่ากัน)">⚖️ ช่วงห่าง งดดึก {oScore.icon} {oScore.sp}h</div>}
               </div>
             );
           })()}
