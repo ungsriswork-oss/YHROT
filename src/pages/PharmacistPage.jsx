@@ -1139,6 +1139,7 @@ function ScheduleManager() {
               if (newAssignments[`${emp.id}_${dateStr}`]) return false;
               if (!canDoNight(emp) && cat3 === 'ดึก') return false;
               if (emp.offShifts?.includes(shift.id)) return false;
+              if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
               const st3 = empStats[emp.id];
               // rule_1
