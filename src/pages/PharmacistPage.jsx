@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Users, Clock, Plus, Edit2, Trash2, UserPlus,
   Wand2, Settings, CalendarDays, CheckCircle2, X, Printer,
-  Download, ArrowLeft,
+  Download, ArrowLeft, PauseCircle, PlayCircle,
 } from 'lucide-react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -587,6 +587,8 @@ function ScheduleManager() {
 
     // ─── isApplicable: วันที่จัดได้ ───
     const isApplicable = (shift, d) => {
+      // เวรที่ถูกระงับ — ไม่นำมาสุ่มเลย
+      if (shift.suspended) return false;
       const dow = getDow(d);
       const isSat = dow === 6;
       const hol = isHol(d);
@@ -632,6 +634,9 @@ function ScheduleManager() {
 
     // ─── canAssign (rule checks) ───
     const canAssign = (emp, dateStr, d, shift) => {
+      // เวรที่ถูกระงับ — ห้าม assign เด็ดขาด (safety net)
+      if (shift.suspended) return false;
+
       const cat = getShiftCategory(shift);
       const u = shift.name.trim().toUpperCase();
       const st = empStats[emp.id];
@@ -1009,10 +1014,10 @@ function ScheduleManager() {
     const MORNING_CAP_OFF = 2;
 
     // R2 ต้องได้ก่อนเวรอื่นเสมอในวันหยุด เพื่อป้องกัน rule_1 block คนกลุ่ม r2
-    const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2');
-    const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1');
-    const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2');
-    const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o');
+    const r2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R2' && !s.suspended);
+    const t1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T1' && !s.suspended);
+    const t2Shift = shifts.find(s => s.name.trim().toUpperCase() === 'T2' && !s.suspended);
+    const mainShifts = shifts.filter(s => getShiftCategory(s) !== '2o' && !s.suspended);
 
     // ─── helper: นับ min ต่อวัน (รองรับ Telemed ที่ min ต่างกันแต่ละวัน) ───
     const getShiftMinForDay = (shift, dateStr) => {
@@ -1164,7 +1169,7 @@ function ScheduleManager() {
     }
 
     // ─── PHASE 2: เวร 2o ───
-    const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o');
+    const twoOShifts = shifts.filter(s => getShiftCategory(s) === '2o' && !s.suspended);
     const MAX_2O = 1; // กระจายคนละ 1 ครั้ง
 
     for (let d = 1; d <= dim; d++) {
@@ -2328,7 +2333,7 @@ function ScheduleManager() {
               );
             })()}
             <div className="grid grid-cols-3 gap-2.5 max-h-[60vh] overflow-y-auto pr-1">
-              {shifts.map(s => (
+              {shifts.filter(s => !s.suspended).map(s => (
                 <button key={s.id} type="button" onClick={() => handleAssignShift(s.id)}
                   className="py-2.5 px-1 rounded-lg text-white text-sm font-bold truncate shadow-sm hover:scale-105 transition-transform" style={{ backgroundColor: s.color }}>
                   {s.name}
@@ -2676,6 +2681,13 @@ function ShiftTypesManager() {
 
   const colors = ['#3b82f6','#ef4444','#10b981','#f59e0b','#8b5cf6','#ec4899','#14b8a6','#f97316','#6366f1','#06b6d4','#84cc16','#f43f5e','#d946ef','#0ea5e9','#eab308','#64748b'];
 
+  // ─── ระงับ/เปิดเวร — ไม่ลบข้อมูล แค่ flag suspended ───
+  // เวรที่ suspended=true → isApplicableGlobal คืน false เสมอ → ไม่ถูกสุ่มเลือก
+  // ไม่กระทบ assignments เดือนที่ผ่านมา, เปิดกลับมาใช้ได้ทันที
+  const handleToggleSuspend = (shift) => {
+    setShifts(shifts.map(x => x.id === shift.id ? { ...x, suspended: !x.suspended } : x));
+  };
+
   const handleSave = () => {
     if (!formData.name) return alert('กรุณากรอกชื่อเวร');
     if (!formData.category) return alert('กรุณาเลือกหมวดเวร');
@@ -2711,8 +2723,8 @@ function ShiftTypesManager() {
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 overflow-y-auto pr-2 pb-4">
         {shifts.map(s => (
-          <div key={s.id} className="border border-gray-200 rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group">
-            <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.color }}></div>
+          <div key={s.id} className={`border rounded-2xl p-5 bg-white relative overflow-hidden shadow-sm hover:shadow-md transition-all group ${s.suspended ? 'border-gray-200 opacity-50' : 'border-gray-200'}`}>
+            <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: s.suspended ? '#9ca3af' : s.color }}></div>
             <div className="flex justify-between items-start mb-4 mt-1">
               <div>
                 <span className="font-bold text-xl text-gray-800 truncate pr-2">{s.name}</span>
@@ -2720,8 +2732,14 @@ function ShiftTypesManager() {
                   ? <span className="ml-1 px-2 py-0.5 bg-gray-100 text-gray-600 text-[10px] font-bold rounded-full">{s.category}</span>
                   : <span className="ml-1 px-2 py-0.5 bg-red-100 text-red-500 text-[10px] font-bold rounded-full">⚠️ ไม่มีหมวด</span>
                 }
+                {s.suspended && <span className="ml-1 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] font-bold rounded-full">⏸ ระงับ</span>}
               </div>
               <div className="flex gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button type="button" onClick={() => handleToggleSuspend(s)}
+                  title={s.suspended ? 'เปิดใช้เวรนี้' : 'ระงับเวรนี้ (ไม่นำมาสุ่มเดือนหน้า)'}
+                  className={s.suspended ? 'text-emerald-600 bg-emerald-50 p-1.5 rounded-lg hover:bg-emerald-100' : 'text-gray-500 bg-gray-100 p-1.5 rounded-lg hover:bg-gray-200'}>
+                  {s.suspended ? <PlayCircle className="w-4 h-4" /> : <PauseCircle className="w-4 h-4" />}
+                </button>
                 <button type="button" onClick={() => requirePassword('edit', s)} className="text-blue-500 bg-blue-50 p-1.5 rounded-lg hover:bg-blue-100"><Edit2 className="w-4 h-4" /></button>
                 <button type="button" onClick={() => requirePassword('delete', s)} className="text-red-500 bg-red-50 p-1.5 rounded-lg hover:bg-red-100"><Trash2 className="w-4 h-4" /></button>
               </div>
@@ -2894,6 +2912,7 @@ function isHolidayRaw(d, dow, dateStr, schedule) {
 // ─── isApplicable module-level — ใช้ทุกที่ แก้ที่เดียว ───
 function isApplicableGlobal(shift, d, schedule) {
   if (!schedule) return false;
+  if (shift.suspended) return false; // เวรที่ถูกระงับ — ไม่นับใน action bar/missing/over
   const dow = new Date(schedule.year, schedule.month, d).getDay();
   const isSat = dow === 6;
   const ds = fmtDateFor(schedule, d);
