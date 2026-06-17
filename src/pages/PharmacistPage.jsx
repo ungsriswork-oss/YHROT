@@ -1604,7 +1604,7 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_3D_ROUNDS = 5;
+    const MAX_3D_ROUNDS = 15;
     for (let round = 0; round < MAX_3D_ROUNDS; round++) {
       let swapped3d = false;
 
@@ -1614,7 +1614,7 @@ function ScheduleManager() {
       ).sort((a,b) => countSMC(b.id) - countSMC(a.id));
 
       for (const overEmp of overSMC) {
-        if (swapped3d) break;
+        let foundSwap = false;
 
         // หาเวร SMC ของคนนี้
         const smcShifts = [];
@@ -1633,10 +1633,10 @@ function ScheduleManager() {
           .sort((a,b) => countSMC(a.id) - countSMC(b.id) || calcHours(a.id) - calcHours(b.id));
 
         for (const underEmp of underPool) {
-          if (swapped3d) break;
+          if (foundSwap) break;
 
           for (const { d, ds, s: smcShift } of smcShifts) {
-            if (swapped3d) break;
+            if (foundSwap) break;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
 
             // ตรวจ specificShifts: underEmp ต้องรับ smcShift ได้
@@ -1659,6 +1659,7 @@ function ScheduleManager() {
 
             // SWAP!
             doSwap(overEmp.id, underEmp.id, ds, smcShift);
+            foundSwap = true;
             swapped3d = true;
             break;
           }
