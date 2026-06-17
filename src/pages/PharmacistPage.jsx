@@ -1330,21 +1330,9 @@ function ScheduleManager() {
 
             // บ่าย hard cap=2: ห้ามให้คนที่มีบ่าย=2 แล้วรับเพิ่ม
             if (cat === 'บ่าย') {
-              let aftCount = 0;
-              for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
-                if (s2 && getShiftCategory(s2) === 'บ่าย') aftCount++;
-              }
-              if (aftCount >= 2) continue;
+              if ((empStats[underEmp.id].catCounts['บ่าย'] || 0) >= 2) continue;
               // ไม่ซ้ำตำแหน่งบ่าย
-              if (!isOffSpecial(underEmp)) {
-                let hasDup = false;
-                for (let d2 = 1; d2 <= dim; d2++) {
-                  const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
-                  if (s2 && s2.name.trim().toUpperCase() === u) { hasDup = true; break; }
-                }
-                if (hasDup) continue;
-              }
+              if (!isOffSpecial(underEmp) && empStats[underEmp.id].assignedAfternoons.has(u)) continue;
             }
 
             if (cat === 'ดึก') {
@@ -2184,9 +2172,9 @@ function ScheduleManager() {
             <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
             <div className="text-center">
               <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
-              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/40</div>
+              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/{10}</div>
               <div className="w-48 bg-gray-200 rounded-full h-1.5 mt-2">
-                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/40)*100}%`}} />
+                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/10)*100}%`}} />
               </div>
             </div>
           </div>
