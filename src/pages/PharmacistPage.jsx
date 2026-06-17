@@ -811,7 +811,7 @@ function ScheduleManager() {
             }
             if (cat === 'บ่าย') {
               if (!isOffSpecial(e) && empStats[e.id].assignedAfternoons.has(u)) return false;
-              if ((empStats[e.id].catCounts['บ่าย']||0) >= CAP['บ่าย']) return false;
+              if ((empStats[e.id].catCounts['บ่าย']||0) >= Math.min(2, CAP['บ่าย'])) return false;
             }
             if (cat === 'SMC' && (empStats[e.id].catCounts['SMC']||0) >= CAP['SMC']) return false;
             if (cat === '4o') {
@@ -916,8 +916,8 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
-        // SMC / 4o: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน (ทุกคนได้ 2 ก่อนค่อยให้ 3)
-        if (cat === 'SMC' || cat === '4o') {
+        // SMC / 4o / บ่าย: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน
+        if (cat === 'SMC' || cat === '4o' || cat === 'บ่าย') {
           const aCnt = sa.catCounts[cat] || 0;
           const bCnt = sb.catCounts[cat] || 0;
           if (aCnt !== bCnt) return aCnt - bCnt;
@@ -1122,6 +1122,8 @@ function ScheduleManager() {
               if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
               if (!canDoNight(emp) && getShiftCategory(shift) === 'ดึก') return false;
+              // บ่าย hard cap=2 (ห้าม bypass)
+              if (getShiftCategory(shift) === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
               // ตรวจ rule_1 เท่านั้น
               if (empStats[emp.id].lastDay !== null && d - empStats[emp.id].lastDay === 1) {
                 const prevDs = fmtD(d - 1);
@@ -1162,6 +1164,8 @@ function ScheduleManager() {
               }
               // rule_2: บ่ายซ้ำตำแหน่ง
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
+              // บ่าย hard cap=2 (ห้าม bypass แม้ fallback)
+              if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
               // ดึก cap
