@@ -1255,7 +1255,7 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 8;
+    const MAX_SWAP_ROUNDS = 5;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
@@ -1396,13 +1396,13 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_AFT_SWAP = 5;
+    const MAX_AFT_SWAP = 3;
     for (let round = 0; round < MAX_AFT_SWAP; round++) {
       let swapped3b = false;
 
       // หาคนที่บ่าย >= 3 — รวม off_night ด้วย
-      const overAft = [...normalEmpsAll, ...offNightEmpsAll].filter(e => countAfternoon(e.id) >= 3)
-        .sort((a,b) => countAfternoon(b.id) - countAfternoon(a.id));
+      const overAft = [...normalEmpsAll, ...offNightEmpsAll].filter(e => (empStats[e.id].catCounts['บ่าย']||0) >= 3)
+        .sort((a,b) => (empStats[b.id].catCounts['บ่าย']||0) - (empStats[a.id].catCounts['บ่าย']||0));
 
       for (const overEmp of overAft) {
         const overHours = empStats[overEmp.id].hours;
@@ -1421,7 +1421,7 @@ function ScheduleManager() {
         // หาคนที่บ่าย = 1 — รวม off_special (นิธิ) ที่ควรได้บ่ายเพิ่ม
         // off_special ยกเว้น rule_2 ซ้ำตำแหน่ง
         const underAft = [...normalEmpsAll, ...activeEmployees.filter(e => isOffSpecial(e))].filter(e =>
-          e.id !== overEmp.id && countAfternoon(e.id) <= 1
+          e.id !== overEmp.id && (empStats[e.id].catCounts['บ่าย']||0) <= 1
         ).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
 
         for (const underEmp of underAft) {
@@ -1517,7 +1517,7 @@ function ScheduleManager() {
     // ─── PHASE 3c: swap 4s/4h ของกลุ่ม off_night ที่ hours > TARGET_OFF_NIGHT ───
     // swap ให้ off_night คนอื่นที่ hours 40-44h หรือคนปกติ
     const MAX_OFF_HOURS = TARGET_OFF_NIGHT; // ใช้ TARGET จริง ไม่ hardcode 48
-    const MAX_3C_ROUNDS = 5;
+    const MAX_3C_ROUNDS = 3;
 
     for (let round = 0; round < MAX_3C_ROUNDS; round++) {
       let swapped3c = false;
@@ -1618,14 +1618,14 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_3D_ROUNDS = 10;
+    const MAX_3D_ROUNDS = 5;
     for (let round = 0; round < MAX_3D_ROUNDS; round++) {
       let swapped3d = false;
 
       // หาคนที่ SMC >= 3
       const overSMC = [...normalEmpsAll, ...offNightEmpsAll].filter(e =>
-        countSMC(e.id) >= 3
-      ).sort((a,b) => countSMC(b.id) - countSMC(a.id));
+        (empStats[e.id].catCounts['SMC']||0) >= 3
+      ).sort((a,b) => (empStats[b.id].catCounts['SMC']||0) - (empStats[a.id].catCounts['SMC']||0));
 
       for (const overEmp of overSMC) {
         let foundSwap = false;
@@ -1643,8 +1643,8 @@ function ScheduleManager() {
 
         // หาคนที่ SMC น้อยกว่า เรียงน้อยสุดก่อน
         const underPool = [...normalEmpsAll, ...offNightEmpsAll]
-          .filter(e => e.id !== overEmp.id && countSMC(e.id) < countSMC(overEmp.id))
-          .sort((a,b) => countSMC(a.id) - countSMC(b.id) || empStats[a.id].hours - empStats[b.id].hours);
+          .filter(e => e.id !== overEmp.id && (empStats[e.id].catCounts['SMC']||0) < (empStats[overEmp.id].catCounts['SMC']||0))
+          .sort((a,b) => (empStats[a.id].catCounts['SMC']||0) - (empStats[b.id].catCounts['SMC']||0) || empStats[a.id].hours - empStats[b.id].hours);
 
         for (const underEmp of underPool) {
           if (foundSwap) break;
@@ -1663,7 +1663,7 @@ function ScheduleManager() {
             if (nextDs && newAssignments[`${underEmp.id}_${nextDs}`]) continue;
 
             // SMC cap
-            if (countSMC(underEmp.id) >= CAP['SMC']) continue;
+            if ((empStats[underEmp.id].catCounts['SMC']||0) >= CAP['SMC']) continue;
 
             // hours check
             const newUnderHrs = empStats[underEmp.id].hours + 4;
@@ -1760,7 +1760,7 @@ function ScheduleManager() {
     const lateStart = Math.max(1, dim - 6); // 6 วันสุดท้าย
     const earlyEnd = Math.min(14, dim);     // 14 วันแรก
 
-    const MAX_3F_ROUNDS = 4;
+    const MAX_3F_ROUNDS = 3;
     for (let round = 0; round < MAX_3F_ROUNDS; round++) {
       let swapped3f = false;
 
@@ -1850,7 +1850,7 @@ function ScheduleManager() {
     }
 
     // ─── PHASE 3g: สมดุลชั่วโมงในกลุ่ม off_night ───
-    const MAX_3G_ROUNDS = 5;
+    const MAX_3G_ROUNDS = 3;
     for (let round = 0; round < MAX_3G_ROUNDS; round++) {
       let swapped3g = false;
       const offSorted = [...offNightEmpsAll].sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
@@ -1904,7 +1904,7 @@ function ScheduleManager() {
     // แต่ถ้าคนต่ำสุดต่ำกว่า TARGET มาก (เช่น 54h vs target 62h)
     // และไม่มีใครเกิน TARGET พอที่จะ trigger PHASE 3 ได้
     // เฟสนี้สลับเวร 8h จากคนที่ hours > underEmp+8 (ไม่ต้องเกิน TARGET) มาให้
-    const MAX_3H_ROUNDS = 5;
+    const MAX_3H_ROUNDS = 3;
     for (let round = 0; round < MAX_3H_ROUNDS; round++) {
       let swapped3h = false;
 
