@@ -916,11 +916,14 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
-        // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน
+        // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน
+        // แต่ถ้าชั่วโมงต่างกันมาก (>4h) → ให้คนที่ชม.น้อยกว่าได้ก่อน (ไม่ override hours balance)
         if (['SMC','4o','บ่าย','Morning','Telemed'].includes(cat)) {
-          const aCnt = sa.catCounts[cat] || 0;
-          const bCnt = sb.catCounts[cat] || 0;
-          if (aCnt !== bCnt) return aCnt - bCnt;
+          if (Math.abs(sa.hours - sb.hours) <= 4) {
+            const aCnt = sa.catCounts[cat] || 0;
+            const bCnt = sb.catCounts[cat] || 0;
+            if (aCnt !== bCnt) return aCnt - bCnt;
+          }
         }
 
         // SMC: กระจายตามชั่วโมงค่าเวร smc
@@ -1274,7 +1277,10 @@ function ScheduleManager() {
           const s = shifts.find(s => s.id === sid);
           if (!s) continue;
           const u = s.name.trim().toUpperCase();
-          if (['R2','G','R1'].includes(u)) continue; // ห้าม swap เพื่อรักษา R1↔G pairing
+          if (u === 'R2') continue;
+          // ห้าม swap G/R1 เฉพาะเมื่อคนนี้มีทั้ง R1+G (จับคู่แล้ว) — ถ้ามีแค่ตัวเดียว swap ได้
+          if (u === 'G' && empStats[overEmp.id].hasR1 && empStats[overEmp.id].hasG) continue;
+          if (u === 'R1' && empStats[overEmp.id].hasR1 && empStats[overEmp.id].hasG) continue;
           const h = getShiftHours(s);
           if (h === 8 || h === 4 || h === 2) overShifts.push({ d, ds, s, h });
         }
