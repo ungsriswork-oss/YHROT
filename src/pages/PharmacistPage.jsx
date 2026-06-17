@@ -1327,6 +1327,26 @@ function ScheduleManager() {
             // ตรวจดึก: ถ้าเป็นเวรดึก คนรับต้องมีดึก < CAP และไม่ซ้ำตำแหน่ง
             const cat = getShiftCategory(overShift);
             const u = overShift.name.trim().toUpperCase();
+
+            // บ่าย hard cap=2: ห้ามให้คนที่มีบ่าย=2 แล้วรับเพิ่ม
+            if (cat === 'บ่าย') {
+              let aftCount = 0;
+              for (let d2 = 1; d2 <= dim; d2++) {
+                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                if (s2 && getShiftCategory(s2) === 'บ่าย') aftCount++;
+              }
+              if (aftCount >= 2) continue;
+              // ไม่ซ้ำตำแหน่งบ่าย
+              if (!isOffSpecial(underEmp)) {
+                let hasDup = false;
+                for (let d2 = 1; d2 <= dim; d2++) {
+                  const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                  if (s2 && s2.name.trim().toUpperCase() === u) { hasDup = true; break; }
+                }
+                if (hasDup) continue;
+              }
+            }
+
             if (cat === 'ดึก') {
               let nightCount = 0;
               let hasSameNight = false;
