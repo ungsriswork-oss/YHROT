@@ -1255,17 +1255,17 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 15;
+    const MAX_SWAP_ROUNDS = 8;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
       // หาคนที่เกิน TARGET (จับทุกคนที่เกินเลย ไม่มี buffer)
       const overEmps = normalEmpsAll.filter(e =>
-        calcHours(e.id) > TARGET_NORMAL
-      ).sort((a,b) => calcHours(b.id) - calcHours(a.id));
+        empStats[e.id].hours > TARGET_NORMAL
+      ).sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
 
       for (const overEmp of overEmps) {
-        const overHours = calcHours(overEmp.id);
+        const overHours = empStats[overEmp.id].hours;
 
         // หาเวรของคนนี้ที่ swap ได้ — รวม 8h, 4h และ 2o(2h)
         // R2 ห้าม swap, เรียงดึกก่อน แล้ว 2o แล้ว 8h แล้ว 4h
@@ -1306,13 +1306,13 @@ function ScheduleManager() {
 
         const underEmps = underPool.filter(e => {
           if (e.id === overEmp.id) return false;
-          return calcHours(e.id) < overHours;
-        }).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+          return empStats[e.id].hours < overHours;
+        }).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
 
         let foundSwap = false;
         for (const underEmp of underEmps) {
           if (foundSwap) break;
-          const underHours = calcHours(underEmp.id);
+          const underHours = empStats[underEmp.id].hours;
 
           for (const shiftItem of overShifts) {
             if (foundSwap) break;
@@ -1405,7 +1405,7 @@ function ScheduleManager() {
         .sort((a,b) => countAfternoon(b.id) - countAfternoon(a.id));
 
       for (const overEmp of overAft) {
-        const overHours = calcHours(overEmp.id);
+        const overHours = empStats[overEmp.id].hours;
 
         // หาเวรบ่ายของคนนี้ที่ swap ออกได้ (ไม่ใช่ R2)
         const aftShifts = [];
@@ -1422,11 +1422,11 @@ function ScheduleManager() {
         // off_special ยกเว้น rule_2 ซ้ำตำแหน่ง
         const underAft = [...normalEmpsAll, ...activeEmployees.filter(e => isOffSpecial(e))].filter(e =>
           e.id !== overEmp.id && countAfternoon(e.id) <= 1
-        ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+        ).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
 
         for (const underEmp of underAft) {
           if (swapped3b) break;
-          const underHours = calcHours(underEmp.id);
+          const underHours = empStats[underEmp.id].hours;
 
           for (const { d, ds, s: aftShift } of aftShifts) {
             if (swapped3b) break;
@@ -1525,12 +1525,12 @@ function ScheduleManager() {
       // หา off_night ที่ hours > MAX_OFF_HOURS
       const overOffEmps = activeEmployees.filter(e => {
         const g = getGroup(e);
-        return (g === 'r2_off_night' || g === 'off_night') && calcHours(e.id) > MAX_OFF_HOURS;
-      }).sort((a,b) => calcHours(b.id) - calcHours(a.id));
+        return (g === 'r2_off_night' || g === 'off_night') && empStats[e.id].hours > MAX_OFF_HOURS;
+      }).sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
 
       for (const overEmp of overOffEmps) {
         if (swapped3c) break;
-        const overHours = calcHours(overEmp.id);
+        const overHours = empStats[overEmp.id].hours;
 
         // หาเวร 4h (SMC/4o) ของคนนี้ที่ swap ออกได้
         const fourHShifts = [];
@@ -1547,24 +1547,24 @@ function ScheduleManager() {
 
         // หาคนรับ: คนปกติ + off_night ที่ชั่วโมงน้อยกว่าและไม่เกิน MAX_OFF_HOURS
         const underPool = [
-          ...normalEmpsAll.filter(e => calcHours(e.id) + 4 <= 60),
+          ...normalEmpsAll.filter(e => empStats[e.id].hours + 4 <= 60),
           ...offNightEmpsAll.filter(e =>
             e.id !== overEmp.id &&
-            calcHours(e.id) < overHours &&
-            calcHours(e.id) + 4 <= MAX_OFF_HOURS &&
+            empStats[e.id].hours < overHours &&
+            empStats[e.id].hours + 4 <= MAX_OFF_HOURS &&
             (empStats[e.id].catCounts['4o'] || 0) < CAP['4o']
           )
         ].sort((a,b) => {
           const aIsOff = !canDoNight(a), bIsOff = !canDoNight(b);
-          const aOk = aIsOff && calcHours(a.id) + 4 <= MAX_OFF_HOURS;
-          const bOk = bIsOff && calcHours(b.id) + 4 <= MAX_OFF_HOURS;
+          const aOk = aIsOff && empStats[a.id].hours + 4 <= MAX_OFF_HOURS;
+          const bOk = bIsOff && empStats[b.id].hours + 4 <= MAX_OFF_HOURS;
           if (aOk !== bOk) return aOk ? -1 : 1;
-          return calcHours(a.id) - calcHours(b.id);
+          return empStats[a.id].hours - empStats[b.id].hours;
         });
 
         for (const underEmp of underPool) {
           if (swapped3c) break;
-          const underHours = calcHours(underEmp.id);
+          const underHours = empStats[underEmp.id].hours;
 
           for (const { d, ds, s: fourShift } of fourHShifts) {
             if (swapped3c) break;
@@ -1644,7 +1644,7 @@ function ScheduleManager() {
         // หาคนที่ SMC น้อยกว่า เรียงน้อยสุดก่อน
         const underPool = [...normalEmpsAll, ...offNightEmpsAll]
           .filter(e => e.id !== overEmp.id && countSMC(e.id) < countSMC(overEmp.id))
-          .sort((a,b) => countSMC(a.id) - countSMC(b.id) || calcHours(a.id) - calcHours(b.id));
+          .sort((a,b) => countSMC(a.id) - countSMC(b.id) || empStats[a.id].hours - empStats[b.id].hours);
 
         for (const underEmp of underPool) {
           if (foundSwap) break;
@@ -1666,7 +1666,7 @@ function ScheduleManager() {
             if (countSMC(underEmp.id) >= CAP['SMC']) continue;
 
             // hours check
-            const newUnderHrs = calcHours(underEmp.id) + 4;
+            const newUnderHrs = empStats[underEmp.id].hours + 4;
             const isNormal = canDoNight(underEmp);
             if (isNormal && newUnderHrs > TARGET_NORMAL + 4) continue;
             if (!isNormal && newUnderHrs > TARGET_OFF_NIGHT + 4) continue;
@@ -1695,7 +1695,7 @@ function ScheduleManager() {
 
     // หาคนที่มี R1 แต่ไม่มี G
     const r1NoG = normalEmpsAll.filter(e => {
-      const hrs = calcHours(e.id);
+      const hrs = empStats[e.id].hours;
       let hasR1 = false, hasG = false;
       for (let d = 1; d <= dim; d++) {
         const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
@@ -1745,8 +1745,8 @@ function ScheduleManager() {
       if (nextDs && newAssignments[`${toEmp.id}_${nextDs}`]) continue;
 
       // ชั่วโมงหลัง swap ต้องสมดุล
-      const fromH = calcHours(fromEmp.id);
-      const toH = calcHours(toEmp.id);
+      const fromH = empStats[fromEmp.id].hours;
+      const toH = empStats[toEmp.id].hours;
       if (toH > fromH) continue; // ไม่เพิ่มความไม่เท่าเทียม
 
       // SWAP G!
@@ -1760,7 +1760,7 @@ function ScheduleManager() {
     const lateStart = Math.max(1, dim - 6); // 6 วันสุดท้าย
     const earlyEnd = Math.min(14, dim);     // 14 วันแรก
 
-    const MAX_3F_ROUNDS = 8;
+    const MAX_3F_ROUNDS = 4;
     for (let round = 0; round < MAX_3F_ROUNDS; round++) {
       let swapped3f = false;
 
@@ -1853,18 +1853,18 @@ function ScheduleManager() {
     const MAX_3G_ROUNDS = 5;
     for (let round = 0; round < MAX_3G_ROUNDS; round++) {
       let swapped3g = false;
-      const offSorted = [...offNightEmpsAll].sort((a,b) => calcHours(b.id) - calcHours(a.id));
+      const offSorted = [...offNightEmpsAll].sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
       if (offSorted.length < 2) break;
       for (const overEmp of offSorted) {
         if (swapped3g) break;
-        const overHours = calcHours(overEmp.id);
+        const overHours = empStats[overEmp.id].hours;
         const underEmps = offSorted.filter(e =>
-          e.id !== overEmp.id && calcHours(e.id) <= overHours - 8
-        ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+          e.id !== overEmp.id && empStats[e.id].hours <= overHours - 8
+        ).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
         if (underEmps.length === 0) continue;
         for (const underEmp of underEmps) {
           if (swapped3g) break;
-          const underHours = calcHours(underEmp.id);
+          const underHours = empStats[underEmp.id].hours;
           for (let d = 1; d <= dim; d++) {
             if (swapped3g) break;
             const ds = fmtD(d);
@@ -1910,21 +1910,21 @@ function ScheduleManager() {
 
       // หาคนปกติที่ hours ต่ำกว่า TARGET_NORMAL อย่างน้อย 6h
       const lowEmps = normalEmpsAll.filter(e =>
-        calcHours(e.id) <= TARGET_NORMAL - 6
-      ).sort((a,b) => calcHours(a.id) - calcHours(b.id));
+        empStats[e.id].hours <= TARGET_NORMAL - 6
+      ).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
 
       for (const underEmp of lowEmps) {
         if (swapped3h) break;
-        const underHours = calcHours(underEmp.id);
+        const underHours = empStats[underEmp.id].hours;
 
         // หาคนปกติที่ hours สูงกว่า underEmp อย่างน้อย 8h (หลัง swap จะไม่กลับเป็นปัญหาเดิม)
         const overCandidates = normalEmpsAll.filter(e =>
-          e.id !== underEmp.id && calcHours(e.id) >= underHours + 8
-        ).sort((a,b) => calcHours(b.id) - calcHours(a.id));
+          e.id !== underEmp.id && empStats[e.id].hours >= underHours + 8
+        ).sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
 
         for (const overEmp of overCandidates) {
           if (swapped3h) break;
-          const overHours = calcHours(overEmp.id);
+          const overHours = empStats[overEmp.id].hours;
 
           // หาเวร 8h ของ overEmp ที่ swap ออกได้ (ไม่ใช่ R2, ไม่ใช่ G/R1 เพื่อรักษา pairing)
           const eightHShifts = [];
