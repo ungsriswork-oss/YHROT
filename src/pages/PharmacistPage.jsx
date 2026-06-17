@@ -392,7 +392,7 @@ function ScheduleManager() {
     setIsGenerating(true);
     setRetryCount(0);
     setTimeout(() => {
-    const MAX_AUTO_RETRY = 40;
+    const MAX_AUTO_RETRY = 10;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
@@ -1252,7 +1252,7 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 20;
+    const MAX_SWAP_ROUNDS = 15;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
@@ -1382,7 +1382,7 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_AFT_SWAP = 10;
+    const MAX_AFT_SWAP = 5;
     for (let round = 0; round < MAX_AFT_SWAP; round++) {
       let swapped3b = false;
 
@@ -1604,7 +1604,7 @@ function ScheduleManager() {
       return n;
     };
 
-    const MAX_3D_ROUNDS = 15;
+    const MAX_3D_ROUNDS = 10;
     for (let round = 0; round < MAX_3D_ROUNDS; round++) {
       let swapped3d = false;
 
@@ -1890,7 +1890,7 @@ function ScheduleManager() {
     // แต่ถ้าคนต่ำสุดต่ำกว่า TARGET มาก (เช่น 54h vs target 62h)
     // และไม่มีใครเกิน TARGET พอที่จะ trigger PHASE 3 ได้
     // เฟสนี้สลับเวร 8h จากคนที่ hours > underEmp+8 (ไม่ต้องเกิน TARGET) มาให้
-    const MAX_3H_ROUNDS = 10;
+    const MAX_3H_ROUNDS = 5;
     for (let round = 0; round < MAX_3H_ROUNDS; round++) {
       let swapped3h = false;
 
