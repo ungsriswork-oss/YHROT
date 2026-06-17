@@ -916,11 +916,11 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
-        // SMC / 4o: คนที่ยังไม่ได้เลย (0 count) ได้ก่อน — กระจายให้ทุกคนได้อย่างน้อย 1
+        // SMC / 4o: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน (ทุกคนได้ 2 ก่อนค่อยให้ 3)
         if (cat === 'SMC' || cat === '4o') {
-          const aZero = (sa.catCounts[cat] || 0) === 0;
-          const bZero = (sb.catCounts[cat] || 0) === 0;
-          if (aZero !== bZero) return aZero ? -1 : 1;
+          const aCnt = sa.catCounts[cat] || 0;
+          const bCnt = sb.catCounts[cat] || 0;
+          if (aCnt !== bCnt) return aCnt - bCnt;
         }
 
         // SMC: กระจายตามชั่วโมงค่าเวร smc
