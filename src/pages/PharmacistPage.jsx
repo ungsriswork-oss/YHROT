@@ -1274,7 +1274,7 @@ function ScheduleManager() {
           const s = shifts.find(s => s.id === sid);
           if (!s) continue;
           const u = s.name.trim().toUpperCase();
-          if (u === 'R2') continue;
+          if (['R2','G','R1'].includes(u)) continue; // ห้าม swap เพื่อรักษา R1↔G pairing
           const h = getShiftHours(s);
           if (h === 8 || h === 4 || h === 2) overShifts.push({ d, ds, s, h });
         }
