@@ -742,7 +742,7 @@ function ScheduleManager() {
           const nightCap = allow2Nights ? CAP['ดึก'] : 1;
           if ((st.catCounts['ดึก'] || 0) >= nightCap) return false;
         }
-        if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= CAP['บ่าย']) return false;
+        if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= Math.min(2, CAP['บ่าย'])) return false;
 
         // 4o: คนที่มี As4/A4 แล้ว (ใช้ countA_As4 ที่ update ทันที) → ห้ามได้ 4o
         const hasAs4 = st.countA_As4 > 0;
@@ -914,6 +914,13 @@ function ScheduleManager() {
           const aN = !sa.hasBe ? sa.afternoonCount : -1;
           const bN = !sb.hasBe ? sb.afternoonCount : -1;
           if (aN !== bN) return bN - aN;
+        }
+
+        // SMC / 4o: คนที่ยังไม่ได้เลย (0 count) ได้ก่อน — กระจายให้ทุกคนได้อย่างน้อย 1
+        if (cat === 'SMC' || cat === '4o') {
+          const aZero = (sa.catCounts[cat] || 0) === 0;
+          const bZero = (sb.catCounts[cat] || 0) === 0;
+          if (aZero !== bZero) return aZero ? -1 : 1;
         }
 
         // SMC: กระจายตามชั่วโมงค่าเวร smc
