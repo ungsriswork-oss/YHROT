@@ -916,8 +916,8 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
-        // SMC / 4o / บ่าย: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน
-        if (cat === 'SMC' || cat === '4o' || cat === 'บ่าย') {
+        // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน — กระจายให้เท่ากัน
+        if (['SMC','4o','บ่าย','Morning','Telemed'].includes(cat)) {
           const aCnt = sa.catCounts[cat] || 0;
           const bCnt = sb.catCounts[cat] || 0;
           if (aCnt !== bCnt) return aCnt - bCnt;
@@ -1124,6 +1124,9 @@ function ScheduleManager() {
               if (!canDoNight(emp) && getShiftCategory(shift) === 'ดึก') return false;
               // บ่าย hard cap=2 (ห้าม bypass)
               if (getShiftCategory(shift) === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
+              // Morning/Telemed hard cap=1 (ห้าม bypass)
+              const shiftCat2 = getShiftCategory(shift);
+              if ((shiftCat2 === 'Morning' || shiftCat2 === 'Telemed') && (empStats[emp.id].catCounts[shiftCat2] || 0) >= (CAP[shiftCat2] || 1)) return false;
               // ตรวจ rule_1 เท่านั้น
               if (empStats[emp.id].lastDay !== null && d - empStats[emp.id].lastDay === 1) {
                 const prevDs = fmtD(d - 1);
@@ -1166,6 +1169,8 @@ function ScheduleManager() {
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
               // บ่าย hard cap=2 (ห้าม bypass แม้ fallback)
               if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
+              // Morning/Telemed hard cap=1 (ห้าม bypass แม้ fallback)
+              if ((cat3 === 'Morning' || cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
               // ดึก cap
