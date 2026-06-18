@@ -1170,10 +1170,8 @@ function ScheduleManager() {
               }
               // rule_2: บ่ายซ้ำตำแหน่ง
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
-              // บ่าย hard cap=2 (ห้าม bypass แม้ fallback)
-              if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
-              // Morning/Telemed hard cap=1 (ห้าม bypass แม้ fallback)
-              if ((cat3 === 'Morning' || cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
+              // round 3 = last resort: ไม่เช็ค บ่าย cap และ Morning/Telemed cap
+              // เพราะเวรไม่ขาด สำคัญกว่า cap
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
               // ดึก cap
@@ -1255,7 +1253,7 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 5;
+    const MAX_SWAP_ROUNDS = 10;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
@@ -1904,7 +1902,7 @@ function ScheduleManager() {
     // แต่ถ้าคนต่ำสุดต่ำกว่า TARGET มาก (เช่น 54h vs target 62h)
     // และไม่มีใครเกิน TARGET พอที่จะ trigger PHASE 3 ได้
     // เฟสนี้สลับเวร 8h จากคนที่ hours > underEmp+8 (ไม่ต้องเกิน TARGET) มาให้
-    const MAX_3H_ROUNDS = 3;
+    const MAX_3H_ROUNDS = 5;
     for (let round = 0; round < MAX_3H_ROUNDS; round++) {
       let swapped3h = false;
 
