@@ -446,8 +446,23 @@ function ScheduleManager() {
         });
       }
       const nSpread=spread(nH), nStd=std(nH), oSpread=spread(oH), oStd=std(oH);
-      const isGood = missing===0 && nSpread<=6 && nStd<=2.5 && (oH.length<2||(oSpread<=4&&oStd<=2.5));
-      return { missing, nSpread, nStd, oSpread, oStd, isGood };
+      // ตรวจ G↔R1 pairing
+      let grMismatch = 0;
+      employees.filter(e => !e.onLeave).forEach(emp => {
+        let hasR1 = false, hasG = false;
+        for (let d = 1; d <= dim; d++) {
+          const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const s = shifts.find(s => s.id === assignments[`${emp.id}_${ds}`]);
+          if (s) {
+            const u = s.name.trim().toUpperCase();
+            if (u === 'R1') hasR1 = true;
+            if (u === 'G') hasG = true;
+          }
+        }
+        if (hasR1 !== hasG) grMismatch++;
+      });
+      const isGood = missing===0 && grMismatch===0 && nSpread<=6 && nStd<=2.5 && (oH.length<2||(oSpread<=4&&oStd<=2.5));
+      return { missing, grMismatch, nSpread, nStd, oSpread, oStd, isGood };
     };
 
     const runOnce = () => {
@@ -498,6 +513,7 @@ function ScheduleManager() {
         assignedNights: new Set(),
         assignedAfternoons: new Set(),
         afternoonCount: 0,
+        holShifts: 0,      // จำนวนเวรในวันหยุด (กระจายให้เท่ากัน)
         hasBe: false, hasR1: false, hasG: false, hasT1: false, hasT2: false,
         lastDay: null,     // วันล่าสุดที่มีเวร (ตรวจ rule_1 ทั้งหน้า-หลัง)
       };
@@ -537,6 +553,7 @@ function ScheduleManager() {
         if (u === 'บE') empStats[emp.id].hasBe = true;
       }
       empStats[emp.id].lastDay = d;
+      if (isHol(d)) empStats[emp.id].holShifts++;
     };
 
     // ─── doSwap: ย้ายเวรจาก fromEmp → toEmp พร้อม update empStats ───
@@ -583,6 +600,12 @@ function ScheduleManager() {
       if (cat === 'SMC') empStats[toEmpId].smcHours += hrs;
       if (cat === 'ดึก') empStats[toEmpId].assignedNights.add(u);
       if (cat === 'เช้า') empStats[toEmpId].assignedMornings.add(u);
+      // holShifts: update เมื่อ swap เวรในวันหยุด
+      const swapDayNum = parseInt(dateStr.split('-')[2]);
+      if (isHol(swapDayNum)) {
+        empStats[fromEmpId].holShifts = Math.max(0, (empStats[fromEmpId].holShifts || 0) - 1);
+        empStats[toEmpId].holShifts = (empStats[toEmpId].holShifts || 0) + 1;
+      }
     };
 
     // ─── isApplicable: วันที่จัดได้ ───
@@ -926,6 +949,14 @@ function ScheduleManager() {
           }
         }
 
+        // วันหยุด: คนที่ได้เวรวันหยุดน้อยกว่าได้ก่อน — กระจายเวรวันหยุดให้เท่ากัน
+        // เฉพาะเมื่อชั่วโมงใกล้กัน (ไม่ override hours balance)
+        if (isHol(d) && Math.abs(sa.hours - sb.hours) <= 4) {
+          const aHol = sa.holShifts || 0;
+          const bHol = sb.holShifts || 0;
+          if (aHol !== bHol) return aHol - bHol;
+        }
+
         // SMC: กระจายตามชั่วโมงค่าเวร smc
         if (cat === 'SMC') {
           if (sa.smcHours !== sb.smcHours) return sa.smcHours - sb.smcHours;
@@ -1031,7 +1062,8 @@ function ScheduleManager() {
 
     // ─── helper: นับ min ต่อวัน (รองรับ Telemed ที่ min ต่างกันแต่ละวัน) ───
     const getShiftMinForDay = (shift, dateStr) => {
-      if (getShiftCategory(shift) === 'Telemed' && activeSchedule?.telemed) {
+      if (getShiftCategory(shift) === 'Telemed') {
+        if (!activeSchedule?.telemed) return 0; // ยังไม่ได้ตั้งค่า → ไม่จัด
         return activeSchedule.telemed[dateStr] ?? 0;
       }
       return shift.min || 1;
@@ -1170,8 +1202,10 @@ function ScheduleManager() {
               }
               // rule_2: บ่ายซ้ำตำแหน่ง
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
-              // round 3 = last resort: ไม่เช็ค บ่าย cap และ Morning/Telemed cap
-              // เพราะเวรไม่ขาด สำคัญกว่า cap
+              // บ่าย hard cap=2
+              if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
+              // Morning/Telemed hard cap
+              if ((cat3 === 'Morning' || cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
               // ดึก cap
@@ -2072,6 +2106,7 @@ function ScheduleManager() {
     const isBetter = (n, o) => {
       if (!o) return true;
       if (n.missing !== o.missing) return n.missing < o.missing;
+      if (n.grMismatch !== o.grMismatch) return n.grMismatch < o.grMismatch;
       if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
       return n.nStd+n.oStd < o.nStd+o.oStd;
     };
