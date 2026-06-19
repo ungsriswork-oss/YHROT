@@ -950,11 +950,17 @@ function ScheduleManager() {
         }
 
         // วันหยุด: คนที่ได้เวรวันหยุดน้อยกว่าได้ก่อน — กระจายเวรวันหยุดให้เท่ากัน
-        // เฉพาะเมื่อชั่วโมงใกล้กัน (ไม่ override hours balance)
-        if (isHol(d) && Math.abs(sa.hours - sb.hours) <= 4) {
-          const aHol = sa.holShifts || 0;
-          const bHol = sb.holShifts || 0;
-          if (aHol !== bHol) return aHol - bHol;
+        // ใช้ ratio (สัดส่วนชม./เป้า) แทนชม.ดิบ เพื่อให้เทียบข้ามกลุ่มได้ (off_night vs ปกติ)
+        if (isHol(d)) {
+          const aTarget = canDoNight(a) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+          const bTarget = canDoNight(b) ? TARGET_NORMAL : TARGET_OFF_NIGHT;
+          const aRatio = sa.hours / (aTarget || 1);
+          const bRatio = sb.hours / (bTarget || 1);
+          if (Math.abs(aRatio - bRatio) <= 0.15) {
+            const aHol = sa.holShifts || 0;
+            const bHol = sb.holShifts || 0;
+            if (aHol !== bHol) return aHol - bHol;
+          }
         }
 
         // SMC: กระจายตามชั่วโมงค่าเวร smc
