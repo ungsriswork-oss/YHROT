@@ -704,8 +704,8 @@ function ScheduleManager() {
       // Rule 3: R1↔G pairing — บังคับใน canAssign
       if (rules.rule_3) {
         if (u === 'G') {
-          // ถ้ามีคนอื่นที่มี R1 แต่ยังไม่มี G → ให้คนนั้นได้ G ก่อน
-          const r1WithoutG = normalEmpsAll.some(e =>
+          // ถ้ามีคนอื่น (ทุกกลุ่ม) ที่มี R1 แต่ยังไม่มี G → ให้คนนั้นได้ G ก่อน
+          const r1WithoutG = activeEmployees.some(e =>
             e.id !== emp.id &&
             empStats[e.id].hasR1 &&
             !empStats[e.id].hasG &&
@@ -718,17 +718,34 @@ function ScheduleManager() {
           // ตรวจว่ายังมี G slot เหลือในเดือนนี้ไหม
           // ถ้า G slots ที่เหลือ < คนที่มี R1 แต่ไม่มี G → block
           let gSlotsLeft = 0;
-          const gShift = shifts.find(s => s.name.trim().toUpperCase() === 'G');
+          const gShift = shifts.find(s => s.name.trim().toUpperCase() === 'G' && !s.suspended);
           if (gShift) {
             for (let d2 = d; d2 <= dim; d2++) {
               if (isApplicable(gShift, d2)) gSlotsLeft += (gShift.min || 1);
             }
           }
-          const r1WithoutG = normalEmpsAll.filter(e =>
+          // นับ ทุกกลุ่ม ที่มี R1 แต่ไม่มี G (ไม่ใช่แค่ normalEmpsAll)
+          const r1WithoutG = activeEmployees.filter(e =>
             empStats[e.id].hasR1 && !empStats[e.id].hasG
           ).length;
-          // ถ้า G slots เหลือน้อยกว่าคนที่ต้องการ G → block R1 ใหม่
           if (gSlotsLeft <= r1WithoutG) return false;
+
+          // ตรวจว่าคนนี้ลง G ได้จริงในอนาคต (มีวันว่างที่ G applicable)
+          if (gShift) {
+            let canGetG = false;
+            for (let d2 = d + 1; d2 <= dim && !canGetG; d2++) {
+              if (!isApplicable(gShift, d2)) continue;
+              const ds2 = fmtD(d2);
+              if (newAssignments[`${emp.id}_${ds2}`]) continue;
+              if (emp.offShifts?.includes(gShift.id)) continue;
+              // ตรวจ gap=1 (relaxed) — ต้องมีวันว่างข้างเคียง
+              const pDs = fmtD(d2 - 1), nDs = fmtD(d2 + 1);
+              if (pDs && newAssignments[`${emp.id}_${pDs}`]) continue;
+              if (nDs && newAssignments[`${emp.id}_${nDs}`]) continue;
+              canGetG = true;
+            }
+            if (!canGetG) return false;
+          }
         }
       }
       if (rules.rule_4 || rules.rule_5) {
@@ -1058,25 +1075,29 @@ function ScheduleManager() {
 
     // identify เวร Telemed (category = 'Telemed')
 
-    for (let d = 1; d <= dim; d++) {
-      const dateStr = fmtD(d);
-      const hol = isHol(d);
-      const dow = getDow(d);
-
-      // ── STEP A: จัด R2 ก่อนทุกอย่างในวันหยุด (ไม่มี rule_1 สำหรับ R2) ──
-      if (hol && r2Shift) {
+    // ── STEP 0: Pre-assign R2 ทุกวันหยุดก่อน — ป้องกันเวรอื่นวางติด R2 ──
+    // ต้องทำก่อน loop หลัก เพราะ loop วัน 1→31 จะเห็น R2 ล่วงหน้า
+    if (r2Shift) {
+      for (let d = 1; d <= dim; d++) {
+        if (!isHol(d)) continue;
+        const dateStr = fmtD(d);
         const slots = r2Shift.min || 1;
         const r2Emps = activeEmployees.filter(e =>
           (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
           !newAssignments[`${e.id}_${dateStr}`]
         );
-        // สุ่มลำดับก่อน แล้วเอาแค่ slots คน
         shuffle(r2Emps);
         r2Emps.sort((a,b) => empStats[a.id].catCounts['เช้า'] - empStats[b.id].catCounts['เช้า']);
         r2Emps.slice(0, slots).forEach(emp => {
           doAssign(emp, dateStr, d, r2Shift);
         });
       }
+    }
+
+    for (let d = 1; d <= dim; d++) {
+      const dateStr = fmtD(d);
+      const hol = isHol(d);
+      const dow = getDow(d);
 
       // ── STEP B/C: คำนวณ flag วันนี้ก่อน ──
       const isNationalHol = hol && dow !== 0 && dow !== 6;
@@ -1728,9 +1749,8 @@ function ScheduleManager() {
       return null;
     };
 
-    // หาคนที่มี R1 แต่ไม่มี G
-    const r1NoG = normalEmpsAll.filter(e => {
-      const hrs = empStats[e.id].hours;
+    // หาคนที่มี R1 แต่ไม่มี G (ทุกกลุ่ม)
+    const r1NoG = activeEmployees.filter(e => {
       let hasR1 = false, hasG = false;
       for (let d = 1; d <= dim; d++) {
         const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
@@ -1741,8 +1761,8 @@ function ScheduleManager() {
       return hasR1 && !hasG;
     });
 
-    // หาคนที่มี G แต่ไม่มี R1
-    const gNoR1 = normalEmpsAll.filter(e => {
+    // หาคนที่มี G แต่ไม่มี R1 (ทุกกลุ่ม)
+    const gNoR1 = activeEmployees.filter(e => {
       let hasR1 = false, hasG = false;
       for (let d = 1; d <= dim; d++) {
         const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
