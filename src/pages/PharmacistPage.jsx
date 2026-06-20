@@ -112,7 +112,7 @@ const isShiftBannedForOffSpecial = (shift) => {
 
 // ─── กฎ 9 ข้อ ───
 const RULES_LIST = [
-  { id: 'rule_1', label: '1. ห้ามเวรติดกัน 2 วัน' },
+  { id: 'rule_1', label: '1. ห้ามเวรห่างกันน้อยกว่า 2 วัน (กระจายเวร)' },
   { id: 'rule_2', label: '2. เวรบ่ายห้ามซ้ำตำแหน่ง และต้องได้ บe หากบ่าย ≥ 2' },
   { id: 'rule_3', label: '3. คนที่มี R1 จะมีเวร G ร่วมด้วยเสมอ' },
   { id: 'rule_4', label: '4. R1 ≠ T1/T2 (ร่วมกันไม่ได้)' },
@@ -506,7 +506,7 @@ function ScheduleManager() {
     employees.forEach(e => {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0,
-        catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, อื่นๆ:0 },
+        catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, 'Telemed':0, 'Morning':0, อื่นๆ:0 },
         smcHours: 0,       // ชม.ค่าเวร smc สำหรับกระจาย
         countA_As4: 0,
         assignedMornings: new Set(),   // unique morning positions
@@ -677,23 +677,18 @@ function ScheduleManager() {
       // วันนี้มีเวรแล้ว
       if (newAssignments[`${emp.id}_${dateStr}`]) return false;
 
-      // Rule 1: ห้ามเวรติดกัน (ตรวจทั้งวันก่อนและหลัง)
-      // ยกเว้น: ถ้าวันก่อนหน้าเป็น R2 (mandatory) → ไม่นับเป็นการ block
+      // Rule 1: ห้ามเวรห่างกันน้อยกว่า 2 วัน (gap ≥ 2)
+      // R2 exemption: เฉพาะตอน assign R2 เอง (mandatory ในวันหยุด) เท่านั้น
+      // เวรอื่นห้ามวางติด R2 ด้วย
       if (rules.rule_1) {
-        if (st.lastDay !== null && d - st.lastDay === 1) {
-          // ตรวจว่าเวรวันก่อนเป็น R2 ไหม
-          const prevDs = fmtD(d - 1);
-          const prevShiftId = prevDs ? newAssignments[`${emp.id}_${prevDs}`] : null;
-          const prevShift = prevShiftId ? shifts.find(s => s.id === prevShiftId) : null;
-          const prevWasR2 = prevShift?.name?.trim().toUpperCase() === 'R2';
-          if (!prevWasR2) return false;
-        }
-        const nextDs = fmtD(d + 1);
-        if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
-          const nextShiftId = newAssignments[`${emp.id}_${nextDs}`];
-          const nextShift = shifts.find(s => s.id === nextShiftId);
-          const nextWasR2 = nextShift?.name?.trim().toUpperCase() === 'R2';
-          if (!nextWasR2) return false;
+        const currentIsR2 = u === 'R2';
+        if (!currentIsR2) {
+          for (let gap = 1; gap <= 2; gap++) {
+            const prevDs = fmtD(d - gap);
+            if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) return false;
+            const nextDs = fmtD(d + gap);
+            if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) return false;
+          }
         }
       }
 
@@ -758,13 +753,6 @@ function ScheduleManager() {
       if (u !== 'R2') {
         if (cat === 'ดึก' && (st.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
 
-        // กลุ่ม r2: โอกาสได้ดึก 2 ครั้ง = 20% เท่านั้น (80% ได้แค่ 1)
-        // ใช้ empId เป็น seed เพื่อให้ consistent ตลอดเดือน
-        if (cat === 'ดึก' && getGroup(emp) === 'r2') {
-          const allow2Nights = (parseInt(emp.id, 36) % 10) < 2; // ~20%
-          const nightCap = allow2Nights ? CAP['ดึก'] : 1;
-          if ((st.catCounts['ดึก'] || 0) >= nightCap) return false;
-        }
         if (cat === 'บ่าย' && (st.catCounts['บ่าย'] || 0) >= Math.min(2, CAP['บ่าย'])) return false;
 
         // 4o: คนที่มี As4/A4 แล้ว (ใช้ countA_As4 ที่ update ทันที) → ห้ามได้ 4o
@@ -809,17 +797,13 @@ function ScheduleManager() {
             if (empStats[e.id].hours >= st.hours) return false;
             if (empStats[e.id].hours + shiftHrs > TARGET_NORMAL) return false;
             if (newAssignments[`${e.id}_${dateStr}`]) return false;
-            // ตรวจ rule_1: วันก่อน/หลังต้องว่าง (ไม่งั้นจะ block แล้วไม่มีใครรับได้จริง)
+            // ตรวจ rule_1 gap=2: ต้องว่าง d±1 และ d±2
             if (rules.rule_1) {
-              const prevDs = fmtD(d - 1);
-              const nextDs = fmtD(d + 1);
-              if (prevDs && newAssignments[`${e.id}_${prevDs}`]) {
-                const prevShift = shifts.find(s => s.id === newAssignments[`${e.id}_${prevDs}`]);
-                if (!prevShift || prevShift.name.trim().toUpperCase() !== 'R2') return false;
-              }
-              if (nextDs && newAssignments[`${e.id}_${nextDs}`]) {
-                const nextShift = shifts.find(s => s.id === newAssignments[`${e.id}_${nextDs}`]);
-                if (!nextShift || nextShift.name.trim().toUpperCase() !== 'R2') return false;
+              for (let gap = 1; gap <= 2; gap++) {
+                const prevDs = fmtD(d - gap);
+                if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+                const nextDs = fmtD(d + gap);
+                if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
               }
             }
             if (e.offShifts?.includes(shift.id)) return false;
@@ -870,10 +854,12 @@ function ScheduleManager() {
             if (e.offShifts?.includes(shift.id)) return false;
             if (empStats[e.id].hours >= expectedHrsAtDay) return false;
             if (empStats[e.id].hours + shiftHrs > TARGET_OFF_NIGHT) return false;
-            const prevDs = fmtD(d - 1);
-            const nextDs = fmtD(d + 1);
-            if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
-            if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
+            for (let gap = 1; gap <= 2; gap++) {
+              const prevDs = fmtD(d - gap);
+              if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+              const nextDs = fmtD(d + gap);
+              if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
+            }
             return true;
           });
           if (hasOtherOffNight) return false;
@@ -888,17 +874,13 @@ function ScheduleManager() {
             if (cat === 'เช้า' && empStats[e.id].assignedMornings.has(u)) return false;
             if (cat === 'บ่าย' && empStats[e.id].assignedAfternoons.has(u)) return false;
             if ((empStats[e.id].catCounts[cat] || 0) >= (cat === 'เช้า' ? 3 : 2)) return false;
-            // ตรวจ rule_1 — ถ้าติดก็ไม่นับว่า "รับได้"
+            // ตรวจ rule_1 gap=2
             if (rules.rule_1) {
-              const prevDs = fmtD(d - 1);
-              const nextDs = fmtD(d + 1);
-              if (prevDs && newAssignments[`${e.id}_${prevDs}`]) {
-                const ps = shifts.find(s => s.id === newAssignments[`${e.id}_${prevDs}`]);
-                if (!ps || ps.name.trim().toUpperCase() !== 'R2') return false;
-              }
-              if (nextDs && newAssignments[`${e.id}_${nextDs}`]) {
-                const ns = shifts.find(s => s.id === newAssignments[`${e.id}_${nextDs}`]);
-                if (!ns || ns.name.trim().toUpperCase() !== 'R2') return false;
+              for (let gap = 1; gap <= 2; gap++) {
+                const prevDs = fmtD(d - gap);
+                if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+                const nextDs = fmtD(d + gap);
+                if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
               }
             }
             return true;
@@ -938,6 +920,11 @@ function ScheduleManager() {
           const bN = !sb.hasBe ? sb.afternoonCount : -1;
           if (aN !== bN) return bN - aN;
         }
+
+        // Gap preference: คนที่ห่างจากเวรล่าสุดมากกว่าได้ก่อน — กระจายเวรไม่ให้ถี่
+        const aGap = sa.lastDay !== null ? d - sa.lastDay : 999;
+        const bGap = sb.lastDay !== null ? d - sb.lastDay : 999;
+        if ((aGap >= 4) !== (bGap >= 4)) return aGap >= 4 ? -1 : 1;
 
         // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน
         // แต่ถ้าชั่วโมงต่างกันมาก (>4h) → ให้คนที่ชม.น้อยกว่าได้ก่อน (ไม่ override hours balance)
@@ -1149,36 +1136,40 @@ function ScheduleManager() {
           // รอบ 1: ปกติ — ผ่านทุก rule
           let eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
 
-          // รอบ 2: ผ่อน hours cap — ยอมให้คนที่ชั่วโมงเกิน TARGET รับได้
+          // รอบ 2: ผ่อน hours cap + gap ลดเหลือ 1 — ยอมให้คนที่ชั่วโมงเกิน TARGET รับได้
           if (eligible.length === 0) {
+            const u2 = shift.name.trim().toUpperCase();
+            const cat2 = getShiftCategory(shift);
             eligible = activeEmployees.filter(emp => {
               if (newAssignments[`${emp.id}_${dateStr}`]) return false;
               if (emp.offShifts?.includes(shift.id)) return false;
               if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
-              if (!canDoNight(emp) && getShiftCategory(shift) === 'ดึก') return false;
-              // บ่าย hard cap=2 (ห้าม bypass)
-              if (getShiftCategory(shift) === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
-              // Morning/Telemed hard cap=1 (ห้าม bypass)
-              const shiftCat2 = getShiftCategory(shift);
-              if ((shiftCat2 === 'Morning' || shiftCat2 === 'Telemed') && (empStats[emp.id].catCounts[shiftCat2] || 0) >= (CAP[shiftCat2] || 1)) return false;
-              // ตรวจ rule_1 เท่านั้น
-              if (empStats[emp.id].lastDay !== null && d - empStats[emp.id].lastDay === 1) {
+              if (!canDoNight(emp) && cat2 === 'ดึก') return false;
+              // บ่าย hard cap=2
+              if (cat2 === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
+              // Morning/Telemed hard cap
+              if ((cat2 === 'Morning' || cat2 === 'Telemed') && (empStats[emp.id].catCounts[cat2] || 0) >= (CAP[cat2] || 1)) return false;
+              // rule_4/5: R1 ≠ T1/T2
+              const st2 = empStats[emp.id];
+              if (u2 === 'R1' && (st2.hasT1 || st2.hasT2)) return false;
+              if ((u2 === 'T1' || u2 === 'T2') && st2.hasR1) return false;
+              // rule_9: T1 XOR T2
+              if (u2 === 'T1' && st2.hasT2) return false;
+              if (u2 === 'T2' && st2.hasT1) return false;
+              // rule_1 gap=1 (relaxed) — R2 exemption เฉพาะ assign R2 เอง
+              const currentIsR2_fb2 = u2 === 'R2';
+              if (!currentIsR2_fb2) {
                 const prevDs = fmtD(d - 1);
-                const prevShiftId = prevDs ? newAssignments[`${emp.id}_${prevDs}`] : null;
-                const prevShift = prevShiftId ? shifts.find(s => s.id === prevShiftId) : null;
-                if (!prevShift || prevShift.name.trim().toUpperCase() !== 'R2') return false;
-              }
-              const nextDs = fmtD(d + 1);
-              if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
-                const nextShift = shifts.find(s => s.id === newAssignments[`${emp.id}_${nextDs}`]);
-                if (!nextShift || nextShift.name.trim().toUpperCase() !== 'R2') return false;
+                if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) return false;
+                const nextDs = fmtD(d + 1);
+                if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) return false;
               }
               return true;
             });
           }
 
-          // รอบ 3: fallback สุดท้าย — ผ่อน hours cap แต่ยัง keep rule_2, rule_7, cat cap
+          // รอบ 3: fallback สุดท้าย — ผ่อน hours cap แต่ยัง keep rule_2, rule_7, cat cap, rule_4/5/9
           if (eligible.length === 0) {
             const cat3 = getShiftCategory(shift);
             const u3 = shift.name.trim().toUpperCase();
@@ -1189,17 +1180,20 @@ function ScheduleManager() {
               if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
               const st3 = empStats[emp.id];
-              // rule_1
-              const prevDs = fmtD(d - 1);
-              const nextDs = fmtD(d + 1);
-              if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) {
-                const ps = shifts.find(s => s.id === newAssignments[`${emp.id}_${prevDs}`]);
-                if (!ps || ps.name.trim().toUpperCase() !== 'R2') return false;
+              // rule_1 gap=1 (relaxed) — R2 exemption เฉพาะ R2 เอง
+              const currentIsR2_fb3 = u3 === 'R2';
+              if (!currentIsR2_fb3) {
+                const prevDs = fmtD(d - 1);
+                if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) return false;
+                const nextDs = fmtD(d + 1);
+                if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) return false;
               }
-              if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) {
-                const ns = shifts.find(s => s.id === newAssignments[`${emp.id}_${nextDs}`]);
-                if (!ns || ns.name.trim().toUpperCase() !== 'R2') return false;
-              }
+              // rule_4/5: R1 ≠ T1/T2
+              if (u3 === 'R1' && (st3.hasT1 || st3.hasT2)) return false;
+              if ((u3 === 'T1' || u3 === 'T2') && st3.hasR1) return false;
+              // rule_9: T1 XOR T2
+              if (u3 === 'T1' && st3.hasT2) return false;
+              if (u3 === 'T2' && st3.hasT1) return false;
               // rule_2: บ่ายซ้ำตำแหน่ง
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
               // บ่าย hard cap=2
@@ -1399,6 +1393,15 @@ function ScheduleManager() {
               }
               if (alreadyHas) continue;
             }
+
+            // Morning/Telemed cap check
+            if ((cat === 'Morning' || cat === 'Telemed') && (empStats[underEmp.id].catCounts[cat] || 0) >= (CAP[cat] || 1)) continue;
+
+            // R1 ≠ T1/T2 mutual exclusion
+            if (u === 'R1' && (empStats[underEmp.id].hasT1 || empStats[underEmp.id].hasT2)) continue;
+            if ((u === 'T1' || u === 'T2') && empStats[underEmp.id].hasR1) continue;
+            if (u === 'T1' && empStats[underEmp.id].hasT2) continue;
+            if (u === 'T2' && empStats[underEmp.id].hasT1) continue;
 
             // ตรวจชั่วโมงหลัง swap
             // under ได้ไม่เกิน overHours-1 (ไม่กลายเป็น over เอง)
@@ -1776,13 +1779,69 @@ function ScheduleManager() {
       if (prevDs && newAssignments[`${toEmp.id}_${prevDs}`]) continue;
       if (nextDs && newAssignments[`${toEmp.id}_${nextDs}`]) continue;
 
-      // ชั่วโมงหลัง swap ต้องสมดุล
+      // ชั่วโมงหลัง swap — G↔R1 pairing สำคัญกว่า hours balance เล็กน้อย
       const fromH = empStats[fromEmp.id].hours;
       const toH = empStats[toEmp.id].hours;
-      if (toH > fromH) continue; // ไม่เพิ่มความไม่เท่าเทียม
+      if (toH > fromH + 8) continue; // ยอมให้ห่างได้ไม่เกิน 8h
 
       // SWAP G!
       doSwap(fromEmp.id, toEmp.id, gds, gShift);
+    }
+
+    // ─── PHASE 3e-2: Direct G assignment fallback ───
+    // ถ้ายังมีคนที่ R1 ไม่มี G → หาวันว่างของคนนั้นที่ G applicable แล้ว assign ตรงๆ
+    const gShiftObj = shifts.find(s => s.name.trim().toUpperCase() === 'G' && !s.suspended);
+    if (gShiftObj) {
+      const r1StillNoG = activeEmployees.filter(e => {
+        let hasR1f = false, hasGf = false;
+        for (let d2 = 1; d2 <= dim; d2++) {
+          const s2 = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d2)}`]);
+          if (!s2) continue;
+          const u2 = s2.name.trim().toUpperCase();
+          if (u2 === 'R1') hasR1f = true;
+          if (u2 === 'G') hasGf = true;
+        }
+        return hasR1f && !hasGf;
+      });
+
+      for (const emp of r1StillNoG) {
+        let assigned = false;
+        for (let d2 = 1; d2 <= dim && !assigned; d2++) {
+          if (!isApplicable(gShiftObj, d2)) continue;
+          const ds2 = fmtD(d2);
+          if (newAssignments[`${emp.id}_${ds2}`]) continue;
+          if (emp.offShifts?.includes(gShiftObj.id)) continue;
+          // rule_1 gap=1 (relaxed for fix)
+          const prevDs = fmtD(d2 - 1);
+          const nextDs = fmtD(d2 + 1);
+          if (prevDs && newAssignments[`${emp.id}_${prevDs}`]) continue;
+          if (nextDs && newAssignments[`${emp.id}_${nextDs}`]) continue;
+
+          // ตรวจว่ามีคนอื่นได้ G วันนี้แล้วหรือยัง (ไม่เกิน min)
+          const gFilled = activeEmployees.filter(e => newAssignments[`${e.id}_${ds2}`] === gShiftObj.id).length;
+          if (gFilled < (gShiftObj.min || 1)) {
+            // G slot ว่าง → assign ตรงๆ
+            doAssign(emp, ds2, d2, gShiftObj);
+            assigned = true;
+          } else {
+            // G slot เต็ม → ลอง swap G จากคนที่มี G แต่ไม่มี R1
+            const gHolder = activeEmployees.find(e2 => {
+              if (newAssignments[`${e2.id}_${ds2}`] !== gShiftObj.id) return false;
+              // คนนี้ต้องไม่มี R1 (ไม่งั้นจะเสีย pairing)
+              let e2HasR1 = false;
+              for (let d3 = 1; d3 <= dim; d3++) {
+                const s3 = shifts.find(s => s.id === newAssignments[`${e2.id}_${fmtD(d3)}`]);
+                if (s3 && s3.name.trim().toUpperCase() === 'R1') { e2HasR1 = true; break; }
+              }
+              return !e2HasR1;
+            });
+            if (gHolder) {
+              doSwap(gHolder.id, emp.id, ds2, gShiftObj);
+              assigned = true;
+            }
+          }
+        }
+      }
     }
 
     // ─── PHASE 3f: swap วันของเวรตำแหน่งเดียวกัน ───
@@ -1851,14 +1910,8 @@ function ScheduleManager() {
 
             // ตรวจ rule_1 สำหรับ normalEmp วันที่ d1
             const prev1 = fmtD(d1 - 1), next1 = fmtD(d1 + 1);
-            if (prev1 && newAssignments[`${normalEmp.id}_${prev1}`]) {
-              const ps = shifts.find(s => s.id === newAssignments[`${normalEmp.id}_${prev1}`]);
-              if (!ps || ps.name.trim().toUpperCase() !== 'R2') continue;
-            }
-            if (next1 && newAssignments[`${normalEmp.id}_${next1}`]) {
-              const ns = shifts.find(s => s.id === newAssignments[`${normalEmp.id}_${next1}`]);
-              if (!ns || ns.name.trim().toUpperCase() !== 'R2') continue;
-            }
+            if (prev1 && newAssignments[`${normalEmp.id}_${prev1}`]) continue;
+            if (next1 && newAssignments[`${normalEmp.id}_${next1}`]) continue;
 
             // ตรวจว่า off ไม่มีเวรวันที่ d2 (ก่อน swap step1)
             if (newAssignments[`${offEmp.id}_${ds2}`]) continue;
