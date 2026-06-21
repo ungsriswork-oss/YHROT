@@ -2333,13 +2333,24 @@ function ScheduleManager() {
       if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
       return n.nStd+n.oStd < o.nStd+o.oStd;
     };
+    const __debugLog = [];
     for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
       const assignments = runOnce();
       const score = scoreResult(assignments);
+      __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
       if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
       if (score.isGood) { setRetryCount(attempt + 1); break; }
       setRetryCount(attempt + 1);
     }
+    console.log(`%c=== สรุปผล ${__debugLog.length} รอบที่ลอง ===`, 'font-weight:bold;color:#7c3aed');
+    console.table(__debugLog);
+    const goodCount = __debugLog.filter(d => d.isGood).length;
+    const missingZeroCount = __debugLog.filter(d => d.missing === 0).length;
+    const gMatchCount = __debugLog.filter(d => d.grMismatch === 0).length;
+    const nSpreadOkCount = __debugLog.filter(d => d.nSpread <= 10).length;
+    const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
+    console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
+    console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
     setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
     setIsGenerating(false);
