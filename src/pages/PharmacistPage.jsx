@@ -1108,10 +1108,36 @@ function ScheduleManager() {
         if (!isHol(d)) continue;
         const dateStr = fmtD(d);
         const slots = r2Shift.min || 1;
-        const r2Emps = activeEmployees.filter(e =>
-          (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
-          !newAssignments[`${e.id}_${dateStr}`]
-        );
+        const prevDs = fmtD(d - 1);
+        const nextDs = fmtD(d + 1);
+
+        // รอบ 1: ห้ามเลือกคนที่ได้ R2 วันก่อน/หลังติดกัน (ป้องกัน R2-R2 ติดกัน)
+        let r2Emps = activeEmployees.filter(e => {
+          if (getGroup(e) !== 'r2' && getGroup(e) !== 'r2_off_night') return false;
+          if (newAssignments[`${e.id}_${dateStr}`]) return false;
+          if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+          if (nextDs && newAssignments[`${e.id}_${nextDs}`]) return false;
+          return true;
+        });
+
+        // รอบ 2 (fallback): ถ้าไม่มีใครว่างเลย (กลุ่ม R2 น้อยเทียบกับวันหยุด) → ผ่อนเป็นไม่ติดกันแค่วันก่อนหน้า
+        if (r2Emps.length === 0) {
+          r2Emps = activeEmployees.filter(e => {
+            if (getGroup(e) !== 'r2' && getGroup(e) !== 'r2_off_night') return false;
+            if (newAssignments[`${e.id}_${dateStr}`]) return false;
+            if (prevDs && newAssignments[`${e.id}_${prevDs}`]) return false;
+            return true;
+          });
+        }
+
+        // รอบ 3 (last resort): เอาทุกคนที่ว่างวันนี้ (เวร R2 ห้ามขาด)
+        if (r2Emps.length === 0) {
+          r2Emps = activeEmployees.filter(e =>
+            (getGroup(e) === 'r2' || getGroup(e) === 'r2_off_night') &&
+            !newAssignments[`${e.id}_${dateStr}`]
+          );
+        }
+
         shuffle(r2Emps);
         r2Emps.sort((a,b) => empStats[a.id].catCounts['เช้า'] - empStats[b.id].catCounts['เช้า']);
         r2Emps.slice(0, slots).forEach(emp => {
@@ -1193,12 +1219,18 @@ function ScheduleManager() {
               if (emp.specificShifts?.length > 0 && !emp.specificShifts.includes(shift.id)) return false;
               if (isOffSpecial(emp) && isShiftBannedForOffSpecial(shift)) return false;
               if (!canDoNight(emp) && cat2 === 'ดึก') return false;
+              const st2 = empStats[emp.id];
               // บ่าย hard cap=2
               if (cat2 === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
               // Morning/Telemed hard cap
               if ((cat2 === 'Morning' || cat2 === 'Telemed') && (empStats[emp.id].catCounts[cat2] || 0) >= (CAP[cat2] || 1)) return false;
+              // ห้ามซ้ำตำแหน่งเช้า (สำคัญมาก: ป้องกัน G ซ้ำ, R1 ซ้ำ ฯลฯ) — unconditional ไม่ขึ้นกับ rule_7 toggle
+              if (cat2 === 'เช้า' && u2 !== 'R2' && st2.assignedMornings.has(u2)) return false;
+              // ห้ามซ้ำตำแหน่งบ่าย (ยกเว้น off_special)
+              if (cat2 === 'บ่าย' && !isOffSpecial(emp) && st2.assignedAfternoons.has(u2)) return false;
+              // ห้ามซ้ำตำแหน่งดึก (ยกเว้น R2)
+              if (cat2 === 'ดึก' && u2 !== 'R2' && st2.assignedNights.has(u2)) return false;
               // rule_4/5: R1 ≠ T1/T2
-              const st2 = empStats[emp.id];
               if (u2 === 'R1' && (st2.hasT1 || st2.hasT2)) return false;
               if ((u2 === 'T1' || u2 === 'T2') && st2.hasR1) return false;
               // rule_9: T1 XOR T2
