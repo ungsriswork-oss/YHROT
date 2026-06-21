@@ -2239,7 +2239,9 @@ function ScheduleManager() {
             const newUnderHours = underHours + 8;
             const newOverHours = overHours - 8;
             if (newUnderHours > TARGET_NORMAL) continue; // ไม่ให้ underEmp เกิน TARGET
-            if (newOverHours < TARGET_NORMAL - 4) continue; // ไม่ให้ overEmp ต่ำเกิน TARGET-4
+            // floor แบบ relative: ห้ามให้ overEmp ตกต่ำกว่า underEmp หลัง swap (ไม่ใช่แค่เทียบ TARGET คงที่)
+            // ป้องกัน deadlock ตอนทุกคนกระจุกใกล้ TARGET แล้ว swap แบบเดิมโดน floor คงที่บล็อกหมด
+            if (newOverHours < newUnderHours) continue;
 
             // SWAP!
             doSwap(overEmp.id, underEmp.id, ds, eightShift);
@@ -2300,7 +2302,8 @@ function ScheduleManager() {
               const newUnderHours4 = underHours + 4;
               const newOverHours4 = overHours - 4;
               if (newUnderHours4 > TARGET_NORMAL) continue; // ไม่ให้เกิน TARGET
-              if (newOverHours4 < TARGET_NORMAL - 4) continue; // overEmp ไม่ต่ำเกินไป
+              // floor แบบ relative เหมือนกับ 8h swap ด้านบน — กัน deadlock ตอนกระจุกใกล้ TARGET
+              if (newOverHours4 < newUnderHours4) continue;
               // ต้องช่วยลด spread จริง — under ขยับเข้าใกล้ target มากกว่าหรือเท่าเดิม
               if (Math.abs(newUnderHours4 - TARGET_NORMAL) >= Math.abs(underHours - TARGET_NORMAL)) continue;
 
