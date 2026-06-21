@@ -441,8 +441,11 @@ function ScheduleManager() {
             }
           }
           if (!ok) return;
+          // Telemed: ใช้ min เฉพาะวัน (ไม่ใช่ s.min คงที่) — เดิมจุดนี้ไม่เช็คแบบนี้ ทำให้นับ missing ผิดมหาศาล
+          const minForDay = getShiftCategory(s) === 'Telemed' ? (activeSchedule?.telemed?.[ds] ?? 0) : (s.min || 1);
+          if (minForDay === 0) return; // Telemed วันนี้ไม่ต้องการคน — ไม่นับเป็น missing
           const filled = employees.filter(e => assignments[`${e.id}_${ds}`]===s.id).length;
-          if (filled < (s.min||1)) missing += (s.min||1)-filled;
+          if (filled < minForDay) missing += minForDay - filled;
         });
       }
       const nSpread=spread(nH), nStd=std(nH), oSpread=spread(oH), oStd=std(oH);
@@ -664,7 +667,10 @@ function ScheduleManager() {
     for (let d = 1; d <= dim; d++) {
       shifts.forEach(s => {
         if (!isApplicable(s, d)) return;
-        totalAllHours += getShiftHours(s) * (s.min || 1);
+        const ds0 = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        // Telemed: ใช้ min เฉพาะวัน — เดิมจุดนี้ใช้ s.min คงที่ ทำให้ totalAllHours (และ TARGET_NORMAL ที่คำนวณจากมัน) พองเกินจริง
+        const minForDay0 = getShiftCategory(s) === 'Telemed' ? (activeSchedule?.telemed?.[ds0] ?? 0) : (s.min || 1);
+        totalAllHours += getShiftHours(s) * minForDay0;
       });
     }
 
