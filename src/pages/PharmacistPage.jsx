@@ -392,7 +392,7 @@ function ScheduleManager() {
     setIsGenerating(true);
     setRetryCount(0);
     setTimeout(() => {
-    const MAX_AUTO_RETRY = 40;
+    const MAX_AUTO_RETRY = 80;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
@@ -2431,9 +2431,9 @@ function ScheduleManager() {
             <div className="w-12 h-12 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin" />
             <div className="text-center">
               <div className="text-lg font-bold text-gray-800">กำลังสุ่มเวร...</div>
-              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/{40}</div>
+              <div className="text-sm text-gray-400 mt-1">รอบที่ {retryCount}/{80}</div>
               <div className="w-48 bg-gray-200 rounded-full h-1.5 mt-2">
-                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/40)*100}%`}} />
+                <div className="bg-purple-600 h-1.5 rounded-full transition-all" style={{width:`${(retryCount/80)*100}%`}} />
               </div>
             </div>
           </div>
