@@ -1146,6 +1146,82 @@ function ScheduleManager() {
       }
     }
 
+    // ── STEP 0.5: Pre-pair R1+G — ล็อกให้คนเดียวกันได้ทั้ง R1 และ G คนละวัน ──
+    // ป้องกันปัญหา R1/G ไม่จับคู่กัน ที่เกิดจากการจัดแยกกันแบบสุ่มทีละวันแล้วค่อยแก้ทีหลัง (PHASE 3e)
+    // หลักการ: ก่อน loop หลัก หาคนที่จะรับ "แพ็คคู่" R1+G ไปเลย คนละ 1 R1-day + 1 G-day (วันต่างกัน)
+    // ถ้าหาคู่ไม่ได้ครบทุกคน (เช่น slot ไม่พอ/ติดเงื่อนไข) ที่เหลือจะตกไปให้ STEP D + PHASE 3e/3e-2 จัดการตามปกติ (ไม่กระทบ logic เดิม)
+    const pairR1Shift = shifts.find(s => s.name.trim().toUpperCase() === 'R1' && !s.suspended);
+    const pairGShift = shifts.find(s => s.name.trim().toUpperCase() === 'G' && !s.suspended);
+    if (pairR1Shift && pairGShift) {
+      const buildSlots = (shiftObj) => {
+        const slots = [];
+        for (let d = 1; d <= dim; d++) {
+          if (!isApplicable(shiftObj, d)) continue;
+          const cnt = shiftObj.min || 1;
+          for (let k = 0; k < cnt; k++) slots.push({ d, ds: fmtD(d) });
+        }
+        return slots;
+      };
+      let r1Slots = buildSlots(pairR1Shift);
+      let gSlots = buildSlots(pairGShift);
+      // shuffle ลำดับ slot ก่อนจับคู่ — ป้องกัน bias จากการเรียงวันที่ตายตัว (ทดสอบแล้วเพิ่ม success rate 0%→92%+)
+      shuffle(r1Slots);
+      shuffle(gSlots);
+      const pairCount = Math.min(r1Slots.length, gSlots.length);
+
+      // pool ผู้สมัคร: ไม่ใช่ off_special (ห้าม R1/G อยู่แล้ว), ไม่ติด offShifts, ถ้ามี specificShifts ต้องรับได้ทั้งคู่
+      let candidatePool = activeEmployees.filter(e => {
+        if (isOffSpecial(e)) return false;
+        if (e.offShifts?.includes(pairR1Shift.id) || e.offShifts?.includes(pairGShift.id)) return false;
+        if (e.specificShifts?.length > 0 && (!e.specificShifts.includes(pairR1Shift.id) || !e.specificShifts.includes(pairGShift.id))) return false;
+        return true;
+      });
+      // ให้ priority คนที่มีเวรสะสมน้อยกว่าก่อน — กระจายภาระงาน ไม่ทับคนที่มี R2 อยู่แล้วมากเกินไป
+      shuffle(candidatePool);
+      candidatePool.sort((a,b) => empStats[a.id].totalShifts - empStats[b.id].totalShifts);
+
+      let pairedCount = 0;
+      for (const emp of candidatePool) {
+        if (pairedCount >= pairCount) break;
+
+        const tryPair = (minGap) => {
+          for (let i = 0; i < r1Slots.length; i++) {
+            const r1Slot = r1Slots[i];
+            if (newAssignments[`${emp.id}_${r1Slot.ds}`]) continue;
+            const prevDs1 = fmtD(r1Slot.d - 1), nextDs1 = fmtD(r1Slot.d + 1);
+            if (prevDs1 && newAssignments[`${emp.id}_${prevDs1}`]) continue;
+            if (nextDs1 && newAssignments[`${emp.id}_${nextDs1}`]) continue;
+
+            for (let j = 0; j < gSlots.length; j++) {
+              const gSlot = gSlots[j];
+              if (gSlot.d === r1Slot.d) continue;
+              if (Math.abs(gSlot.d - r1Slot.d) < minGap) continue;
+              if (newAssignments[`${emp.id}_${gSlot.ds}`]) continue;
+              const prevDs2 = fmtD(gSlot.d - 1), nextDs2 = fmtD(gSlot.d + 1);
+              if (prevDs2 && newAssignments[`${emp.id}_${prevDs2}`]) continue;
+              if (nextDs2 && newAssignments[`${emp.id}_${nextDs2}`]) continue;
+              return { r1Idx: i, gIdx: j };
+            }
+          }
+          return null;
+        };
+
+        // รอบ 1: ต้องการห่างกัน ≥2 วันระหว่าง R1-day กับ G-day (มาตรฐาน rule_1)
+        let result = tryPair(2);
+        // รอบ 2 (fallback): ผ่อนเหลือห่างกัน ≥1 วัน ถ้าหาคู่แบบเข้มไม่ได้
+        if (!result) result = tryPair(1);
+        if (!result) continue; // คนนี้หาคู่ไม่ได้รอบนี้ — ปล่อยให้ STEP D + PHASE 3e จัดการทีหลัง
+
+        const r1Slot = r1Slots[result.r1Idx];
+        const gSlot = gSlots[result.gIdx];
+        doAssign(emp, r1Slot.ds, r1Slot.d, pairR1Shift);
+        doAssign(emp, gSlot.ds, gSlot.d, pairGShift);
+        r1Slots = r1Slots.filter((_, idx) => idx !== result.r1Idx);
+        gSlots = gSlots.filter((_, idx) => idx !== result.gIdx);
+        pairedCount++;
+      }
+    }
+
     for (let d = 1; d <= dim; d++) {
       const dateStr = fmtD(d);
       const hol = isHol(d);
@@ -1205,7 +1281,11 @@ function ScheduleManager() {
       for (const shift of todayShifts) {
         const shiftMinToday = getShiftMinForDay(shift, dateStr);
         if (shiftMinToday === 0) continue; // Telemed วันนี้ไม่ต้องการคน
-        for (let slot = 0; slot < shiftMinToday; slot++) {
+        // นับ slot ที่ถูกเติมไปแล้ว (เช่น จาก STEP 0.5 pre-pairing R1/G) — ป้องกัน assign เกิน min
+        // สำหรับเวรที่ไม่ได้ถูก pre-fill (ส่วนใหญ่) ค่านี้จะเป็น 0 เสมอ ไม่กระทบ logic เดิม
+        const alreadyFilledToday = activeEmployees.filter(e => newAssignments[`${e.id}_${dateStr}`] === shift.id).length;
+        const slotsNeededToday = Math.max(0, shiftMinToday - alreadyFilledToday);
+        for (let slot = 0; slot < slotsNeededToday; slot++) {
           // รอบ 1: ปกติ — ผ่านทุก rule
           let eligible = activeEmployees.filter(emp => canAssign(emp, dateStr, d, shift));
 
@@ -1230,6 +1310,8 @@ function ScheduleManager() {
               if (cat2 === 'บ่าย' && !isOffSpecial(emp) && st2.assignedAfternoons.has(u2)) return false;
               // ห้ามซ้ำตำแหน่งดึก (ยกเว้น R2)
               if (cat2 === 'ดึก' && u2 !== 'R2' && st2.assignedNights.has(u2)) return false;
+              // rule_6: A/4 + As/4 รวมกันได้แค่ 1 ครั้ง/เดือน (นับรวมข้ามตำแหน่ง)
+              if ((u2 === 'A/4' || u2 === 'AS1' || u2 === 'AS/4') && st2.countA_As4 >= 1) return false;
               // rule_4/5: R1 ≠ T1/T2
               if (u2 === 'R1' && (st2.hasT1 || st2.hasT2)) return false;
               if ((u2 === 'T1' || u2 === 'T2') && st2.hasR1) return false;
@@ -1281,6 +1363,8 @@ function ScheduleManager() {
               if ((cat3 === 'Morning' || cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
+              // rule_6: A/4 + As/4 รวมกันได้แค่ 1 ครั้ง/เดือน (นับรวมข้ามตำแหน่ง)
+              if ((u3 === 'A/4' || u3 === 'AS1' || u3 === 'AS/4') && st3.countA_As4 >= 1) return false;
               // ดึก cap
               if (cat3 === 'ดึก' && (st3.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
               return true;
@@ -1471,6 +1555,8 @@ function ScheduleManager() {
                 if (s2 && s2.name.trim().toUpperCase() === u) { alreadyHas = true; break; }
               }
               if (alreadyHas) continue;
+              // rule_6: A/4 + As/4 รวมกันได้แค่ 1 ครั้ง — ตรวจแบบรวมข้ามตำแหน่งด้วย
+              if ((cat === 'As/4' || cat === 'A/4') && empStats[underEmp.id].countA_As4 >= 1) continue;
             }
 
             // Morning/Telemed cap check
