@@ -461,7 +461,7 @@ function ScheduleManager() {
         }
         if (hasR1 !== hasG) grMismatch++;
       });
-      const isGood = missing===0 && grMismatch===0 && nSpread<=6 && nStd<=2.5 && (oH.length<2||(oSpread<=4&&oStd<=2.5));
+      const isGood = missing===0 && grMismatch===0 && nSpread<=8 && nStd<=3.0 && (oH.length<2||(oSpread<=6&&oStd<=3.0));
       return { missing, grMismatch, nSpread, nStd, oSpread, oStd, isGood };
     };
 
@@ -568,23 +568,7 @@ function ScheduleManager() {
       empStats[fromEmpId].money -= getShiftValue(shift);
       empStats[fromEmpId].totalShifts--;
       empStats[fromEmpId].catCounts[cat] = Math.max(0, (empStats[fromEmpId].catCounts[cat] || 1) - 1);
-      if (cat === 'บ่าย') {
-        empStats[fromEmpId].afternoonCount = Math.max(0, empStats[fromEmpId].afternoonCount - 1);
-        // rebuild assignedAfternoons
-        empStats[fromEmpId].assignedAfternoons = new Set();
-        for (let d2 = 1; d2 <= dim; d2++) {
-          const s2 = shifts.find(s => s.id === newAssignments[`${fromEmpId}_${fmtD(d2)}`]);
-          if (s2 && getShiftCategory(s2) === 'บ่าย') empStats[fromEmpId].assignedAfternoons.add(s2.name.trim().toUpperCase());
-        }
-      }
       if (cat === 'SMC') empStats[fromEmpId].smcHours -= hrs;
-      if (cat === 'ดึก') {
-        empStats[fromEmpId].assignedNights = new Set();
-        for (let d2 = 1; d2 <= dim; d2++) {
-          const s2 = shifts.find(s => s.id === newAssignments[`${fromEmpId}_${fmtD(d2)}`]);
-          if (s2 && getShiftCategory(s2) === 'ดึก') empStats[fromEmpId].assignedNights.add(s2.name.trim().toUpperCase());
-        }
-      }
 
       // เพิ่มให้ toEmp
       newAssignments[`${toEmpId}_${dateStr}`] = shift.id;
@@ -592,15 +576,57 @@ function ScheduleManager() {
       empStats[toEmpId].money += getShiftValue(shift);
       empStats[toEmpId].totalShifts++;
       empStats[toEmpId].catCounts[cat] = (empStats[toEmpId].catCounts[cat] || 0) + 1;
-      if (cat === 'บ่าย') {
-        empStats[toEmpId].assignedAfternoons.add(u);
-        empStats[toEmpId].afternoonCount++;
-        if (u === 'บE') empStats[toEmpId].hasBe = true;
-      }
       if (cat === 'SMC') empStats[toEmpId].smcHours += hrs;
-      if (cat === 'ดึก') empStats[toEmpId].assignedNights.add(u);
-      if (cat === 'เช้า') empStats[toEmpId].assignedMornings.add(u);
-      // holShifts: update เมื่อ swap เวรในวันหยุด
+
+      // ─── rebuild category tracking ทั้ง 2 ฝั่ง (from + to) ───
+      // เช้า: rebuild assignedMornings + hasR1/hasG/hasT1/hasT2
+      if (cat === 'เช้า') {
+        [fromEmpId, toEmpId].forEach(eid => {
+          empStats[eid].assignedMornings = new Set();
+          empStats[eid].hasR1 = false;
+          empStats[eid].hasG = false;
+          empStats[eid].hasT1 = false;
+          empStats[eid].hasT2 = false;
+          for (let d2 = 1; d2 <= dim; d2++) {
+            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            if (!s2 || getShiftCategory(s2) !== 'เช้า') continue;
+            const u2 = s2.name.trim().toUpperCase();
+            empStats[eid].assignedMornings.add(u2);
+            if (u2 === 'R1') empStats[eid].hasR1 = true;
+            if (u2 === 'G')  empStats[eid].hasG  = true;
+            if (u2 === 'T1') empStats[eid].hasT1 = true;
+            if (u2 === 'T2') empStats[eid].hasT2 = true;
+          }
+        });
+      }
+      // บ่าย: rebuild assignedAfternoons + hasBe + afternoonCount
+      if (cat === 'บ่าย') {
+        [fromEmpId, toEmpId].forEach(eid => {
+          empStats[eid].assignedAfternoons = new Set();
+          empStats[eid].afternoonCount = 0;
+          empStats[eid].hasBe = false;
+          for (let d2 = 1; d2 <= dim; d2++) {
+            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            if (!s2 || getShiftCategory(s2) !== 'บ่าย') continue;
+            const u2 = s2.name.trim().toUpperCase();
+            empStats[eid].assignedAfternoons.add(u2);
+            empStats[eid].afternoonCount++;
+            if (u2 === 'บE') empStats[eid].hasBe = true;
+          }
+        });
+      }
+      // ดึก: rebuild assignedNights
+      if (cat === 'ดึก') {
+        [fromEmpId, toEmpId].forEach(eid => {
+          empStats[eid].assignedNights = new Set();
+          for (let d2 = 1; d2 <= dim; d2++) {
+            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            if (s2 && getShiftCategory(s2) === 'ดึก') empStats[eid].assignedNights.add(s2.name.trim().toUpperCase());
+          }
+        });
+      }
+
+      // holShifts
       const swapDayNum = parseInt(dateStr.split('-')[2]);
       if (isHol(swapDayNum)) {
         empStats[fromEmpId].holShifts = Math.max(0, (empStats[fromEmpId].holShifts || 0) - 1);
@@ -1302,7 +1328,7 @@ function ScheduleManager() {
       return h;
     };
 
-    const MAX_SWAP_ROUNDS = 10;
+    const MAX_SWAP_ROUNDS = 20;
     for (let round = 0; round < MAX_SWAP_ROUNDS; round++) {
       let swapped = false;
 
@@ -1825,6 +1851,9 @@ function ScheduleManager() {
       });
 
       for (const emp of r1StillNoG) {
+        // Safety check: ตรวจซ้ำจาก empStats ด้วย
+        if (empStats[emp.id].hasG) continue;
+        if (empStats[emp.id].assignedMornings.has('G')) continue;
         let assigned = false;
         for (let d2 = 1; d2 <= dim && !assigned; d2++) {
           if (!isApplicable(gShiftObj, d2)) continue;
@@ -2009,22 +2038,22 @@ function ScheduleManager() {
     // แต่ถ้าคนต่ำสุดต่ำกว่า TARGET มาก (เช่น 54h vs target 62h)
     // และไม่มีใครเกิน TARGET พอที่จะ trigger PHASE 3 ได้
     // เฟสนี้สลับเวร 8h จากคนที่ hours > underEmp+8 (ไม่ต้องเกิน TARGET) มาให้
-    const MAX_3H_ROUNDS = 5;
+    const MAX_3H_ROUNDS = 15;
     for (let round = 0; round < MAX_3H_ROUNDS; round++) {
       let swapped3h = false;
 
-      // หาคนปกติที่ hours ต่ำกว่า TARGET_NORMAL อย่างน้อย 6h
+      // หาคนปกติที่ hours ต่ำกว่า TARGET_NORMAL อย่างน้อย 4h
       const lowEmps = normalEmpsAll.filter(e =>
-        empStats[e.id].hours <= TARGET_NORMAL - 6
+        empStats[e.id].hours <= TARGET_NORMAL - 4
       ).sort((a,b) => empStats[a.id].hours - empStats[b.id].hours);
 
       for (const underEmp of lowEmps) {
         if (swapped3h) break;
         const underHours = empStats[underEmp.id].hours;
 
-        // หาคนปกติที่ hours สูงกว่า underEmp อย่างน้อย 8h (หลัง swap จะไม่กลับเป็นปัญหาเดิม)
+        // หาคนปกติที่ hours สูงกว่า underEmp อย่างน้อย 4h (รองรับ 4h swap ด้วย)
         const overCandidates = normalEmpsAll.filter(e =>
-          e.id !== underEmp.id && empStats[e.id].hours >= underHours + 8
+          e.id !== underEmp.id && empStats[e.id].hours >= underHours + 4
         ).sort((a,b) => empStats[b.id].hours - empStats[a.id].hours);
 
         for (const overEmp of overCandidates) {
@@ -2092,7 +2121,7 @@ function ScheduleManager() {
             const newUnderHours = underHours + 8;
             const newOverHours = overHours - 8;
             if (newUnderHours > TARGET_NORMAL) continue; // ไม่ให้ underEmp เกิน TARGET
-            if (newOverHours < TARGET_NORMAL - 6) continue; // ไม่ให้ overEmp ต่ำเกิน TARGET-6
+            if (newOverHours < TARGET_NORMAL - 4) continue; // ไม่ให้ overEmp ต่ำเกิน TARGET-4
 
             // SWAP!
             doSwap(overEmp.id, underEmp.id, ds, eightShift);
@@ -2153,7 +2182,7 @@ function ScheduleManager() {
               const newUnderHours4 = underHours + 4;
               const newOverHours4 = overHours - 4;
               if (newUnderHours4 > TARGET_NORMAL) continue; // ไม่ให้เกิน TARGET
-              if (newOverHours4 < TARGET_NORMAL - 6) continue; // overEmp ไม่ต่ำเกินไป
+              if (newOverHours4 < TARGET_NORMAL - 4) continue; // overEmp ไม่ต่ำเกินไป
               // ต้องช่วยลด spread จริง — under ขยับเข้าใกล้ target มากกว่าหรือเท่าเดิม
               if (Math.abs(newUnderHours4 - TARGET_NORMAL) >= Math.abs(underHours - TARGET_NORMAL)) continue;
 
@@ -2391,8 +2420,8 @@ function ScheduleManager() {
               if(sp<=sG&&st<=stdG){icon='✅';color='text-green-600';}else if(sp<=sO&&st<=stdO){icon='⚠️';color='text-yellow-600';}else{icon='❌';color='text-red-600';}
               return{sp,st:st.toFixed(1),icon,color};
             };
-            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),6,8,2.5,3.0):null;
-            const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),4,6,2.0,2.5):null;
+            const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),8,10,3.0,4.0):null;
+            const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),6,8,3.0,4.0):null;
             const missing=[], over=[];
             if(hasData){
               for(let d=1;d<=dim;d++){
