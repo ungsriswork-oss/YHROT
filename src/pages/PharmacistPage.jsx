@@ -424,6 +424,7 @@ function ScheduleManager() {
         const isSat = dow === 6;
         const hol = dow===0||dow===6||!!(activeSchedule.holidays?.[ds]);
         shifts.forEach(s => {
+          if (s.suspended) return; // เวรที่ suspend แล้ว — ไม่นับเป็น missing
           const a = s.allowedDays||'all';
           let ok = false;
           if (a==='all') ok=true;
