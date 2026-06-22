@@ -465,8 +465,34 @@ function ScheduleManager() {
         }
         if (hasR1 !== hasG) grMismatch++;
       });
-      const isGood = missing===0 && grMismatch===0 && nSpread<=10 && nStd<=3.5 && (oH.length<2||(oSpread<=8&&oStd<=3.5));
-      return { missing, grMismatch, nSpread, nStd, oSpread, oStd, isGood };
+
+      // ตรวจความสม่ำเสมอของเวรเช้า+ดึก
+      // nightDeficit  = จำนวนคนปกติ (non-off-night) ที่ไม่ได้ดึกเลย (ควรเป็น 0)
+      // morningDeficit = จำนวนคนปกติที่ได้เช้า < 2 (รวม R2, As/4, A/4 เป็นเช้า)
+      const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
+      const NIGHT_NAMES   = new Set(['ดI','ดE','R2']);
+      let nightDeficit = 0, morningDeficit = 0;
+      employees.filter(e => !e.onLeave).forEach(emp => {
+        const grp = getGroup(emp);
+        const isOffNight = grp === 'off_night' || grp === 'r2_off_night' || grp === 'off_special';
+        const isR2Group  = grp === 'r2';
+        let morningCnt = 0, nightCnt = 0;
+        for (let d = 1; d <= dim; d++) {
+          const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+          const s = shifts.find(s => s.id === assignments[`${emp.id}_${ds}`]);
+          if (!s) continue;
+          const u = s.name.trim().toUpperCase();
+          if (MORNING_NAMES.has(u)) morningCnt++;
+          if (NIGHT_NAMES.has(u))   nightCnt++;
+        }
+        // คนปกติ (รวม R2 group) ต้องได้เช้าอย่างน้อย 2
+        if (!isOffNight && morningCnt < 2) morningDeficit++;
+        // คนปกติ (ไม่ใช่ off-night, ไม่ใช่ R2 group ที่ขึ้นเช้าแทนดึก) ต้องได้ดึกอย่างน้อย 1
+        if (!isOffNight && !isR2Group && nightCnt === 0) nightDeficit++;
+      });
+
+      const isGood = missing===0 && grMismatch===0 && nightDeficit===0 && morningDeficit===0 && nSpread<=10 && nStd<=3.5 && (oH.length<2||(oSpread<=8&&oStd<=3.5));
+      return { missing, grMismatch, nightDeficit, morningDeficit, nSpread, nStd, oSpread, oStd, isGood };
     };
 
     const runOnce = () => {
@@ -2337,6 +2363,9 @@ function ScheduleManager() {
       if (!o) return true;
       if (n.missing !== o.missing) return n.missing < o.missing;
       if (n.grMismatch !== o.grMismatch) return n.grMismatch < o.grMismatch;
+      // ความสม่ำเสมอดึก+เช้า — สำคัญกว่า spread ชั่วโมง
+      if ((n.nightDeficit||0) !== (o.nightDeficit||0)) return (n.nightDeficit||0) < (o.nightDeficit||0);
+      if ((n.morningDeficit||0) !== (o.morningDeficit||0)) return (n.morningDeficit||0) < (o.morningDeficit||0);
       if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
       return n.nStd+n.oStd < o.nStd+o.oStd;
     };
@@ -2344,7 +2373,7 @@ function ScheduleManager() {
     for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
       const assignments = runOnce();
       const score = scoreResult(assignments);
-      __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
+      __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nightDef: score.nightDeficit, morningDef: score.morningDeficit, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
       if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
       if (score.isGood) { setRetryCount(attempt + 1); break; }
       setRetryCount(attempt + 1);
@@ -2356,8 +2385,10 @@ function ScheduleManager() {
     const gMatchCount = __debugLog.filter(d => d.grMismatch === 0).length;
     const nSpreadOkCount = __debugLog.filter(d => d.nSpread <= 10).length;
     const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
+    const nightOkCount = __debugLog.filter(d => d.nightDef === 0).length;
+    const morningOkCount = __debugLog.filter(d => d.morningDef === 0).length;
     console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
-    console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
+    console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nightDef=0: ${nightOkCount}/${__debugLog.length} | morningDef=0: ${morningOkCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
     setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
     setIsGenerating(false);
