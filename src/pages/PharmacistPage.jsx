@@ -473,7 +473,7 @@ function ScheduleManager() {
       const NIGHT_NAMES   = new Set(['ดI','ดE','R2']);
       let nightDeficit = 0, morningDeficit = 0;
       employees.filter(e => !e.onLeave).forEach(emp => {
-        const grp = getGroup(emp);
+        const grp = emp.group || 'normal';
         const isOffNight = grp === 'off_night' || grp === 'r2_off_night' || grp === 'off_special';
         const isR2Group  = grp === 'r2';
         let morningCnt = 0, nightCnt = 0;
