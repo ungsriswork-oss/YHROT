@@ -450,45 +450,31 @@ function ScheduleManager() {
         });
       }
       const nSpread=spread(nH), nStd=std(nH), oSpread=spread(oH), oStd=std(oH);
-      // ตรวจ G↔R1 pairing
-      let grMismatch = 0;
-      employees.filter(e => !e.onLeave).forEach(emp => {
-        let hasR1 = false, hasG = false;
-        for (let d = 1; d <= dim; d++) {
-          const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          const s = shifts.find(s => s.id === assignments[`${emp.id}_${ds}`]);
-          if (s) {
-            const u = s.name.trim().toUpperCase();
-            if (u === 'R1') hasR1 = true;
-            if (u === 'G') hasG = true;
-          }
-        }
-        if (hasR1 !== hasG) grMismatch++;
-      });
 
-      // ตรวจความสม่ำเสมอของเวรเช้า+ดึก
-      // nightDeficit  = จำนวนคนปกติ (non-off-night) ที่ไม่ได้ดึกเลย (ควรเป็น 0)
-      // morningDeficit = จำนวนคนปกติที่ได้เช้า < 2 (รวม R2, As/4, A/4 เป็นเช้า)
-      const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
-      const NIGHT_NAMES   = new Set(['ดI','ดE','R2']);
-      let nightDeficit = 0, morningDeficit = 0;
+      // pre-build Map: shiftId → shiftName (O(1) lookup แทน shifts.find() ที่ช้า)
+      const shiftNameById = new Map(shifts.map(s => [s.id, s.name.trim().toUpperCase()]));
+      const MORNING_SET = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
+      const NIGHT_SET   = new Set(['ดI','ดE','R2']);
+
+      // วน loop รอบเดียว — นับ grMismatch + nightDeficit + morningDeficit พร้อมกัน
+      let grMismatch = 0, nightDeficit = 0, morningDeficit = 0;
       employees.filter(e => !e.onLeave).forEach(emp => {
         const grp = emp.group || 'normal';
-        const isOffNight = grp === 'off_night' || grp === 'r2_off_night' || grp === 'off_special';
-        const isR2Group  = grp === 'r2';
-        let morningCnt = 0, nightCnt = 0;
+        const isOffNight = grp==='off_night' || grp==='r2_off_night' || grp==='off_special';
+        const isR2Group  = grp==='r2';
+        let hasR1=false, hasG=false, morningCnt=0, nightCnt=0;
         for (let d = 1; d <= dim; d++) {
           const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          const s = shifts.find(s => s.id === assignments[`${emp.id}_${ds}`]);
-          if (!s) continue;
-          const u = s.name.trim().toUpperCase();
-          if (MORNING_NAMES.has(u)) morningCnt++;
-          if (NIGHT_NAMES.has(u))   nightCnt++;
+          const u = shiftNameById.get(assignments[`${emp.id}_${ds}`]);
+          if (!u) continue;
+          if (u==='R1') hasR1=true;
+          if (u==='G')  hasG=true;
+          if (MORNING_SET.has(u)) morningCnt++;
+          if (NIGHT_SET.has(u))   nightCnt++;
         }
-        // คนปกติ (รวม R2 group) ต้องได้เช้าอย่างน้อย 2
+        if (hasR1 !== hasG) grMismatch++;
+        if (!isOffNight && !isR2Group && nightCnt===0) nightDeficit++;
         if (!isOffNight && morningCnt < 2) morningDeficit++;
-        // คนปกติ (ไม่ใช่ off-night, ไม่ใช่ R2 group ที่ขึ้นเช้าแทนดึก) ต้องได้ดึกอย่างน้อย 1
-        if (!isOffNight && !isR2Group && nightCnt === 0) nightDeficit++;
       });
 
       const isGood = missing===0 && grMismatch===0 && nightDeficit===0 && morningDeficit===0 && nSpread<=10 && nStd<=3.5 && (oH.length<2||(oSpread<=8&&oStd<=3.5));
@@ -2363,7 +2349,6 @@ function ScheduleManager() {
       if (!o) return true;
       if (n.missing !== o.missing) return n.missing < o.missing;
       if (n.grMismatch !== o.grMismatch) return n.grMismatch < o.grMismatch;
-      // ความสม่ำเสมอดึก+เช้า — สำคัญกว่า spread ชั่วโมง
       if ((n.nightDeficit||0) !== (o.nightDeficit||0)) return (n.nightDeficit||0) < (o.nightDeficit||0);
       if ((n.morningDeficit||0) !== (o.morningDeficit||0)) return (n.morningDeficit||0) < (o.morningDeficit||0);
       if (n.nSpread+n.oSpread !== o.nSpread+o.oSpread) return n.nSpread+n.oSpread < o.nSpread+o.oSpread;
@@ -2383,10 +2368,10 @@ function ScheduleManager() {
     const goodCount = __debugLog.filter(d => d.isGood).length;
     const missingZeroCount = __debugLog.filter(d => d.missing === 0).length;
     const gMatchCount = __debugLog.filter(d => d.grMismatch === 0).length;
+    const nightOkCount = __debugLog.filter(d => (d.nightDef||0) === 0).length;
+    const morningOkCount = __debugLog.filter(d => (d.morningDef||0) === 0).length;
     const nSpreadOkCount = __debugLog.filter(d => d.nSpread <= 10).length;
     const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
-    const nightOkCount = __debugLog.filter(d => d.nightDef === 0).length;
-    const morningOkCount = __debugLog.filter(d => d.morningDef === 0).length;
     console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
     console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nightDef=0: ${nightOkCount}/${__debugLog.length} | morningDef=0: ${morningOkCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
