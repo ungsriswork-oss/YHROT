@@ -2360,28 +2360,48 @@ function ScheduleManager() {
       return n.nStd+n.oStd < o.nStd+o.oStd;
     };
     const __debugLog = [];
-    for (let attempt = 0; attempt < MAX_AUTO_RETRY; attempt++) {
-      const assignments = runOnce();
-      const score = scoreResult(assignments);
-      __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nightDef: score.nightDeficit, morningDef: score.morningDeficit, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
-      if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
-      if (score.isGood) { setRetryCount(attempt + 1); break; }
-      setRetryCount(attempt + 1);
-    }
-    console.log(`%c=== สรุปผล ${__debugLog.length} รอบที่ลอง ===`, 'font-weight:bold;color:#7c3aed');
-    console.table(__debugLog);
-    const goodCount = __debugLog.filter(d => d.isGood).length;
-    const missingZeroCount = __debugLog.filter(d => d.missing === 0).length;
-    const gMatchCount = __debugLog.filter(d => d.grMismatch === 0).length;
-    const nightOkCount = __debugLog.filter(d => (d.nightDef||0) === 0).length;
-    const morningOkCount = __debugLog.filter(d => (d.morningDef||0) === 0).length;
-    const nSpreadOkCount = __debugLog.filter(d => d.nSpread <= 10).length;
-    const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
-    console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
-    console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nightDef=0: ${nightOkCount}/${__debugLog.length} | morningDef=0: ${morningOkCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
-    setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
-    setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
-    setIsGenerating(false);
+
+    // ─── ลูปสุ่มแบบแบ่งก้อน (async) — คืน main thread เป็นระยะ ───
+    // แก้อาการหน้าค้าง "not responding" + ให้ progress bar ขยับจริง
+    // และหยุดเร็วเมื่อได้ผลที่ "ยอมรับได้" แล้ว (ไม่ต้องรูดครบ 150 รอบทุกครั้ง)
+    const CHUNK = 3;                      // จำนวนรอบต่อก้อนก่อน yield คืน main thread
+    let attempt = 0;
+
+    const finalize = () => {
+      console.log(`%c=== สรุปผล ${__debugLog.length} รอบที่ลอง ===`, 'font-weight:bold;color:#7c3aed');
+      console.table(__debugLog);
+      const goodCount = __debugLog.filter(d => d.isGood).length;
+      const missingZeroCount = __debugLog.filter(d => d.missing === 0).length;
+      const gMatchCount = __debugLog.filter(d => d.grMismatch === 0).length;
+      const nightOkCount = __debugLog.filter(d => (d.nightDef||0) === 0).length;
+      const morningOkCount = __debugLog.filter(d => (d.morningDef||0) === 0).length;
+      const nSpreadOkCount = __debugLog.filter(d => d.nSpread <= 10).length;
+      const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
+      console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
+      console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nightDef=0: ${nightOkCount}/${__debugLog.length} | morningDef=0: ${morningOkCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
+      setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
+      setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
+      setIsGenerating(false);
+    };
+
+    const runChunk = () => {
+      const chunkEnd = Math.min(attempt + CHUNK, MAX_AUTO_RETRY);
+      let stop = false;
+      for (; attempt < chunkEnd; attempt++) {
+        const assignments = runOnce();
+        const score = scoreResult(assignments);
+        __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nightDef: score.nightDeficit, morningDef: score.morningDeficit, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
+        if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
+        if (score.isGood) { attempt++; stop = true; break; }  // เจอ isGood → หยุด (เกณฑ์เดิม)
+      }
+      setRetryCount(attempt);
+      if (!stop && attempt < MAX_AUTO_RETRY) {
+        setTimeout(runChunk, 0);  // yield → เบราว์เซอร์ได้ repaint, progress ขยับ, ไม่ค้าง
+      } else {
+        finalize();
+      }
+    };
+    runChunk();
     }, 50);
   };
 
