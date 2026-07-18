@@ -2342,6 +2342,58 @@ function ScheduleManager() {
       if (!swapped3h) break;
     }
 
+    // ═══ PHASE 4: Morning top-up — ดัน normal/r2 ทุกคนให้ได้เวรเช้า ≥ 2 ═══
+    // ย้ายเวรเช้าธรรมดา(ไม่มี pairing/กฎเฉพาะ) จากคนที่เหลือ(>2) → คนที่ขาด(<2)
+    // legal-swap ล้วน: canAssign คุมกฎครบทุกข้อ (rule_1/rule_7/cap/hours) — สร้างเวรขาด/ผิดกฎไม่ได้
+    {
+      const MORNING_SPECIAL = new Set(['G','R1','R2','T1','T2']); // ไม่ย้าย (มี pairing/กฎเฉพาะ)
+      const shiftObjById = new Map(shifts.map(s => [s.id, s]));
+      // นับเวรเช้าด้วย "ชื่อ" ให้ตรงกับ MORNING_SET ใน scoreResult เป๊ะ ๆ (กันนับเพี้ยนจาก category)
+      const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4','PCR']);
+      const mornTotal = (id) => {
+        let c = 0;
+        for (let d = 1; d <= dim; d++) {
+          const sId = newAssignments[`${id}_${fmtD(d)}`];
+          if (!sId) continue;
+          const nm = shiftObjById.get(sId)?.name.trim().toUpperCase();
+          if (nm && MORNING_NAMES.has(nm)) c++;
+        }
+        return c;
+      };
+      const needsMorn = (emp) => {
+        const g = emp.group || 'normal';
+        const isOff = g==='off_night' || g==='r2_off_night' || g==='off_special';
+        return !isOff && mornTotal(emp.id) < 2;
+      };
+      let tuGuard = 0, tuChanged = true;
+      while (tuChanged && tuGuard++ < 60) {
+        tuChanged = false;
+        const deficits = activeEmployees.filter(needsMorn);
+        if (deficits.length === 0) break;
+        for (const def of deficits) {
+          if (mornTotal(def.id) >= 2) continue;
+          let moved = false;
+          for (let d = 1; d <= dim && !moved; d++) {
+            const ds = fmtD(d);
+            if (newAssignments[`${def.id}_${ds}`]) continue; // def มีเวรวันนี้แล้ว
+            for (const donor of activeEmployees) {
+              if (donor.id === def.id) continue;
+              if (mornTotal(donor.id) <= 2) continue; // donor ต้อง "เหลือ" (>2)
+              const sId = newAssignments[`${donor.id}_${ds}`];
+              if (!sId) continue;
+              const sObj = shiftObjById.get(sId);
+              if (!sObj || getShiftCategory(sObj) !== 'เช้า') continue;
+              if (MORNING_SPECIAL.has(sObj.name.trim().toUpperCase())) continue;
+              if (!canAssign(def, ds, d, sObj)) continue; // คุมกฎครบสำหรับผู้รับ
+              doSwap(donor.id, def.id, ds, sObj);
+              tuChanged = true; moved = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
