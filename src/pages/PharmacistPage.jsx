@@ -8,13 +8,14 @@ import {
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-// ─── กลุ่มเภสัชกร 5 กลุ่ม ───
+// ─── กลุ่มเภสัชกร 6 กลุ่ม ───
 export const PHARMACIST_GROUPS = [
   { id: 'normal',       label: 'ปกติ',           color: '#6366f1', desc: 'ขึ้นเวรได้ทุกประเภท รวมดึก' },
   { id: 'r2',           label: 'R2',              color: '#0ea5e9', desc: 'มีเวร R2, ขึ้นดึกได้' },
   { id: 'r2_off_night', label: 'R2 + งดดึก',     color: '#f59e0b', desc: 'มีเวร R2, งดเวรดึก' },
   { id: 'off_night',    label: 'งดดึก',           color: '#10b981', desc: 'งดเวรดึก (di, de) แต่ขึ้นได้ทุกอย่างอื่น' },
   { id: 'off_special',  label: 'Off พิเศษ',       color: '#ef4444', desc: 'งดดึก + งด 4s, บe, R1, T1, T2, G, A — รับได้เฉพาะ บi, บr และเวรที่กำหนด' },
+  { id: 'junior',       label: 'เด็กใหม่',        color: '#a78bfa', desc: 'ทำได้เฉพาะ 4o, 2o, PMC, 4T (ตั้งใน "เวรเฉพาะ") — ไม่นับ morning/night/ชั่วโมงห่าง' },
 ];
 
 // ─── Firebase Sync Hook ───
@@ -53,8 +54,8 @@ const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
   // SMC category ทุกตัว: hardcode 720
   if (getShiftCategory(shift) === 'SMC') return 720;
-  // PCR: ค่าตอบแทน 160 บ./ชม. (เรตพิเศษ ต่างจากเวรทั่วไป 100 บ./ชม.)
-  if (getShiftCategory(shift) === 'PCR') return getShiftHours(shift) * 160;
+  // PMC: ค่าตอบแทน 160 บ./ชม. (เรตพิเศษ ต่างจากเวรทั่วไป 100 บ./ชม.)
+  if (getShiftCategory(shift) === 'PMC') return getShiftHours(shift) * 160;
   // ถ้ามี customHours → ใช้คำนวณเงิน (100 บ./ชม.)
   if (shift.customHours && shift.customHours > 0) return shift.customHours * 100;
   // เวรอื่นคำนวณจาก start/end
@@ -98,7 +99,7 @@ const getShiftCategory = (shift) => {
   if (/^4s\d+$/i.test(shift.name.trim())) return 'SMC';
   if (u === '4O') return '4o';
   if (u === '2O') return '2o';
-  if (u === 'PCR') return 'PCR';
+  if (u === 'PMC') return 'PMC';
   return 'อื่นๆ';
 };
 
@@ -277,12 +278,12 @@ function ScheduleManager() {
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     let csv = '\uFEFFพนักงาน,กลุ่ม,';
     for (let i = 1; i <= dim; i++) csv += i + ',';
-    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,PCR,ชม.,รวม(บ.)\n';
+    csv += 'เช้า,บ่าย,ดึก,As/4,A/4,SMC,4o,2o,4T,PMC(ชม.),ชม.,รวม(บ.)\n';
     employees.filter(e => !e.onLeave).forEach(emp => {
       const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
       let row = [`"${emp.name}"`, `"${grp}"`];
       let money = 0, hours = 0;
-      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PCR':0 };
+      let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
@@ -290,10 +291,10 @@ function ScheduleManager() {
         if (s) {
           money += getShiftValue(s); hours += getShiftHours(s);
           const c = getShiftCategory(s);
-          if (cnt[c] !== undefined) cnt[c]++;
+          if (c === 'PMC') cnt[c] += getShiftHours(s); else if (cnt[c] !== undefined) cnt[c]++;
         }
       }
-      row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PCR'],hours,money);
+      row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PMC'],hours,money);
       csv += row.join(',') + '\n';
     });
     const a = document.createElement('a');
@@ -314,7 +315,7 @@ function ScheduleManager() {
       const wb = XLSX.utils.book_new();
 
       // header row 1: พนักงาน, กลุ่ม, วันที่ 1-31, สรุป
-      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','PCR','ชม.','รวม(บ.)'];
+      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','PMC(ชม.)','ชม.','รวม(บ.)'];
       const header = ['พนักงาน','กลุ่ม', ...Array.from({length:dim},(_,i)=>i+1), ...summaryHeaders];
 
       const wsData = [header];
@@ -324,7 +325,7 @@ function ScheduleManager() {
         const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
         const row = [emp.name, grp];
         let money = 0, hours = 0;
-        let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PCR':0 };
+        let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
         for (let d = 1; d <= dim; d++) {
           const ds = fmtDateFor(activeSchedule, d);
           const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
@@ -332,10 +333,10 @@ function ScheduleManager() {
           if (s) {
             money += getShiftValue(s); hours += getShiftHours(s);
             const c = getShiftCategory(s);
-            if (cnt[c] !== undefined) cnt[c]++;
+            if (c === 'PMC') cnt[c] += getShiftHours(s); else if (cnt[c] !== undefined) cnt[c]++;
           }
         }
-        row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PCR'],hours,money);
+        row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PMC'],hours,money);
         wsData.push(row);
       });
 
@@ -437,6 +438,7 @@ function ScheduleManager() {
           else if (a==='mon_tue_only'&&[1,2].includes(dow)&&!hol) ok=true;
           else if (a==='holidays_except_saturday'&&hol&&!isSat) ok=true;
           else if (a==='second_fourth_sunday') { if (dow===0 && (Math.ceil(d/7)===2||Math.ceil(d/7)===4)) ok=true; }
+          else if (a==='mon_thu') { if ([1,2,3,4].includes(dow) && !hol) ok=true; }
           else if (a==='first_day_of_holidays') {
             if (hol) {
               const pd=d-1, pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
@@ -457,14 +459,14 @@ function ScheduleManager() {
 
       // pre-build Map: shiftId → shiftName (O(1) lookup แทน shifts.find() ที่ช้า)
       const shiftNameById = new Map(shifts.map(s => [s.id, s.name.trim().toUpperCase()]));
-      const MORNING_SET = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4','PCR']);
+      const MORNING_SET = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
       const NIGHT_SET   = new Set(['ดI','ดE','R2']);
 
       // วน loop รอบเดียว — นับ grMismatch + nightDeficit + morningDeficit พร้อมกัน
       let grMismatch = 0, nightDeficit = 0, morningDeficit = 0;
       employees.filter(e => !e.onLeave).forEach(emp => {
         const grp = emp.group || 'normal';
-        const isOffNight = grp==='off_night' || grp==='r2_off_night' || grp==='off_special';
+        const isOffNight = grp==='off_night' || grp==='r2_off_night' || grp==='off_special' || grp==='junior';
         const isR2Group  = grp==='r2';
         let hasR1=false, hasG=false, morningCnt=0, nightCnt=0;
         for (let d = 1; d <= dim; d++) {
@@ -526,7 +528,7 @@ function ScheduleManager() {
     employees.forEach(e => {
       empStats[e.id] = {
         money: 0, hours: 0, totalShifts: 0,
-        catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, 'Telemed':0, 'PCR':0, อื่นๆ:0 },
+        catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0, อื่นๆ:0 },
         smcHours: 0,       // ชม.ค่าเวร smc สำหรับกระจาย
         countA_As4: 0,
         assignedMornings: new Set(),   // unique morning positions
@@ -672,6 +674,7 @@ function ScheduleManager() {
         return isFirstHol(d);
       }
       if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
+      if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
       return true;
     };
 
@@ -995,7 +998,7 @@ function ScheduleManager() {
 
         // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน
         // แต่ถ้าชั่วโมงต่างกันมาก (>4h) → ให้คนที่ชม.น้อยกว่าได้ก่อน (ไม่ override hours balance)
-        if (['SMC','4o','บ่าย','PCR','Telemed'].includes(cat)) {
+        if (['SMC','4o','บ่าย','PMC','Telemed'].includes(cat)) {
           if (Math.abs(sa.hours - sb.hours) <= 4) {
             const aCnt = sa.catCounts[cat] || 0;
             const bCnt = sb.catCounts[cat] || 0;
@@ -1099,7 +1102,6 @@ function ScheduleManager() {
       'As/4': 1,
       'A/4':  1,
       'Telemed': 1,  // 4T: ไม่เกิน 1 ครั้ง/เดือน
-      'PCR': 1,  // PCR: ไม่เกิน 1 ครั้ง/คน/เดือน (อา.ที่ 2,4)
     };
 
     // morning cap รวม (เช้า + As/4 + A/4)
@@ -1327,7 +1329,7 @@ function ScheduleManager() {
               // บ่าย hard cap=2
               if (cat2 === 'บ่าย' && (empStats[emp.id].catCounts['บ่าย'] || 0) >= 2) return false;
               // Morning/Telemed hard cap
-              if ((cat2 === 'PCR' || cat2 === 'Telemed') && (empStats[emp.id].catCounts[cat2] || 0) >= (CAP[cat2] || 1)) return false;
+              if ((cat2 === 'Telemed') && (empStats[emp.id].catCounts[cat2] || 0) >= (CAP[cat2] || 1)) return false;
               // ห้ามซ้ำตำแหน่งเช้า (สำคัญมาก: ป้องกัน G ซ้ำ, R1 ซ้ำ ฯลฯ) — unconditional ไม่ขึ้นกับ rule_7 toggle
               if (cat2 === 'เช้า' && u2 !== 'R2' && st2.assignedMornings.has(u2)) return false;
               // ห้ามซ้ำตำแหน่งบ่าย (ยกเว้น off_special)
@@ -1384,7 +1386,7 @@ function ScheduleManager() {
               // บ่าย hard cap=2
               if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
               // Morning/Telemed hard cap
-              if ((cat3 === 'PCR' || cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
+              if ((cat3 === 'Telemed') && (st3.catCounts[cat3] || 0) >= (CAP[cat3] || 1)) return false;
               // rule_7: เช้าซ้ำตำแหน่ง
               if (cat3 === 'เช้า' && u3 !== 'R2' && st3.assignedMornings.has(u3)) return false;
               // rule_6: A/4 + As/4 รวมกันได้แค่ 1 ครั้ง/เดือน (นับรวมข้ามตำแหน่ง)
@@ -1584,7 +1586,7 @@ function ScheduleManager() {
             }
 
             // Morning/Telemed cap check
-            if ((cat === 'PCR' || cat === 'Telemed') && (empStats[underEmp.id].catCounts[cat] || 0) >= (CAP[cat] || 1)) continue;
+            if ((cat === 'Telemed') && (empStats[underEmp.id].catCounts[cat] || 0) >= (CAP[cat] || 1)) continue;
 
             // R1 ≠ T1/T2 mutual exclusion
             if (u === 'R1' && (empStats[underEmp.id].hasT1 || empStats[underEmp.id].hasT2)) continue;
@@ -2320,7 +2322,7 @@ function ScheduleManager() {
                 if (empStats[underEmp.id].countA_As4 > 0) continue; // มี As/4 แล้วห้าม 4o
               }
               // Telemed/Morning cap check
-              if ((cat4 === 'Telemed' || cat4 === 'PCR') && (empStats[underEmp.id].catCounts[cat4] || 0) >= (CAP[cat4] || 1)) continue;
+              if ((cat4 === 'Telemed') && (empStats[underEmp.id].catCounts[cat4] || 0) >= (CAP[cat4] || 1)) continue;
 
               // ตรวจ hours หลัง swap — เพิ่ม 4h ให้ under, ลด 4h จาก over
               const newUnderHours4 = underHours + 4;
@@ -2349,7 +2351,7 @@ function ScheduleManager() {
       const MORNING_SPECIAL = new Set(['G','R1','R2','T1','T2']); // ไม่ย้าย (มี pairing/กฎเฉพาะ)
       const shiftObjById = new Map(shifts.map(s => [s.id, s]));
       // นับเวรเช้าด้วย "ชื่อ" ให้ตรงกับ MORNING_SET ใน scoreResult เป๊ะ ๆ (กันนับเพี้ยนจาก category)
-      const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4','PCR']);
+      const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
       const mornTotal = (id) => {
         let c = 0;
         for (let d = 1; d <= dim; d++) {
@@ -2362,7 +2364,7 @@ function ScheduleManager() {
       };
       const needsMorn = (emp) => {
         const g = emp.group || 'normal';
-        const isOff = g==='off_night' || g==='r2_off_night' || g==='off_special';
+        const isOff = g==='off_night' || g==='r2_off_night' || g==='off_special' || g==='junior';
         return !isOff && mornTotal(emp.id) < 2;
       };
       let tuGuard = 0, tuChanged = true;
@@ -2755,7 +2757,7 @@ function ScheduleManager() {
                       <div className="text-xs pb-1">{d.dateNum}</div>
                     </th>
                   ))}
-                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A/4','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['4T','bg-cyan-50/50','text-cyan-700'],['PCR','bg-violet-50/50','text-violet-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
+                  {[['เช้า','bg-blue-50/50','text-blue-700'],['บ่าย','bg-orange-50/50','text-orange-700'],['ดึก','bg-purple-50/50','text-purple-700'],['As/4','bg-teal-50/50','text-teal-700'],['A/4','bg-indigo-50/50','text-indigo-700'],['SMC','bg-rose-50/50','text-rose-700'],['4o','bg-yellow-50/50','text-yellow-700'],['2o','bg-lime-50/50','text-lime-700'],['4T','bg-cyan-50/50','text-cyan-700'],['PMC(ชม.)','bg-violet-50/50','text-violet-700'],['ช.ม.','bg-gray-100','text-gray-700']].map(([label,bg,tc]) => (
                     <th key={label} className={`p-1 border-b border-r border-gray-200 w-[30px] text-[10px] font-bold ${bg} ${tc}`}>{label}</th>
                   ))}
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold">รวม(บ.)</th>
@@ -2764,14 +2766,14 @@ function ScheduleManager() {
               <tbody>
                 {sortedEmployees.map(emp => {
                   let totalMoney = 0, totalHours = 0;
-                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PCR':0 };
+                  let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
                   monthDates.forEach(d => {
                     const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
                     if (s) {
                       totalMoney += getShiftValue(s);
                       totalHours += getShiftHours(s);
                       const c = getShiftCategory(s);
-                      if (cnt[c] !== undefined) cnt[c]++;
+                      if (c === 'PMC') cnt[c] += getShiftHours(s); else if (cnt[c] !== undefined) cnt[c]++;
                     }
                   });
                   const grp = PHARMACIST_GROUPS.find(g => g.id === (emp.group || 'normal'));
@@ -2800,7 +2802,7 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PCR']].map((v,i) => (
+                      {[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PMC']].map((v,i) => (
                         <td key={i} className="px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700">{v > 0 ? v : '-'}</td>
                       ))}
                       <td className={`px-1 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold
@@ -3309,11 +3311,11 @@ function ShiftTypesManager() {
     { value: '4o', label: '4o' },
     { value: '2o', label: '2o' },
     { value: 'Telemed', label: 'Telemed (4T — จำนวนคนต่อวันกำหนดในตารางเวร)' },
-    { value: 'PCR', label: 'PCR (เวรพิเศษ อา.ที่ 2,4 — นับเป็นเวรเช้า, 160 บ./ชม.)' },
+    { value: 'PMC', label: 'PMC (เวรพิเศษ 160 บ./ชม. — นับเป็นชั่วโมง)' },
     { value: 'อื่นๆ', label: 'อื่นๆ' },
   ];
 
-  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PCR)' };
+  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PMC)', mon_thu:'จ-พฤ (ยกเว้นศุกร์)' };
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -3536,5 +3538,6 @@ function isApplicableGlobal(shift, d, schedule) {
     return d === 1 || !pHol;
   }
   if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
+  if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
   return true;
 }
