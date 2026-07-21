@@ -2718,7 +2718,7 @@ function ScheduleManager() {
               return{sp,st:st.toFixed(1),icon,color};
             };
             const nScore=hasData?calcScore(employees.filter(e=>e.group==='normal'||e.group==='r2'||!e.group),8,10,3.0,4.0):null;
-            const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),6,8,3.0,4.0):null;
+            const oScore=hasData?calcScore(employees.filter(e=>['off_night','r2_off_night'].includes(e.group)),8,10,4.0,5.0):null;
             const missing=[], over=[];
             if(hasData){
               for(let d=1;d<=dim;d++){
