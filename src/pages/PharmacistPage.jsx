@@ -2355,6 +2355,58 @@ function ScheduleManager() {
       if (!swapped3h) break;
     }
 
+    // ═══ PHASE 3z: 2o fill-repair — เติม 2o ที่ยังขาด ═══
+    // สาเหตุที่ขาด: เพดานชั่วโมง/pace ของ off_night บล็อกคนว่างที่มีชั่วโมงเหลือ (soft balance)
+    // แก้: คงกฎ hard ครบ (ว่างวันนั้น + rule_1 + เวรเฉพาะ + งดรับเวร) ผ่อนเฉพาะเพดานชั่วโมง soft
+    {
+      const twoOShiftsR = shifts.filter(s => getShiftCategory(s) === '2o' && !s.suspended);
+      const shiftObjById2 = new Map(shifts.map(s => [s.id, s]));
+      // rule_1 แบบผ่อน (เหมือน fallback ในระบบ): ห้ามแค่ติดกัน (gap=1) อนุญาต gap≥2
+      // Layer 1 (canAssign) ใช้ rule_1 เข้ม gap≥3 อยู่แล้ว จึงลองแบบเข้มก่อน ค่อยผ่อนที่ Layer 2
+      const rule1Clear2o = (empId, d) => {
+        if (newAssignments[`${empId}_${fmtD(d - 1)}`]) return false;
+        if (newAssignments[`${empId}_${fmtD(d + 1)}`]) return false;
+        return true;
+      };
+      for (const shift of twoOShiftsR) {
+        for (let d = 1; d <= dim; d++) {
+          if (!isApplicable(shift, d)) continue;
+          const ds = fmtD(d);
+          const need = shift.min || 1;
+          let have = 0;
+          for (const emp of activeEmployees) {
+            const sid = newAssignments[`${emp.id}_${ds}`];
+            if (sid) { const so = shiftObjById2.get(sid); if (so && getShiftCategory(so) === '2o') have++; }
+          }
+          for (let k = have; k < need; k++) {
+            // ชั้น 1: canAssign ปกติ (ถ้าผ่านได้ ใช้ก่อน)
+            let cands = activeEmployees.filter(e => !newAssignments[`${e.id}_${ds}`] && canAssign(e, ds, d, shift));
+            // ชั้น 2: ผ่อนเฉพาะเพดานชั่วโมง soft — คงกฎ hard ทั้งหมด
+            if (cands.length === 0) {
+              cands = activeEmployees.filter(e => {
+                if (newAssignments[`${e.id}_${ds}`]) return false;                                     // ต้องว่างวันนั้น
+                if (!rule1Clear2o(e.id, d)) return false;                                               // rule_1 (ห่าง ≥ 3 วัน)
+                if (e.specificShifts?.length > 0 && !e.specificShifts.includes(shift.id)) return false; // เวรเฉพาะ
+                if (e.offShifts?.includes(shift.id)) return false;                                      // งดรับเวร
+                if ((empStats[e.id].catCounts['2o'] || 0) >= 2) return false;                           // เพดาน 2o ผ่อนเป็น ≤ 2
+                return true;
+              });
+            }
+            if (cands.length === 0) break;
+            // เลือก: 2o น้อยสุดก่อน → ชั่วโมงเหลือมากสุด
+            cands.sort((a, b) => {
+              const a2 = empStats[a.id].catCounts['2o'] || 0, b2 = empStats[b.id].catCounts['2o'] || 0;
+              if (a2 !== b2) return a2 - b2;
+              const aRoom = (canDoNight(a) ? TARGET_NORMAL : TARGET_OFF_NIGHT) - empStats[a.id].hours;
+              const bRoom = (canDoNight(b) ? TARGET_NORMAL : TARGET_OFF_NIGHT) - empStats[b.id].hours;
+              return bRoom - aRoom;
+            });
+            doAssign(cands[0], ds, d, shift);
+          }
+        }
+      }
+    }
+
     // ═══ PHASE 4: Morning top-up — ดัน normal/r2 ทุกคนให้ได้เวรเช้า ≥ 2 ═══
     // ย้ายเวรเช้าธรรมดา(ไม่มี pairing/กฎเฉพาะ) จากคนที่เหลือ(>2) → คนที่ขาด(<2)
     // legal-swap ล้วน: canAssign คุมกฎครบทุกข้อ (rule_1/rule_7/cap/hours) — สร้างเวรขาด/ผิดกฎไม่ได้
