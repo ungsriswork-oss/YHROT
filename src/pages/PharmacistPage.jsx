@@ -213,6 +213,7 @@ function ScheduleManager() {
 
   const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
+  const shiftById = new Map(shifts.map(s => [s.id, s])); // O(1) lookup แทน shifts.find (ผลเหมือนเดิม เร็วขึ้น)
   const schedules = Array.isArray(rawSchedules) ? rawSchedules : [];
 
   const defaultRules = Object.fromEntries(RULES_LIST.map(r => [r.id, true]));
@@ -286,7 +287,7 @@ function ScheduleManager() {
       let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
-        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
+        const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
         row.push(s ? `"${s.name}"` : '');
         if (s) {
           money += getShiftValue(s); hours += getShiftHours(s);
@@ -328,7 +329,7 @@ function ScheduleManager() {
         let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
         for (let d = 1; d <= dim; d++) {
           const ds = fmtDateFor(activeSchedule, d);
-          const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
+          const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
           row.push(s ? s.name : '');
           if (s) {
             money += getShiftValue(s); hours += getShiftHours(s);
@@ -406,7 +407,7 @@ function ScheduleManager() {
         let h = 0;
         for (let d = 1; d <= dim; d++) {
           const ds = `${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-          const s = shifts.find(s => s.id === assignments[`${empId}_${ds}`]);
+          const s = shiftById.get(assignments[`${empId}_${ds}`]);
           if (s) h += getShiftHours(s);
         }
         return h;
@@ -614,7 +615,7 @@ function ScheduleManager() {
           empStats[eid].hasT1 = false;
           empStats[eid].hasT2 = false;
           for (let d2 = 1; d2 <= dim; d2++) {
-            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            const s2 = shiftById.get(newAssignments[`${eid}_${fmtD(d2)}`]);
             if (!s2 || getShiftCategory(s2) !== 'เช้า') continue;
             const u2 = s2.name.trim().toUpperCase();
             empStats[eid].assignedMornings.add(u2);
@@ -632,7 +633,7 @@ function ScheduleManager() {
           empStats[eid].afternoonCount = 0;
           empStats[eid].hasBe = false;
           for (let d2 = 1; d2 <= dim; d2++) {
-            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            const s2 = shiftById.get(newAssignments[`${eid}_${fmtD(d2)}`]);
             if (!s2 || getShiftCategory(s2) !== 'บ่าย') continue;
             const u2 = s2.name.trim().toUpperCase();
             empStats[eid].assignedAfternoons.add(u2);
@@ -646,7 +647,7 @@ function ScheduleManager() {
         [fromEmpId, toEmpId].forEach(eid => {
           empStats[eid].assignedNights = new Set();
           for (let d2 = 1; d2 <= dim; d2++) {
-            const s2 = shifts.find(s => s.id === newAssignments[`${eid}_${fmtD(d2)}`]);
+            const s2 = shiftById.get(newAssignments[`${eid}_${fmtD(d2)}`]);
             if (s2 && getShiftCategory(s2) === 'ดึก') empStats[eid].assignedNights.add(s2.name.trim().toUpperCase());
           }
         });
@@ -1475,7 +1476,7 @@ function ScheduleManager() {
       let h = 0;
       for (let d = 1; d <= dim; d++) {
         const ds = fmtD(d);
-        const s = shifts.find(s => s.id === newAssignments[`${empId}_${ds}`]);
+        const s = shiftById.get(newAssignments[`${empId}_${ds}`]);
         if (s) h += getShiftHours(s);
       }
       return h;
@@ -1500,7 +1501,7 @@ function ScheduleManager() {
           const ds = fmtD(d);
           const sid = newAssignments[`${overEmp.id}_${ds}`];
           if (!sid) continue;
-          const s = shifts.find(s => s.id === sid);
+          const s = shiftById.get(sid);
           if (!s) continue;
           const u = s.name.trim().toUpperCase();
           if (u === 'R2') continue;
@@ -1573,7 +1574,7 @@ function ScheduleManager() {
               for (let d2 = 1; d2 <= dim; d2++) {
                 const sid2 = newAssignments[`${underEmp.id}_${fmtD(d2)}`];
                 if (!sid2) continue;
-                const s2 = shifts.find(s => s.id === sid2);
+                const s2 = shiftById.get(sid2);
                 if (!s2) continue;
                 if (getShiftCategory(s2) === 'ดึก') {
                   nightCount++;
@@ -1588,7 +1589,7 @@ function ScheduleManager() {
               for (let d2 = 1; d2 <= dim; d2++) {
                 const sid2 = newAssignments[`${underEmp.id}_${fmtD(d2)}`];
                 if (!sid2) continue;
-                const s2 = shifts.find(s => s.id === sid2);
+                const s2 = shiftById.get(sid2);
                 if (s2 && s2.name.trim().toUpperCase() === u) { alreadyHas = true; break; }
               }
               if (alreadyHas) continue;
@@ -1627,7 +1628,7 @@ function ScheduleManager() {
     const countAfternoon = (empId) => {
       let n = 0;
       for (let d = 1; d <= dim; d++) {
-        const s = shifts.find(s => s.id === newAssignments[`${empId}_${fmtD(d)}`]);
+        const s = shiftById.get(newAssignments[`${empId}_${fmtD(d)}`]);
         if (s && getShiftCategory(s) === 'บ่าย') n++;
       }
       return n;
@@ -1650,7 +1651,7 @@ function ScheduleManager() {
           const ds = fmtD(d);
           const sid = newAssignments[`${overEmp.id}_${ds}`];
           if (!sid) continue;
-          const s = shifts.find(s => s.id === sid);
+          const s = shiftById.get(sid);
           if (!s || getShiftCategory(s) !== 'บ่าย') continue;
           aftShifts.push({ d, ds, s });
         }
@@ -1685,7 +1686,7 @@ function ScheduleManager() {
             if (!isOffSpecial(underEmp)) {
               let hasAftDup = false;
               for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                const s2 = shiftById.get(newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
                 if (s2 && s2.name.trim().toUpperCase() === u) { hasAftDup = true; break; }
               }
               if (hasAftDup) continue;
@@ -1700,7 +1701,7 @@ function ScheduleManager() {
               const ds2 = fmtD(d2);
               const sid2 = newAssignments[`${underEmp.id}_${ds2}`];
               if (!sid2) continue;
-              const s2 = shifts.find(s => s.id === sid2);
+              const s2 = shiftById.get(sid2);
               if (!s2 || getShiftHours(s2) !== 4) continue;
               // ตรวจว่า overEmp รับ 4h วันนั้นได้ไหม (ว่างและไม่ติดกัน)
               if (newAssignments[`${overEmp.id}_${ds2}`]) continue;
@@ -1775,7 +1776,7 @@ function ScheduleManager() {
           const ds = fmtD(d);
           const sid = newAssignments[`${overEmp.id}_${ds}`];
           if (!sid) continue;
-          const s = shifts.find(s => s.id === sid);
+          const s = shiftById.get(sid);
           if (!s) continue;
           const u = s.name.trim().toUpperCase();
           if (u === 'R2') continue; // R2 ห้าม swap
@@ -1823,7 +1824,7 @@ function ScheduleManager() {
             if (cat === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                const s2 = shiftById.get(newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
                 if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
               }
               if (smcCount >= CAP['SMC']) continue;
@@ -1849,7 +1850,7 @@ function ScheduleManager() {
     const countSMC = (empId) => {
       let n = 0;
       for (let d = 1; d <= dim; d++) {
-        const s = shifts.find(s => s.id === newAssignments[`${empId}_${fmtD(d)}`]);
+        const s = shiftById.get(newAssignments[`${empId}_${fmtD(d)}`]);
         if (s && getShiftCategory(s) === 'SMC') n++;
       }
       return n;
@@ -1873,7 +1874,7 @@ function ScheduleManager() {
           const ds = fmtD(d);
           const sid = newAssignments[`${overEmp.id}_${ds}`];
           if (!sid) continue;
-          const s = shifts.find(s => s.id === sid);
+          const s = shiftById.get(sid);
           if (!s || getShiftCategory(s) !== 'SMC') continue;
           smcShifts.push({ d, ds, s });
         }
@@ -1924,7 +1925,7 @@ function ScheduleManager() {
     const getShiftDay = (empId, shiftName) => {
       for (let d = 1; d <= dim; d++) {
         const ds = fmtD(d);
-        const s = shifts.find(s => s.id === newAssignments[`${empId}_${ds}`]);
+        const s = shiftById.get(newAssignments[`${empId}_${ds}`]);
         if (s && s.name.trim().toUpperCase() === shiftName.toUpperCase()) return { d, ds, s };
       }
       return null;
@@ -1934,7 +1935,7 @@ function ScheduleManager() {
     const r1NoG = activeEmployees.filter(e => {
       let hasR1 = false, hasG = false;
       for (let d = 1; d <= dim; d++) {
-        const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+        const s = shiftById.get(newAssignments[`${e.id}_${fmtD(d)}`]);
         if (!s) continue;
         if (s.name.trim().toUpperCase() === 'R1') hasR1 = true;
         if (s.name.trim().toUpperCase() === 'G') hasG = true;
@@ -1946,7 +1947,7 @@ function ScheduleManager() {
     const gNoR1 = activeEmployees.filter(e => {
       let hasR1 = false, hasG = false;
       for (let d = 1; d <= dim; d++) {
-        const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+        const s = shiftById.get(newAssignments[`${e.id}_${fmtD(d)}`]);
         if (!s) continue;
         if (s.name.trim().toUpperCase() === 'R1') hasR1 = true;
         if (s.name.trim().toUpperCase() === 'G') hasG = true;
@@ -1959,7 +1960,7 @@ function ScheduleManager() {
       const toEmp = r1NoG.find(e => {
         // ตรวจว่า toEmp ยังไม่มี G
         for (let d = 1; d <= dim; d++) {
-          const s = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d)}`]);
+          const s = shiftById.get(newAssignments[`${e.id}_${fmtD(d)}`]);
           if (s && s.name.trim().toUpperCase() === 'G') return false;
         }
         return true;
@@ -1996,7 +1997,7 @@ function ScheduleManager() {
       const r1StillNoG = activeEmployees.filter(e => {
         let hasR1f = false, hasGf = false;
         for (let d2 = 1; d2 <= dim; d2++) {
-          const s2 = shifts.find(s => s.id === newAssignments[`${e.id}_${fmtD(d2)}`]);
+          const s2 = shiftById.get(newAssignments[`${e.id}_${fmtD(d2)}`]);
           if (!s2) continue;
           const u2 = s2.name.trim().toUpperCase();
           if (u2 === 'R1') hasR1f = true;
@@ -2034,7 +2035,7 @@ function ScheduleManager() {
               // คนนี้ต้องไม่มี R1 (ไม่งั้นจะเสีย pairing)
               let e2HasR1 = false;
               for (let d3 = 1; d3 <= dim; d3++) {
-                const s3 = shifts.find(s => s.id === newAssignments[`${e2.id}_${fmtD(d3)}`]);
+                const s3 = shiftById.get(newAssignments[`${e2.id}_${fmtD(d3)}`]);
                 if (s3 && s3.name.trim().toUpperCase() === 'R1') { e2HasR1 = true; break; }
               }
               return !e2HasR1;
@@ -2076,7 +2077,7 @@ function ScheduleManager() {
           const ds1 = fmtD(d1);
           const sid1 = newAssignments[`${offEmp.id}_${ds1}`];
           if (!sid1) continue;
-          const s1 = shifts.find(s => s.id === sid1);
+          const s1 = shiftById.get(sid1);
           if (!s1) continue;
           const u1 = s1.name.trim().toUpperCase();
           // ห้าม swap R2, G, R1, As/4, A/4 ออกจาก off_night
@@ -2093,7 +2094,7 @@ function ScheduleManager() {
             const normalEmp = normalEmpsAll.find(e => {
               const sid2 = newAssignments[`${e.id}_${ds2}`];
               if (!sid2) return false;
-              const s2 = shifts.find(s => s.id === sid2);
+              const s2 = shiftById.get(sid2);
               if (!s2) return false;
               if (s2.name.trim().toUpperCase() !== u1) return false;
               return true;
@@ -2101,7 +2102,7 @@ function ScheduleManager() {
             if (!normalEmp) continue;
 
             const sid2 = newAssignments[`${normalEmp.id}_${ds2}`];
-            const s2 = shifts.find(s => s.id === sid2);
+            const s2 = shiftById.get(sid2);
             if (!s2) continue;
             // ห้าม swap G/R1 ออกจาก normal ด้วย (รักษา pairing)
             const u2 = s2.name.trim().toUpperCase();
@@ -2159,7 +2160,7 @@ function ScheduleManager() {
             const ds = fmtD(d);
             const sid = newAssignments[`${overEmp.id}_${ds}`];
             if (!sid) continue;
-            const s = shifts.find(s => s.id === sid);
+            const s = shiftById.get(sid);
             if (!s || getShiftHours(s) !== 4) continue;
             if (s.name.trim().toUpperCase() === 'R2') continue;
             if (newAssignments[`${underEmp.id}_${ds}`]) continue;
@@ -2174,7 +2175,7 @@ function ScheduleManager() {
             if (getShiftCategory(s) === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                const s2 = shiftById.get(newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
                 if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
               }
               if (smcCount >= CAP['SMC']) continue;
@@ -2221,7 +2222,7 @@ function ScheduleManager() {
             const ds = fmtD(d);
             const sid = newAssignments[`${overEmp.id}_${ds}`];
             if (!sid) continue;
-            const s = shifts.find(s => s.id === sid);
+            const s = shiftById.get(sid);
             if (!s || getShiftHours(s) !== 8) continue;
             const u = s.name.trim().toUpperCase();
             if (['R2','G','R1'].includes(u)) continue;
@@ -2251,7 +2252,7 @@ function ScheduleManager() {
             if (cat === 'บ่าย' && !isOffSpecial(underEmp)) {
               let hasAftDup = false;
               for (let d2 = 1; d2 <= dim; d2++) {
-                const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                const s2 = shiftById.get(newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
                 if (s2 && s2.name.trim().toUpperCase() === u) { hasAftDup = true; break; }
               }
               if (hasAftDup) continue;
@@ -2294,7 +2295,7 @@ function ScheduleManager() {
               const ds = fmtD(d);
               const sid = newAssignments[`${overEmp.id}_${ds}`];
               if (!sid) continue;
-              const s = shifts.find(s => s.id === sid);
+              const s = shiftById.get(sid);
               if (!s || getShiftHours(s) !== 4) continue;
               const u = s.name.trim().toUpperCase();
               if (u === 'R2') continue;
@@ -2322,7 +2323,7 @@ function ScheduleManager() {
               if (cat4 === 'SMC') {
                 let smcCount = 0;
                 for (let d2 = 1; d2 <= dim; d2++) {
-                  const s2 = shifts.find(s => s.id === newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
+                  const s2 = shiftById.get(newAssignments[`${underEmp.id}_${fmtD(d2)}`]);
                   if (s2 && getShiftCategory(s2) === 'SMC') smcCount++;
                 }
                 if (smcCount >= CAP['SMC']) continue;
@@ -2576,7 +2577,7 @@ function ScheduleManager() {
     employees.forEach(emp => {
       let h = 0;
       monthDates.forEach(d => {
-        const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+        const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
         if (s) h += getShiftHours(s);
       });
       empHours[emp.id] = h;
@@ -2831,7 +2832,7 @@ function ScheduleManager() {
                   let totalMoney = 0, totalHours = 0;
                   let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
                   monthDates.forEach(d => {
-                    const s = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                    const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
                     if (s) {
                       totalMoney += getShiftValue(s);
                       totalHours += getShiftHours(s);
@@ -2856,7 +2857,7 @@ function ScheduleManager() {
                         </div>
                       </td>
                       {monthDates.map(d => {
-                        const sData = shifts.find(s => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
+                        const sData = shiftById.get(activeSchedule.assignments[`${emp.id}_${d.dateStr}`]);
                         const isAftOver = sData && getShiftCategory(sData) === 'บ่าย' && aftCount >= 3;
                         return (
                           <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })}
@@ -2987,7 +2988,7 @@ function ScheduleManager() {
               const target = isOff ? TARGET_OFF_NIGHT_DISPLAY : TARGET_NORMAL_DISPLAY;
               let curHours = 0;
               monthDates.forEach(d => {
-                const s = shifts.find(s => s.id === activeSchedule?.assignments[`${emp.id}_${d.dateStr}`]);
+                const s = shiftById.get(activeSchedule?.assignments[`${emp.id}_${d.dateStr}`]);
                 if (s) curHours += getShiftHours(s);
               });
               const over = curHours > target;
