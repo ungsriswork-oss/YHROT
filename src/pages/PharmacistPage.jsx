@@ -3015,6 +3015,7 @@ function EmployeesManager() {
     { label: 'เวรดึก', cats: ['ดึก'] },
     { label: 'เวรเช้า', cats: ['เช้า','As/4','A/4'] },
     { label: 'เวร 4o/SMC/2o', cats: ['4o','SMC','2o','อื่นๆ'] },
+    { label: 'เวรพิเศษ (4T / PMC)', cats: ['Telemed','PMC'] },
   ];
 
   const renderShiftCheckboxes = (section) => {
