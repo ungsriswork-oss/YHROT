@@ -2484,6 +2484,10 @@ function ScheduleManager() {
     // และหยุดเร็วเมื่อได้ผลที่ "ยอมรับได้" แล้ว (ไม่ต้องรูดครบ 150 รอบทุกครั้ง)
     const CHUNK = 3;                      // จำนวนรอบต่อก้อนก่อน yield คืน main thread
     let attempt = 0;
+    // ── early-stop แยกต่างหาก (ไม่แตะ isGood/scoring) ──
+    // หยุดเมื่อ best-so-far "ครบ + ช่วงห่างในเกณฑ์ที่ยอมรับได้" (ไม่บังคับ std ที่ทำให้ isGood แทบไม่ติด)
+    const EARLY_STOP_MIN = 10;   // ลองอย่างน้อยกี่รอบก่อน (ให้โอกาสเจอ isGood ก่อน) — ปรับได้
+    const acceptableStop = (s) => !!s && s.missing===0 && s.grMismatch===0 && s.nightDeficit===0 && s.morningDeficit===0 && s.nSpread<=10 && s.oSpread<=8;
 
     const finalize = () => {
       console.log(`%c=== สรุปผล ${__debugLog.length} รอบที่ลอง ===`, 'font-weight:bold;color:#7c3aed');
@@ -2511,6 +2515,11 @@ function ScheduleManager() {
         __debugLog.push({ attempt: attempt+1, missing: score.missing, grMismatch: score.grMismatch, nightDef: score.nightDeficit, morningDef: score.morningDeficit, nSpread: score.nSpread, nStd: +score.nStd.toFixed(2), oSpread: score.oSpread, oStd: +score.oStd.toFixed(2), isGood: score.isGood });
         if (isBetter(score, bestScore)) { bestAssignments = assignments; bestScore = score; }
         if (score.isGood) { attempt++; stop = true; break; }  // เจอ isGood → หยุด (เกณฑ์เดิม)
+        // early-stop: best-so-far ครบ + ช่วงห่างในเกณฑ์ (ไม่บังคับ std) → หยุดเร็ว
+        if (attempt + 1 >= EARLY_STOP_MIN && acceptableStop(bestScore)) {
+          console.log(`%c⏹ early-stop รอบที่ ${attempt+1}: ครบ + ช่วงห่างในเกณฑ์ (nSpread≤10, oSpread≤8)`, 'color:#0891b2;font-weight:bold');
+          attempt++; stop = true; break;
+        }
       }
       setRetryCount(attempt);
       if (!stop && attempt < MAX_AUTO_RETRY) {
