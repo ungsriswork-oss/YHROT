@@ -530,6 +530,7 @@ function ScheduleManager() {
         money: 0, hours: 0, totalShifts: 0,
         catCounts: { เช้า:0, บ่าย:0, ดึก:0, SMC:0, 'As/4':0, 'A/4':0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0, อื่นๆ:0 },
         smcHours: 0,       // ชม.ค่าเวร smc สำหรับกระจาย
+        pmcHours: 0,       // ชม.ค่าเวร PMC สำหรับเกลี่ยข้ามกลุ่ม
         countA_As4: 0,
         assignedMornings: new Set(),   // unique morning positions
         assignedNights: new Set(),
@@ -560,6 +561,7 @@ function ScheduleManager() {
       empStats[emp.id].totalShifts++;
       empStats[emp.id].catCounts[cat] = (empStats[emp.id].catCounts[cat] || 0) + 1;
       if (cat === 'SMC') empStats[emp.id].smcHours += getShiftHours(shift);
+      if (cat === 'PMC') empStats[emp.id].pmcHours += getShiftHours(shift);
       if (u === 'A/4' || u === 'AS1' || u === 'AS/4') empStats[emp.id].countA_As4++;
       if (cat === 'เช้า') {
         empStats[emp.id].assignedMornings.add(u);
@@ -591,6 +593,7 @@ function ScheduleManager() {
       empStats[fromEmpId].totalShifts--;
       empStats[fromEmpId].catCounts[cat] = Math.max(0, (empStats[fromEmpId].catCounts[cat] || 1) - 1);
       if (cat === 'SMC') empStats[fromEmpId].smcHours -= hrs;
+      if (cat === 'PMC') empStats[fromEmpId].pmcHours -= hrs;
 
       // เพิ่มให้ toEmp
       newAssignments[`${toEmpId}_${dateStr}`] = shift.id;
@@ -599,6 +602,7 @@ function ScheduleManager() {
       empStats[toEmpId].totalShifts++;
       empStats[toEmpId].catCounts[cat] = (empStats[toEmpId].catCounts[cat] || 0) + 1;
       if (cat === 'SMC') empStats[toEmpId].smcHours += hrs;
+      if (cat === 'PMC') empStats[toEmpId].pmcHours += hrs;
 
       // ─── rebuild category tracking ทั้ง 2 ฝั่ง (from + to) ───
       // เช้า: rebuild assignedMornings + hasR1/hasG/hasT1/hasT2
@@ -991,6 +995,13 @@ function ScheduleManager() {
           if (aN !== bN) return bN - aN;
         }
 
+        // PMC: เกลี่ยชั่วโมง PMC ให้เท่ากันทุกกลุ่ม (ข้ามกลุ่ม, ไม่ gate ด้วยชั่วโมงรวม)
+        // แก้ปัญหา PMC กองที่กลุ่มงดดึก/เด็กใหม่ (ชั่วโมงรวมน้อย เลยชนะ balance เดิม)
+        if (cat === 'PMC') {
+          const aPmc = sa.pmcHours || 0, bPmc = sb.pmcHours || 0;
+          if (aPmc !== bPmc) return aPmc - bPmc;
+        }
+
         // Gap preference: คนที่ห่างจากเวรล่าสุดมากกว่าได้ก่อน — กระจายเวรไม่ให้ถี่
         const aGap = sa.lastDay !== null ? d - sa.lastDay : 999;
         const bGap = sb.lastDay !== null ? d - sb.lastDay : 999;
@@ -998,7 +1009,7 @@ function ScheduleManager() {
 
         // SMC / 4o / บ่าย / Morning / Telemed: คนที่ได้น้อยกว่าได้ก่อน
         // แต่ถ้าชั่วโมงต่างกันมาก (>4h) → ให้คนที่ชม.น้อยกว่าได้ก่อน (ไม่ override hours balance)
-        if (['SMC','4o','บ่าย','PMC','Telemed'].includes(cat)) {
+        if (['SMC','4o','บ่าย','Telemed'].includes(cat)) {
           if (Math.abs(sa.hours - sb.hours) <= 4) {
             const aCnt = sa.catCounts[cat] || 0;
             const bCnt = sb.catCounts[cat] || 0;
