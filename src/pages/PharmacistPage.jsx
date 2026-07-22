@@ -2418,16 +2418,26 @@ function ScheduleManager() {
       const shiftObjById = new Map(shifts.map(s => [s.id, s]));
       // นับเวรเช้าด้วย "ชื่อ" ให้ตรงกับ MORNING_SET ใน scoreResult เป๊ะ ๆ (กันนับเพี้ยนจาก category)
       const MORNING_NAMES = new Set(['A','B','C','D','E','F','G','R1','R2','T1','T2','AS1','AS/4','A/4']);
-      const mornTotal = (id) => {
+      // ── pre-index ครั้งเดียว: เลี่ยง trim/toUpperCase + getShiftCategory ในลูปชั้นใน ──
+      const morningIds = new Set();   // เวรที่นับเป็น "เวรเช้า"
+      const movableIds = new Set();   // เวรเช้าธรรมดาที่ย้ายได้ (ไม่มี pairing/กฎเฉพาะ)
+      for (const s of shifts) {
+        const nm = (s.name || '').trim().toUpperCase();
+        if (!MORNING_NAMES.has(nm)) continue;
+        morningIds.add(s.id);
+        if (getShiftCategory(s) === 'เช้า' && !MORNING_SPECIAL.has(nm)) movableIds.add(s.id);
+      }
+      // ── cache จำนวนเวรเช้าต่อคน: นับครั้งเดียว แล้วอัปเดตตอนย้าย (ผลเท่าเดิม เร็วขึ้น ~100x) ──
+      const mornCnt = {};
+      for (const e of activeEmployees) {
         let c = 0;
         for (let d = 1; d <= dim; d++) {
-          const sId = newAssignments[`${id}_${fmtD(d)}`];
-          if (!sId) continue;
-          const nm = shiftObjById.get(sId)?.name.trim().toUpperCase();
-          if (nm && MORNING_NAMES.has(nm)) c++;
+          const sId = newAssignments[`${e.id}_${fmtD(d)}`];
+          if (sId && morningIds.has(sId)) c++;
         }
-        return c;
-      };
+        mornCnt[e.id] = c;
+      }
+      const mornTotal = (id) => mornCnt[id] || 0;
       const needsMorn = (emp) => {
         const g = emp.group || 'normal';
         const isOff = g==='off_night' || g==='r2_off_night' || g==='off_special' || g==='junior';
@@ -2448,12 +2458,12 @@ function ScheduleManager() {
               if (donor.id === def.id) continue;
               if (mornTotal(donor.id) <= 2) continue; // donor ต้อง "เหลือ" (>2)
               const sId = newAssignments[`${donor.id}_${ds}`];
-              if (!sId) continue;
+              if (!sId || !movableIds.has(sId)) continue;   // O(1) แทน getShiftCategory/trim ในลูป
               const sObj = shiftObjById.get(sId);
-              if (!sObj || getShiftCategory(sObj) !== 'เช้า') continue;
-              if (MORNING_SPECIAL.has(sObj.name.trim().toUpperCase())) continue;
+              if (!sObj) continue;
               if (!canAssign(def, ds, d, sObj)) continue; // คุมกฎครบสำหรับผู้รับ
               doSwap(donor.id, def.id, ds, sObj);
+              mornCnt[donor.id]--; mornCnt[def.id]++;      // อัปเดต cache ให้ตรงกับผลการย้าย
               tuChanged = true; moved = true;
               break;
             }
