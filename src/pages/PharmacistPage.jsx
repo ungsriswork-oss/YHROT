@@ -440,6 +440,7 @@ function ScheduleManager() {
           else if (a==='holidays_except_saturday'&&hol&&!isSat) ok=true;
           else if (a==='second_fourth_sunday') { if (dow===0 && (Math.ceil(d/7)===2||Math.ceil(d/7)===4)) ok=true; }
           else if (a==='mon_thu') { if ([1,2,3,4].includes(dow) && !hol) ok=true; }
+          else if (a==='mon_thu_holiday') { if ([1,2,3,4].includes(dow) && hol) ok=true; }
           else if (a==='first_day_of_holidays') {
             if (hol) {
               const pd=d-1, pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
@@ -680,6 +681,7 @@ function ScheduleManager() {
       }
       if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
       if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
+      if (a === 'mon_thu_holiday') return [1,2,3,4].includes(dow) && hol;
       return true;
     };
 
@@ -3389,7 +3391,7 @@ function ShiftTypesManager() {
     { value: 'อื่นๆ', label: 'อื่นๆ' },
   ];
 
-  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PMC)', mon_thu:'จ-พฤ (ยกเว้นศุกร์)' };
+  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PMC)', mon_thu:'จ-พฤ (ยกเว้นศุกร์)', mon_thu_holiday:'จ-พฤ นักขัตฤกษ์ (PMC 10-20)' };
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -3613,5 +3615,6 @@ function isApplicableGlobal(shift, d, schedule) {
   }
   if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
   if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
+  if (a === 'mon_thu_holiday') return [1,2,3,4].includes(dow) && hol;
   return true;
 }
