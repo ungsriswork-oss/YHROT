@@ -54,8 +54,8 @@ const getShiftValue = (shift) => {
   if (!shift?.name) return 0;
   // SMC category ทุกตัว: hardcode 720
   if (getShiftCategory(shift) === 'SMC') return 720;
-  // PMC: ค่าตอบแทน 160 บ./ชม. (เรตพิเศษ ต่างจากเวรทั่วไป 100 บ./ชม.)
-  if (getShiftCategory(shift) === 'PMC') return getShiftHours(shift) * 160;
+  // PMC: ค่าตอบแทน 180 บ./ชม. (เรตพิเศษ ต่างจากเวรทั่วไป 100 บ./ชม.)
+  if (getShiftCategory(shift) === 'PMC') return getShiftHours(shift) * 180;
   // ถ้ามี customHours → ใช้คำนวณเงิน (100 บ./ชม.)
   if (shift.customHours && shift.customHours > 0) return shift.customHours * 100;
   // เวรอื่นคำนวณจาก start/end
@@ -441,6 +441,7 @@ function ScheduleManager() {
           else if (a==='second_fourth_sunday') { if (dow===0 && (Math.ceil(d/7)===2||Math.ceil(d/7)===4)) ok=true; }
           else if (a==='mon_thu') { if ([1,2,3,4].includes(dow) && !hol) ok=true; }
           else if (a==='mon_thu_holiday') { if ([1,2,3,4].includes(dow) && hol) ok=true; }
+          else if (a==='mon_fri_holiday') { if ([1,2,3,4,5].includes(dow) && hol) ok=true; }
           else if (a==='first_day_of_holidays') {
             if (hol) {
               const pd=d-1, pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
@@ -682,6 +683,7 @@ function ScheduleManager() {
       if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
       if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
       if (a === 'mon_thu_holiday') return [1,2,3,4].includes(dow) && hol;
+      if (a === 'mon_fri_holiday') return [1,2,3,4,5].includes(dow) && hol;
       return true;
     };
 
@@ -3397,11 +3399,11 @@ function ShiftTypesManager() {
     { value: '4o', label: '4o' },
     { value: '2o', label: '2o' },
     { value: 'Telemed', label: 'Telemed (4T — จำนวนคนต่อวันกำหนดในตารางเวร)' },
-    { value: 'PMC', label: 'PMC (เวรพิเศษ 160 บ./ชม. — นับเป็นชั่วโมง)' },
+    { value: 'PMC', label: 'PMC (เวรพิเศษ 180 บ./ชม. — นับเป็นชั่วโมง)' },
     { value: 'อื่นๆ', label: 'อื่นๆ' },
   ];
 
-  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PMC)', mon_thu:'จ-พฤ (ยกเว้นศุกร์)', mon_thu_holiday:'จ-พฤ นักขัตฤกษ์ (PMC 10-20)' };
+  const dayLabels = { all:'ทุกวัน', weekdays:'วันธรรมดา (จ-ศ)', weekends_holidays:'วันหยุด (ส-อา+นักขัตฤกษ์)', saturdays_only:'วันเสาร์', mon_tue_only:'จ-อ (ทำการ)', holidays_except_saturday:'วันหยุดนักขัตฤกษ์ (ยกเว้นเสาร์)', first_day_of_holidays:'วันแรกของช่วงหยุด (T2)', second_fourth_sunday:'อาทิตย์ที่ 2 และ 4 ของเดือน (PMC)', mon_thu:'จ-พฤ (ยกเว้นศุกร์)', mon_thu_holiday:'จ-พฤ นักขัตฤกษ์ (PMC 10-20)', mon_fri_holiday:'จ-ศ นักขัตฤกษ์ (PMC 10-20)' };
 
   return (
     <div className="w-full h-full flex flex-col">
@@ -3626,5 +3628,6 @@ function isApplicableGlobal(shift, d, schedule) {
   if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
   if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
   if (a === 'mon_thu_holiday') return [1,2,3,4].includes(dow) && hol;
+  if (a === 'mon_fri_holiday') return [1,2,3,4,5].includes(dow) && hol;
   return true;
 }
