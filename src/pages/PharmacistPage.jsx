@@ -483,7 +483,7 @@ function ScheduleManager() {
         }
         if (hasR1 !== hasG) grMismatch++;
         if (!isOffNight && !isR2Group && nightCnt===0) nightDeficit++;
-        if (!isOffNight && morningCnt < 2) morningDeficit++;
+        if (!isOffNight && morningCnt < 1) morningDeficit++;
       });
 
       const isGood = missing===0 && grMismatch===0 && nightDeficit===0 && morningDeficit===0 && nSpread<=10 && nStd<=3.5 && (oH.length<2||(oSpread<=8&&oStd<=3.5));
@@ -842,6 +842,9 @@ function ScheduleManager() {
         if (cat === '2o' && (st.catCounts['2o'] || 0) >= CAP['2o']) return false;
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= CAP['SMC']) return false;
 
+        // PMC: จำกัด ≤ 10 ชม./คน/เดือน (กันเงินโดด — ได้ PMC-SAT/DOFF 10h แล้วเต็มโควตา)
+        if (cat === 'PMC' && ((st.pmcHours || 0) + getShiftHours(shift)) > 10) return false;
+
         // เช้า cap รวม (เช้า + As/4 + A/4)
         const totalMorning = (st.catCounts['เช้า'] || 0) + (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0);
         if (['เช้า','As/4','A/4'].includes(cat)) {
@@ -1039,7 +1042,7 @@ function ScheduleManager() {
         if (['เช้า','As/4','A/4'].includes(cat)) {
           const aTotal = (sa.catCounts['เช้า']||0) + (sa.catCounts['As/4']||0) + (sa.catCounts['A/4']||0);
           const bTotal = (sb.catCounts['เช้า']||0) + (sb.catCounts['As/4']||0) + (sb.catCounts['A/4']||0);
-          const aUnder = aTotal < 2, bUnder = bTotal < 2;
+          const aUnder = aTotal < 1, bUnder = bTotal < 1;
           if (aUnder !== bUnder) return aUnder ? -1 : 1;
         }
 
@@ -1603,6 +1606,7 @@ function ScheduleManager() {
 
             // Morning/Telemed cap check
             if ((cat === 'Telemed') && (empStats[underEmp.id].catCounts[cat] || 0) >= (CAP[cat] || 1)) continue;
+            if (cat === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(overShift)) > 10) continue; // PMC cap ≤10ชม.
 
             // R1 ≠ T1/T2 mutual exclusion
             if (u === 'R1' && (empStats[underEmp.id].hasT1 || empStats[underEmp.id].hasT2)) continue;
@@ -1825,6 +1829,7 @@ function ScheduleManager() {
 
             // ตรวจ SMC cap ของ underEmp
             const cat = getShiftCategory(fourShift);
+            if (cat === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(fourShift)) > 10) continue; // PMC cap ≤10ชม.
             if (cat === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
@@ -2176,6 +2181,7 @@ function ScheduleManager() {
             const newUnderHours = underHours + 4;
             if (newUnderHours > MAX_OFF_HOURS) continue;
             if (newUnderHours >= overHours) continue;
+            if (getShiftCategory(s) === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(s)) > 10) continue; // PMC cap ≤10ชม.
             if (getShiftCategory(s) === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
@@ -2339,6 +2345,7 @@ function ScheduleManager() {
               }
               // Telemed/Morning cap check
               if ((cat4 === 'Telemed') && (empStats[underEmp.id].catCounts[cat4] || 0) >= (CAP[cat4] || 1)) continue;
+              if (cat4 === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(fourShift)) > 10) continue; // PMC cap ≤10ชม.
 
               // ตรวจ hours หลัง swap — เพิ่ม 4h ให้ under, ลด 4h จาก over
               const newUnderHours4 = underHours + 4;
@@ -2412,7 +2419,7 @@ function ScheduleManager() {
       }
     }
 
-    // ═══ PHASE 4: Morning top-up — ดัน normal/r2 ทุกคนให้ได้เวรเช้า ≥ 2 ═══
+    // ═══ PHASE 4: Morning top-up — ดัน normal/r2 ทุกคนให้ได้เวรเช้า ≥ 1 ═══
     // ย้ายเวรเช้าธรรมดา(ไม่มี pairing/กฎเฉพาะ) จากคนที่เหลือ(>2) → คนที่ขาด(<2)
     // legal-swap ล้วน: canAssign คุมกฎครบทุกข้อ (rule_1/rule_7/cap/hours) — สร้างเวรขาด/ผิดกฎไม่ได้
     {
@@ -2443,7 +2450,7 @@ function ScheduleManager() {
       const needsMorn = (emp) => {
         const g = emp.group || 'normal';
         const isOff = g==='off_night' || g==='r2_off_night' || g==='off_special' || g==='junior';
-        return !isOff && mornTotal(emp.id) < 2;
+        return !isOff && mornTotal(emp.id) < 1;
       };
       let tuGuard = 0, tuChanged = true;
       while (tuChanged && tuGuard++ < 60) {
@@ -2451,14 +2458,14 @@ function ScheduleManager() {
         const deficits = activeEmployees.filter(needsMorn);
         if (deficits.length === 0) break;
         for (const def of deficits) {
-          if (mornTotal(def.id) >= 2) continue;
+          if (mornTotal(def.id) >= 1) continue;
           let moved = false;
           for (let d = 1; d <= dim && !moved; d++) {
             const ds = fmtD(d);
             if (newAssignments[`${def.id}_${ds}`]) continue; // def มีเวรวันนี้แล้ว
             for (const donor of activeEmployees) {
               if (donor.id === def.id) continue;
-              if (mornTotal(donor.id) <= 2) continue; // donor ต้อง "เหลือ" (>2)
+              if (mornTotal(donor.id) <= 1) continue; // donor ต้อง "เหลือ" (>1)
               const sId = newAssignments[`${donor.id}_${ds}`];
               if (!sId || !movableIds.has(sId)) continue;   // O(1) แทน getShiftCategory/trim ในลูป
               const sObj = shiftObjById.get(sId);
