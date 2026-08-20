@@ -2522,6 +2522,61 @@ function ScheduleManager() {
       const oSpreadOkCount = __debugLog.filter(d => d.oSpread <= 8).length;
       console.log(`isGood ทั้งหมด: ${goodCount}/${__debugLog.length}`);
       console.log(`missing=0: ${missingZeroCount}/${__debugLog.length} | grMismatch=0: ${gMatchCount}/${__debugLog.length} | nightDef=0: ${nightOkCount}/${__debugLog.length} | morningDef=0: ${morningOkCount}/${__debugLog.length} | nSpread<=10: ${nSpreadOkCount}/${__debugLog.length} | oSpread<=8: ${oSpreadOkCount}/${__debugLog.length}`);
+      // ═══ Spacing-repair — ลด "วันเว้นวันติดกัน" (gap<3) ═══
+      // รันครั้งเดียวบน best (ไม่กระทบความเร็วสุ่ม), swap ตำแหน่งเดียวกันข้ามคน (แบบ PHASE 3f)
+      // → แต่ละวัน slot ครบ (ไม่มีเวรขาด), count/hours/cap/metric ไม่เปลี่ยน จึงไม่ต้อง re-score
+      if (bestAssignments) {
+        const SR_dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+        const SR_key = (id, d) => `${id}_${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+        const SR_emps = employees.filter(e => !e.onLeave);
+        const SR_days = (id) => { const a=[]; for (let d=1; d<=SR_dim; d++) if (bestAssignments[SR_key(id,d)]) a.push(d); return a; };
+        const SR_minGap = (days, d, ex) => { let m=99; for (const x of days){ if(x===d||x===ex) continue; const g=Math.abs(x-d); if(g<m)m=g; } return m; };
+        const SR_name = (sid) => { const s=shiftById.get(sid); return s ? s.name.trim().toUpperCase() : null; };
+        const SR_daysMap = {}; for (const e of SR_emps) SR_daysMap[e.id]=SR_days(e.id);
+        let SR_guard=0, SR_changed=true;
+        while (SR_changed && SR_guard++ < 6) {
+          SR_changed = false;
+          for (const A of SR_emps) {
+            const daysA = SR_daysMap[A.id];
+            let swapped=false;
+            for (const D of daysA) {
+              if (SR_minGap(daysA, D, null) >= 3) continue;              // ห่างดีอยู่แล้ว
+              const sidA = bestAssignments[SR_key(A.id, D)];
+              const uA = SR_name(sidA);
+              if (!uA) continue;
+              for (const B of SR_emps) {
+                if (B.id === A.id) continue;
+                const daysB = SR_daysMap[B.id];
+                let matched=false;
+                for (const Dp of daysB) {
+                  if (Dp === D) continue;
+                  const sidB = bestAssignments[SR_key(B.id, Dp)];
+                  if (SR_name(sidB) !== uA) continue;                     // ตำแหน่งเดียวกัน
+                  if (bestAssignments[SR_key(A.id, Dp)]) continue;        // A ว่างวัน Dp
+                  if (bestAssignments[SR_key(B.id, D)]) continue;         // B ว่างวัน D
+                  if (SR_minGap(daysA, Dp, D) < 3) continue;              // A: Dp ห่าง≥3
+                  if (SR_minGap(daysB, D, Dp) < 3) continue;              // B: D ห่าง≥3 (ไม่ทำให้ B แย่)
+                  if (A.specificShifts?.length > 0 && !A.specificShifts.includes(sidB)) continue;
+                  if (A.offShifts?.includes(sidB)) continue;
+                  if (B.specificShifts?.length > 0 && !B.specificShifts.includes(sidA)) continue;
+                  if (B.offShifts?.includes(sidA)) continue;
+                  // RAW SWAP ตำแหน่งเดียวกันข้ามวัน
+                  delete bestAssignments[SR_key(A.id, D)];
+                  delete bestAssignments[SR_key(B.id, Dp)];
+                  bestAssignments[SR_key(B.id, D)] = sidA;
+                  bestAssignments[SR_key(A.id, Dp)] = sidB;
+                  SR_daysMap[A.id] = SR_days(A.id);
+                  SR_daysMap[B.id] = SR_days(B.id);
+                  SR_changed = true; swapped = true; matched = true;
+                  break;
+                }
+                if (matched) break;
+              }
+              if (swapped) break;
+            }
+          }
+        }
+      }
       setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: bestAssignments } : s));
       setGeneratedScheduleIds(prev => new Set([...prev, activeSchedule.id]));
       setIsGenerating(false);
