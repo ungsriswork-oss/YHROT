@@ -843,7 +843,7 @@ function ScheduleManager() {
         if (cat === 'SMC' && (st.catCounts['SMC'] || 0) >= CAP['SMC']) return false;
 
         // PMC: จำกัด ≤ 10 ชม./คน/เดือน (กันเงินโดด — ได้ PMC-SAT/DOFF 10h แล้วเต็มโควตา)
-        if (cat === 'PMC' && ((st.pmcHours || 0) + getShiftHours(shift)) > 10) return false;
+        if (cat === 'PMC' && (st.catCounts['PMC'] || 0) >= 1) return false; // PMC: 1 ครั้ง/คน/เดือน
 
         // เช้า cap รวม (เช้า + As/4 + A/4)
         const totalMorning = (st.catCounts['เช้า'] || 0) + (st.catCounts['As/4'] || 0) + (st.catCounts['A/4'] || 0);
@@ -1606,7 +1606,7 @@ function ScheduleManager() {
 
             // Morning/Telemed cap check
             if ((cat === 'Telemed') && (empStats[underEmp.id].catCounts[cat] || 0) >= (CAP[cat] || 1)) continue;
-            if (cat === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(overShift)) > 10) continue; // PMC cap ≤10ชม.
+            if (cat === 'PMC' && (empStats[underEmp.id].catCounts['PMC'] || 0) >= 1) continue; // PMC: 1 ครั้ง/คน/เดือน
 
             // R1 ≠ T1/T2 mutual exclusion
             if (u === 'R1' && (empStats[underEmp.id].hasT1 || empStats[underEmp.id].hasT2)) continue;
@@ -1829,7 +1829,7 @@ function ScheduleManager() {
 
             // ตรวจ SMC cap ของ underEmp
             const cat = getShiftCategory(fourShift);
-            if (cat === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(fourShift)) > 10) continue; // PMC cap ≤10ชม.
+            if (cat === 'PMC' && (empStats[underEmp.id].catCounts['PMC'] || 0) >= 1) continue; // PMC: 1 ครั้ง/คน/เดือน
             if (cat === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
@@ -2181,7 +2181,7 @@ function ScheduleManager() {
             const newUnderHours = underHours + 4;
             if (newUnderHours > MAX_OFF_HOURS) continue;
             if (newUnderHours >= overHours) continue;
-            if (getShiftCategory(s) === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(s)) > 10) continue; // PMC cap ≤10ชม.
+            if (getShiftCategory(s) === 'PMC' && (empStats[underEmp.id].catCounts['PMC'] || 0) >= 1) continue; // PMC: 1 ครั้ง/คน/เดือน
             if (getShiftCategory(s) === 'SMC') {
               let smcCount = 0;
               for (let d2 = 1; d2 <= dim; d2++) {
@@ -2345,7 +2345,7 @@ function ScheduleManager() {
               }
               // Telemed/Morning cap check
               if ((cat4 === 'Telemed') && (empStats[underEmp.id].catCounts[cat4] || 0) >= (CAP[cat4] || 1)) continue;
-              if (cat4 === 'PMC' && ((empStats[underEmp.id].pmcHours || 0) + getShiftHours(fourShift)) > 10) continue; // PMC cap ≤10ชม.
+              if (cat4 === 'PMC' && (empStats[underEmp.id].catCounts['PMC'] || 0) >= 1) continue; // PMC: 1 ครั้ง/คน/เดือน
 
               // ตรวจ hours หลัง swap — เพิ่ม 4h ให้ under, ลด 4h จาก over
               const newUnderHours4 = underHours + 4;
