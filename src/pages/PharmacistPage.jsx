@@ -214,6 +214,20 @@ function ScheduleManager() {
   const employees = Array.isArray(rawEmployees) ? rawEmployees : [];
   const shifts = Array.isArray(rawShifts) ? rawShifts : [];
   const shiftById = new Map(shifts.map(s => [s.id, s])); // O(1) lookup แทน shifts.find (ผลเหมือนเดิม เร็วขึ้น)
+  // ─── Label แยกตำแหน่งสำหรับเวรที่รับหลายคน (4o → 4o1, 4o2) — แสดงผลเท่านั้น ไม่กระทบ logic การสุ่ม ───
+  // หมุนเลขตามวันที่ เพื่อไม่ให้คนเดิมได้เลข 1 ตลอด (ผลคงที่ทุกครั้งที่เปิดดู)
+  const SPLIT_LABEL_NAMES = new Set(['4O']);
+  const getDisplayLabel = (sched, empId, ds) => {
+    const sid = sched?.assignments?.[`${empId}_${ds}`];
+    const s = shiftById.get(sid);
+    if (!s) return '';
+    if (!SPLIT_LABEL_NAMES.has((s.name || '').trim().toUpperCase())) return s.name;
+    const holders = employees.filter(e => sched.assignments[`${e.id}_${ds}`] === sid);
+    if (holders.length < 2) return s.name;
+    const idx = holders.findIndex(e => e.id === empId);
+    const day = Number(String(ds).slice(-2)) || 0;
+    return `${s.name}${((idx + day) % holders.length) + 1}`;
+  };
   const schedules = Array.isArray(rawSchedules) ? rawSchedules : [];
 
   const defaultRules = Object.fromEntries(RULES_LIST.map(r => [r.id, true]));
@@ -288,7 +302,7 @@ function ScheduleManager() {
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
-        row.push(s ? `"${s.name}"` : '');
+        row.push(s ? `"${getDisplayLabel(activeSchedule, emp.id, ds)}"` : '');
         if (s) {
           money += getShiftValue(s); hours += getShiftHours(s);
           const c = getShiftCategory(s);
@@ -330,7 +344,7 @@ function ScheduleManager() {
         for (let d = 1; d <= dim; d++) {
           const ds = fmtDateFor(activeSchedule, d);
           const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
-          row.push(s ? s.name : '');
+          row.push(s ? getDisplayLabel(activeSchedule, emp.id, ds) : '');
           if (s) {
             money += getShiftValue(s); hours += getShiftHours(s);
             const c = getShiftCategory(s);
@@ -2892,7 +2906,7 @@ function ScheduleManager() {
                         return (
                           <td key={d.dateStr} onClick={() => setAssignmentModal({ isOpen: true, empId: emp.id, dateStr: d.dateStr })}
                             className={`p-0 border-b border-r border-gray-200 cursor-pointer relative ${d.isHoliday ? 'bg-red-100/50' : ''}`}>
-                            {sData && <div className={`absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm ${isAftOver ? 'ring-2 ring-red-500 ring-offset-1' : ''}`} style={{ backgroundColor: isAftOver ? '#ef4444' : sData.color }}>{sData.name}</div>}
+                            {sData && <div className={`absolute inset-[2px] rounded-[3px] text-[9px] flex items-center justify-center font-bold text-white shadow-sm ${isAftOver ? 'ring-2 ring-red-500 ring-offset-1' : ''}`} style={{ backgroundColor: isAftOver ? '#ef4444' : sData.color }}>{getDisplayLabel(activeSchedule, emp.id, d.dateStr)}</div>}
                           </td>
                         );
                       })}
