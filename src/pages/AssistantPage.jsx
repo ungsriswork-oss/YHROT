@@ -540,6 +540,81 @@ function asResultToOutput(ctx, res) {
   };
 }
 
+// ตรวจตารางปัจจุบัน (cross-check) — ใช้ได้ทั้งหลังสุ่มและหลังแก้เวรเอง
+function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, nextDayWorkers }) {
+  const { year, month } = schedule;
+  const D = new Date(year, month + 1, 0).getDate();
+  const asg = schedule.assignments || {};
+  const holidays = schedule.holidays || {};
+  const shiftById = {};
+  shifts.forEach((s) => (shiftById[s.id] = s));
+  const noConsec = rules ? rules.as_noConsecutive !== false : true;
+  const missing = []; // {day, shiftName, color, lack}
+  const over = []; // {day, shiftName, color, reason}
+  const violations = []; // {day, name, shiftName, color, reason}
+  const dayFill = []; // {filled, need}
+  const fixedIssues = [];
+  const prev = new Set(prevDayWorkers || []);
+  const next = new Set(nextDayWorkers || []);
+  const counts = {}; // empId -> shiftId -> n
+
+  for (let d = 1; d <= D; d++) {
+    const ds = asDateStr(year, month, d);
+    const dow = new Date(year, month, d).getDay();
+    const hol = !!holidays[ds];
+    const filledBy = {};
+    employees.forEach((e) => {
+      const sid = asg[`${e.id}_${ds}`];
+      if (!sid) return;
+      const s = shiftById[sid];
+      if (!s) return;
+      filledBy[sid] = (filledBy[sid] || 0) + 1;
+      counts[e.id] = counts[e.id] || {};
+      counts[e.id][sid] = (counts[e.id][sid] || 0) + 1;
+      const v = (reason) =>
+        violations.push({ day: d, name: e.name, shiftName: s.name, color: s.color, reason });
+      if (e.offShifts && e.offShifts.includes(sid)) v('งดรับเวรนี้');
+      if (e.specificShifts && e.specificShifts.length > 0 && !e.specificShifts.includes(sid))
+        v('ไม่ใช่เวรเฉพาะของคนนี้');
+      const offD = (e.offShiftDays || {})[sid];
+      if (Array.isArray(offD) && offD.map(Number).includes(dow)) v('ห้ามเวรนี้วันนี้');
+      if (noConsec) {
+        const nextDs = d < D ? asDateStr(year, month, d + 1) : null;
+        if (nextDs && asg[`${e.id}_${nextDs}`] && shiftById[asg[`${e.id}_${nextDs}`]])
+          v(`ติดกับวันที่ ${d + 1}`);
+        if (d === 1 && prev.has(e.id)) v('ติดกับวันสุดท้ายของเดือนก่อน');
+        if (d === D && next.has(e.id)) v('ติดกับวันแรกของเดือนถัดไป');
+      }
+    });
+    let need = 0;
+    let filled = 0;
+    shifts.forEach((s) => {
+      const n = asShiftNeedOnDay(s, ds, dow, hol, schedule.telemedAppts, schedule.smcAppts);
+      const f = filledBy[s.id] || 0;
+      need += n;
+      filled += Math.min(f, n);
+      if (f < n) missing.push({ day: d, shiftName: s.name, color: s.color, lack: n - f });
+      if (f > n)
+        over.push({
+          day: d,
+          shiftName: s.name,
+          color: s.color,
+          reason: n === 0 ? 'วันนี้ไม่มีเวรนี้' : `เกิน (${f}/${n})`,
+        });
+    });
+    dayFill.push({ filled, need });
+  }
+  employees.forEach((e) => {
+    Object.entries(e.fixedCounts || {}).forEach(([sid, n]) => {
+      const s = shiftById[sid];
+      if (!s) return;
+      const got = (counts[e.id] || {})[sid] || 0;
+      if (got !== Number(n)) fixedIssues.push(`${e.name}: ${s.name} ${got}/${n}`);
+    });
+  });
+  return { missing, over, violations, dayFill, fixedIssues };
+}
+
 // ตรวจล่วงหน้าว่าเดือนนี้ "จัดครบได้ทางคณิตศาสตร์" หรือไม่
 function asPrecheck(ctx) {
   const warnings = [];
@@ -1074,6 +1149,30 @@ function ScheduleManager() {
   const inactiveRules = activeCategoryRules.filter((r) => !rules[r.id]);
   const currentlyActiveRules = activeCategoryRules.filter((r) => rules[r.id]);
 
+  // ─── Cross-check ตารางปัจจุบัน (คำนวณใหม่ทุกครั้งที่ตารางเปลี่ยน รวมถึงแก้เวรเอง) ───
+  let check = null;
+  let checkMoney = 0;
+  const hasAssignments =
+    !!activeSchedule && Object.keys(activeSchedule.assignments || {}).length > 0;
+  if (activeSchedule && hasAssignments) {
+    const bw = getBoundaryWorkers(activeSchedule);
+    check = asCrossCheck({
+      schedule: activeSchedule,
+      employees,
+      shifts,
+      rules,
+      prevDayWorkers: bw.prev,
+      nextDayWorkers: bw.next,
+    });
+    Object.entries(activeSchedule.assignments || {}).forEach(([key, sid]) => {
+      if (!employees.some((e) => key.startsWith(`${e.id}_`))) return;
+      const sh = shifts.find((x) => x.id === sid);
+      if (sh) checkMoney += getShiftValue(sh);
+    });
+  }
+  const checkNeed = check ? check.dayFill.reduce((a, x) => a + x.need, 0) : 0;
+  const checkFilled = check ? check.dayFill.reduce((a, x) => a + x.filled, 0) : 0;
+
   return (
     <div className="flex flex-col h-full w-full">
       <div className="flex justify-between items-center mb-3 shrink-0 print-hidden">
@@ -1243,6 +1342,87 @@ function ScheduleManager() {
 
       {activeSchedule && (
         <div className="flex justify-end gap-2 shrink-0 items-center mb-3">
+          {check && (
+            <div className="mr-auto flex items-center gap-2 flex-wrap print-hidden">
+              <div
+                className={`px-2.5 py-1.5 rounded-lg text-sm font-bold border ${
+                  checkFilled === checkNeed
+                    ? 'bg-green-50 text-green-700 border-green-200'
+                    : 'bg-red-50 text-red-600 border-red-200'
+                }`}
+                title="จำนวนช่องเวรที่ลงแล้ว / ที่ต้องมีทั้งเดือน (รวมเวร M / 4S ตามยอดนัด)"
+              >
+                📊 {checkFilled}/{checkNeed} ช่อง
+              </div>
+              <div className="px-2.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-lg text-sm font-bold text-emerald-700">
+                💰 {checkMoney.toLocaleString()} บ.
+              </div>
+              {check.missing.length === 0 &&
+                check.over.length === 0 &&
+                check.violations.length === 0 && (
+                  <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
+                    ✅ เวรครบทุกตำแหน่ง ไม่ผิดเงื่อนไข
+                  </div>
+                )}
+              {check.missing.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-bold text-red-600">
+                    ❌ ขาด {check.missing.reduce((a, m) => a + m.lack, 0)}:
+                  </span>
+                  {check.missing.map((m, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md text-white text-xs font-bold"
+                      style={{ backgroundColor: m.color }}
+                    >
+                      วัน {m.day}·{m.shiftName}
+                      {m.lack > 1 ? ` ×${m.lack}` : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {check.over.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-bold text-orange-600">
+                    ⚠️ เกิน/ผิดวัน {check.over.length}:
+                  </span>
+                  {check.over.map((o, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400"
+                      style={{ backgroundColor: o.color }}
+                    >
+                      วัน {o.day}·{o.shiftName}·{o.reason}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {check.violations.length > 0 && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-sm font-bold text-orange-600">
+                    ⚠️ ผิดเงื่อนไข {check.violations.length}:
+                  </span>
+                  {check.violations.map((v, i) => (
+                    <span
+                      key={i}
+                      className="px-2 py-0.5 rounded-md text-white text-xs font-bold ring-2 ring-orange-400"
+                      style={{ backgroundColor: v.color }}
+                    >
+                      วัน {v.day}·{v.shiftName}·{v.name} ({v.reason})
+                    </span>
+                  ))}
+                </div>
+              )}
+              {check.fixedIssues.length > 0 && (
+                <div
+                  className="px-2.5 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-xs font-bold text-amber-700"
+                  title="จำนวนเวรตายตัวที่ตั้งไว้ในหน้าพนักงาน"
+                >
+                  🎯 เวรตายตัว: {check.fixedIssues.join(' · ')}
+                </div>
+              )}
+            </div>
+          )}
           <button
             onClick={handleDeleteSchedule}
             className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"
@@ -1366,6 +1546,27 @@ function ScheduleManager() {
                   );
                 })}
               </tbody>
+              {check && (
+                <tfoot>
+                  <tr className="bg-slate-50 h-8">
+                    <td className="sticky left-0 bg-slate-50 px-2 py-1 border-t-2 border-r border-gray-300 text-left text-[11px] font-bold text-gray-700">
+                      ลงแล้ว / ต้องมี
+                    </td>
+                    {check.dayFill.map((f, i) => (
+                      <td
+                        key={i}
+                        className={`p-0 border-t-2 border-r border-gray-300 text-[9px] font-bold leading-tight ${
+                          f.filled === f.need ? 'text-green-700' : 'bg-red-100 text-red-700'
+                        }`}
+                        title={`วันที่ ${i + 1}: ลงแล้ว ${f.filled} จาก ${f.need} ช่อง`}
+                      >
+                        {f.filled}/{f.need}
+                      </td>
+                    ))}
+                    <td className="border-t-2 border-gray-300"></td>
+                  </tr>
+                </tfoot>
+              )}
             </table>
           </div>
         )}
