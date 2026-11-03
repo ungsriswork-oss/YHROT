@@ -297,7 +297,7 @@ function asGreedyDay(ctx, st, d, rand) {
 
   const adj = left.map((u) => {
     const cands = [];
-    for (let i = 0; i < N; i++) {
+    for (const i of st.perm) {
       if (!okDay(i, u.d)) continue;
       if (!asStaticOk(ctx, st, i, u.d, u.si)) continue;
       cands.push({ i, key: asPrefKey(ctx, st, i, u.si, rand) });
@@ -500,6 +500,12 @@ function asImprove(ctx, st, rand, iters) {
 // สุ่ม 1 รอบ
 function asRunAttempt(ctx, rand) {
   const st = asNewState(ctx);
+  // สุ่มลำดับคนอยู่เวรใหม่ทุกรอบ (ใช้ตัดสินเมื่อคะแนนความเหมาะสมเท่ากัน)
+  st.perm = Array.from({ length: ctx.N }, (_, i) => i);
+  for (let a = st.perm.length - 1; a > 0; a--) {
+    const b = Math.floor(rand() * (a + 1));
+    [st.perm[a], st.perm[b]] = [st.perm[b], st.perm[a]];
+  }
   for (let d = 0; d < ctx.D; d++) asGreedyDay(ctx, st, d, rand);
   asRepair(ctx, st, rand);
   asImprove(ctx, st, rand, 6000);
@@ -672,7 +678,64 @@ function asPrecheck(ctx) {
   return warnings;
 }
 
-// ตัวสุ่มเลข (seed ได้ เพื่อทดสอบ)
+// ตัวสุ่มจริงจากระบบปฏิบัติการ (crypto.getRandomValues — ใช้ entropy ของเครื่อง เดาล่วงหน้าไม่ได้)
+function asMakeCryptoRng() {
+  const c = typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+  if (!c || !c.getRandomValues) return Math.random;
+  const buf = new Uint32Array(4096);
+  let pos = buf.length;
+  return () => {
+    if (pos >= buf.length) {
+      c.getRandomValues(buf);
+      pos = 0;
+    }
+    return buf[pos++] / 4294967296;
+  };
+}
+
+// เลือกผลลัพธ์: สุ่มเลือก 1 ตารางจากกลุ่มที่ "ดีเกือบเท่าตารางที่ดีที่สุด"
+// (ขาดเท่ากัน + เวรตายตัวเท่ากัน + คะแนนความสมดุลไม่เกิน 10% จากที่ดีที่สุด)
+function asPickResult(results, rand) {
+  if (results.length === 0) return null;
+  let best = results[0];
+  results.forEach((r) => {
+    if (r.score < best.score) best = r;
+  });
+  const pool = results.filter(
+    (r) =>
+      r.missing === best.missing &&
+      r.fixedDiff === best.fixedDiff &&
+      r.soft <= best.soft * 1.1 + 20
+  );
+  return pool[Math.floor(rand() * pool.length)] || best;
+}
+
+// หมวดเวรสำหรับสรุปท้ายตาราง: ช / บ / ด / 4S / 4o / 2O / M
+const AS_SUMMARY_GROUPS = [
+  ['ช', 'bg-blue-50/60', 'text-blue-700'],
+  ['บ', 'bg-orange-50/60', 'text-orange-700'],
+  ['ด', 'bg-indigo-50/60', 'text-indigo-700'],
+  ['4S', 'bg-purple-50/60', 'text-purple-700'],
+  ['4o', 'bg-teal-50/60', 'text-teal-700'],
+  ['2O', 'bg-lime-50/60', 'text-lime-700'],
+  ['M', 'bg-yellow-50/60', 'text-yellow-700'],
+];
+const asShiftGroup = (shift) => {
+  if (!shift || !shift.name) return null;
+  const n = shift.name.trim().toUpperCase();
+  if (shift.dynamic === 'telemed' || /^M\d*$/.test(n)) return 'M';
+  if (shift.dynamic === 'smc' || /^4S/.test(n)) return '4S';
+  if (/^4\d+$/.test(n) || /^4O/.test(n)) return '4o';
+  if (/^2O/.test(n)) return '2O';
+  const startH = shift.start ? Number(shift.start.split(':')[0]) : null;
+  if (n.startsWith('ด') || startH === 0) return 'ด';
+  if (n.startsWith('บ') || (startH !== null && startH >= 14)) return 'บ';
+  if (startH !== null && startH < 14) return 'ช';
+  return null;
+};
+
+// ตัวสุ่มเลขแบบกำหนด seed ได้ — ใช้เฉพาะตอนทดสอบระบบ (หน้าเว็บใช้ asMakeCryptoRng)
+// eslint-disable-next-line no-unused-vars
 function asMakeRng(seed) {
   let s = seed >>> 0 || 1;
   return () => {
@@ -880,6 +943,7 @@ function ScheduleManager() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState(0);
   const [genReport, setGenReport] = useState(null);
+  const [genBestMissing, setGenBestMissing] = useState(null);
   const [isApptModalOpen, setIsApptModalOpen] = useState(false);
   const [apptDraft, setApptDraft] = useState({ telemed: {}, smc: {} });
 
@@ -941,11 +1005,14 @@ function ScheduleManager() {
     ).getDate();
     let csvContent = '\uFEFFพนักงาน,หมวดหมู่,';
     for (let i = 1; i <= daysInMonth; i++) csvContent += i + ',';
-    csvContent += 'รวมเงิน\n'; // ลบช่อง เช้า บ่าย ดึก ออกจาก Excel
+    csvContent +=
+      AS_SUMMARY_GROUPS.map(([label]) => label).join(',') + ',รวมเวร,รวมเงิน\n';
 
     employees.forEach((emp) => {
       let row = [`"${emp.name}"`, `"ผู้ช่วยเภสัชกร"`];
       let totalMoney = 0;
+      const grpCnt = {};
+      let totalShifts = 0;
 
       for (let d = 1; d <= daysInMonth; d++) {
         const dateStr = `${activeSchedule.year}-${String(
@@ -957,9 +1024,14 @@ function ScheduleManager() {
         row.push(sData ? `"${sData.name}"` : '');
         if (sData) {
           totalMoney += getShiftValue(sData);
+          totalShifts++;
+          const g = asShiftGroup(sData);
+          if (g) grpCnt[g] = (grpCnt[g] || 0) + 1;
         }
       }
-      row.push(totalMoney); // ใส่แค่รวมเงินท้ายสุด
+      AS_SUMMARY_GROUPS.forEach(([label]) => row.push(grpCnt[label] || 0));
+      row.push(totalShifts);
+      row.push(totalMoney);
       csvContent += row.join(',') + '\n';
     });
 
@@ -1028,12 +1100,14 @@ function ScheduleManager() {
       nextDayWorkers: boundary.next,
     });
     const warnings = asPrecheck(ctx);
-    const rng = asMakeRng((Date.now() ^ Math.floor(Math.random() * 1e9)) >>> 0);
+    const rng = asMakeCryptoRng();
     const scheduleId = activeSchedule.id;
+    const results = [];
     let best = null;
     let done = 0;
     setIsGenerating(true);
     setGenProgress(0);
+    setGenBestMissing(null);
     setGenReport(null);
 
     // สุ่มเป็นชุดเล็ก ๆ เพื่อไม่ให้หน้าเว็บค้าง
@@ -1041,15 +1115,17 @@ function ScheduleManager() {
       const t0 = Date.now();
       while (done < AS_ATTEMPTS && Date.now() - t0 < 120) {
         const r = asRunAttempt(ctx, rng);
+        results.push(r);
         if (!best || r.score < best.score) best = r;
         done++;
       }
       setGenProgress(done);
+      setGenBestMissing(best ? best.missing : null);
       if (done < AS_ATTEMPTS) {
         setTimeout(runChunk, 0);
         return;
       }
-      const out = asResultToOutput(ctx, best);
+      const out = asResultToOutput(ctx, asPickResult(results, rng));
       setSchedules(
         schedules.map((s) =>
           s.id === scheduleId ? { ...s, assignments: out.assignments } : s
@@ -1479,7 +1555,17 @@ function ScheduleManager() {
                       </div>
                     </th>
                   ))}
-                  {/* ลบ <th> ของ เช้า บ่าย ดึก ออก */}
+                  {AS_SUMMARY_GROUPS.map(([label, bg, tc]) => (
+                    <th
+                      key={label}
+                      className={`p-0 border-b border-r border-gray-200 w-[28px] text-[10px] font-bold ${bg} ${tc} print:text-black`}
+                    >
+                      {label}
+                    </th>
+                  ))}
+                  <th className="p-0 border-b border-r border-gray-200 w-[34px] text-[10px] font-bold bg-gray-100 text-gray-700">
+                    รวมเวร
+                  </th>
                   <th className="p-2 border-b border-gray-200 w-[70px] text-emerald-700 text-sm font-bold print:text-black">
                     รวม(บ.)
                   </th>
@@ -1488,6 +1574,17 @@ function ScheduleManager() {
               <tbody>
                 {employees.map((emp) => {
                   let totalMoney = 0;
+                  const grpCnt = {};
+                  let totalShifts = 0;
+                  monthDates.forEach((d) => {
+                    const s0 = shifts.find(
+                      (s) => s.id === activeSchedule.assignments[`${emp.id}_${d.dateStr}`]
+                    );
+                    if (!s0) return;
+                    totalShifts++;
+                    const g = asShiftGroup(s0);
+                    if (g) grpCnt[g] = (grpCnt[g] || 0) + 1;
+                  });
 
                   return (
                     <tr
@@ -1538,7 +1635,17 @@ function ScheduleManager() {
                           </td>
                         );
                       })}
-                      {/* ลบ <td> ของ เช้า บ่าย ดึก ออก */}
+                      {AS_SUMMARY_GROUPS.map(([label, bg]) => (
+                        <td
+                          key={label}
+                          className={`px-0.5 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-700 ${bg}`}
+                        >
+                          {grpCnt[label] || '-'}
+                        </td>
+                      ))}
+                      <td className="px-0.5 py-1 border-b border-r border-gray-200 text-[11px] text-center font-bold text-gray-800 bg-gray-50">
+                        {totalShifts || '-'}
+                      </td>
                       <td className="px-2 py-1 border-b border-gray-200 text-emerald-600 font-bold text-xs text-right print:text-black">
                         {totalMoney.toLocaleString()}
                       </td>
@@ -1563,7 +1670,10 @@ function ScheduleManager() {
                         {f.filled}/{f.need}
                       </td>
                     ))}
-                    <td className="border-t-2 border-gray-300"></td>
+                    <td
+                      colSpan={AS_SUMMARY_GROUPS.length + 2}
+                      className="border-t-2 border-gray-300"
+                    ></td>
                   </tr>
                 </tfoot>
               )}
@@ -1618,6 +1728,44 @@ function ScheduleManager() {
               >
                 สร้างตาราง
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isGenerating && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm flex items-center justify-center z-[60] p-4 print-hidden">
+          <style>{`
+            @keyframes asDice { 0%{transform:rotate(0) scale(1)} 25%{transform:rotate(90deg) scale(1.15)} 50%{transform:rotate(180deg) scale(1)} 75%{transform:rotate(270deg) scale(1.15)} 100%{transform:rotate(360deg) scale(1)} }
+            @keyframes asCell { 0%,100%{opacity:.25; transform:scale(.85)} 50%{opacity:1; transform:scale(1)} }
+          `}</style>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+            <div className="mx-auto w-14 h-14 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-lg" style={{ animation: 'asDice 1.2s ease-in-out infinite' }}>
+              <Wand2 className="w-7 h-7" />
+            </div>
+            <div className="grid grid-cols-7 gap-1 w-40 mx-auto mt-5">
+              {Array.from({ length: 21 }, (_, i) => (
+                <div
+                  key={i}
+                  className="h-3 rounded-sm"
+                  style={{
+                    backgroundColor: ['#8b5cf6', '#3b82f6', '#f97316', '#10b981', '#ec4899', '#eab308', '#6366f1'][(i * 3) % 7],
+                    animation: `asCell 1s ease-in-out ${(i % 7) * 0.12 + Math.floor(i / 7) * 0.2}s infinite`,
+                  }}
+                />
+              ))}
+            </div>
+            <div className="mt-5 font-bold text-gray-800">กำลังสุ่มตารางเวร...</div>
+            <div className="text-xs text-gray-500 mt-1">
+              รอบที่ {genProgress} / {AS_ATTEMPTS}
+              {genBestMissing !== null &&
+                (genBestMissing === 0 ? ' · พบตารางที่ครบทุกช่องแล้ว ✅' : ` · ดีที่สุดตอนนี้ขาด ${genBestMissing} ช่อง`)}
+            </div>
+            <div className="mt-3 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-purple-500 to-indigo-500 transition-all duration-150"
+                style={{ width: `${Math.round((genProgress / AS_ATTEMPTS) * 100)}%` }}
+              />
             </div>
           </div>
         </div>
