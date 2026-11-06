@@ -91,6 +91,18 @@ const asShiftNeedOnDay = (shift, dateStr, dow, isHolidayFlag, telemedAppts, smcA
   return Math.max(1, Number(shift.min) || 1);
 };
 
+// เพดานจำนวนเวรต่อคนต่อเดือน: นับรวมทุกเวรในกลุ่มเดียวกัน
+// - เวรที่เปิดตามยอดนัด (M1–M4 / 4S5–4S7) นับเป็นกลุ่มเดียวกันตามประเภทยอดนัด
+// - เวร Telemed ถ้าไม่ได้ตั้งค่า = 1 เวร/คน/เดือน
+const asCapGroupKey = (shift) => (shift.dynamic ? `dyn:${shift.dynamic}` : shift.id);
+const asCapOf = (shift) => {
+  if (shift.capPerPerson !== undefined && shift.capPerPerson !== null && shift.capPerPerson !== '') {
+    const v = Number(shift.capPerPerson);
+    return Number.isFinite(v) && v > 0 ? v : null;
+  }
+  return shift.dynamic === 'telemed' ? 1 : null;
+};
+
 // สร้าง context: วัน, ช่องเวร, สิทธิ์ของพนักงาน
 function asBuildContext({
   year,
@@ -108,6 +120,18 @@ function asBuildContext({
   const shiftIdx = {};
   shifts.forEach((s, i) => (shiftIdx[s.id] = i));
   const shiftValue = shifts.map((s) => asGetShiftValue(s));
+  const capKeys = [];
+  const capGroup = shifts.map((s) => {
+    const k = asCapGroupKey(s);
+    let g = capKeys.indexOf(k);
+    if (g < 0) {
+      capKeys.push(k);
+      g = capKeys.length - 1;
+    }
+    return g;
+  });
+  const capOf = shifts.map((s) => asCapOf(s));
+  const balanceShift = shifts.map((s) => !!s.balanceAmong);
 
   const days = [];
   for (let d = 1; d <= D; d++) {
@@ -166,6 +190,10 @@ function asBuildContext({
     shifts,
     shiftIdx,
     shiftValue,
+    capGroup,
+    capOf,
+    G: capKeys.length,
+    balanceShift,
     can,
     offDow,
     fixed,
@@ -201,6 +229,7 @@ function asNewState(ctx) {
     dayEmp: days.map(() => new Array(N).fill(-1)), // dayEmp[d][i] = slot index หรือ -1
     slotEmp: days.map((dy) => new Array(dy.slots.length).fill(-1)),
     cnt: Array.from({ length: N }, () => new Array(S).fill(0)),
+    gcnt: Array.from({ length: N }, () => new Array(ctx.G).fill(0)),
     money: new Array(N).fill(0),
     total: new Array(N).fill(0),
     log: null, // undo log (ใช้ตอน repair)
@@ -212,6 +241,7 @@ function asAssign(ctx, st, d, k, i) {
   st.slotEmp[d][k] = i;
   st.dayEmp[d][i] = k;
   st.cnt[i][si]++;
+  st.gcnt[i][ctx.capGroup[si]]++;
   st.money[i] += ctx.shiftValue[si];
   st.total[i]++;
   if (st.log) st.log.push([0, d, k, i]);
@@ -223,6 +253,7 @@ function asUnassign(ctx, st, d, k) {
   st.slotEmp[d][k] = -1;
   st.dayEmp[d][i] = -1;
   st.cnt[i][si]--;
+  st.gcnt[i][ctx.capGroup[si]]--;
   st.money[i] -= ctx.shiftValue[si];
   st.total[i]--;
   if (st.log) st.log.push([1, d, k, i]);
@@ -245,6 +276,8 @@ function asStaticOk(ctx, st, i, d, si) {
   if (ctx.offDow[i][si].includes(ctx.days[d].dow)) return false;
   const fx = ctx.fixed[i][si];
   if (fx !== null && st.cnt[i][si] >= fx) return false;
+  const cap = ctx.capOf[si];
+  if (cap !== null && st.gcnt[i][ctx.capGroup[si]] >= cap) return false;
   return true;
 }
 // มีเวรในวัน d±1 (รวมข้ามเดือน) หรือไม่
@@ -260,7 +293,8 @@ function asPrefKey(ctx, st, i, si, noise) {
   let key = 0;
   const fx = ctx.fixed[i][si];
   if (fx !== null && st.cnt[i][si] < fx) key -= 1e9; // ต้องได้ครบจำนวนตายตัว
-  if (ctx.dedicated[i]) key -= 1e8; // คนที่ลงได้เฉพาะบางเวร ให้ได้เวรนั้นก่อน
+  if (ctx.balanceShift[si]) key += st.cnt[i][si] * 1e8; // เวรที่ต้องเฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
+  else if (ctx.dedicated[i]) key -= 1e8; // คนที่ลงได้เฉพาะบางเวร ให้ได้เวรนั้นก่อน
   if (ctx.balanceTypes && fx === null) key += st.cnt[i][si] * 1e6; // หลีกเลี่ยงตัวเวรซ้ำ
   if (ctx.balanceMoney && ctx.balance[i]) key += st.money[i];
   key += st.total[i] * 50;
@@ -410,6 +444,22 @@ function asDupCount(ctx, st, i) {
   }
   return dup;
 }
+// เวรที่ติ๊ก "เฉลี่ยให้เท่ากัน": ผลรวมของ (มากสุด − น้อยสุด − 1) ระหว่างคนที่ลงได้ (ต่างกันไม่เกิน 1 = ไม่ปรับ)
+function asBalanceGap(ctx, st) {
+  let gap = 0;
+  for (let si = 0; si < ctx.S; si++) {
+    if (!ctx.balanceShift[si]) continue;
+    let mn = Infinity;
+    let mx = -Infinity;
+    for (let i = 0; i < ctx.N; i++) {
+      if (!ctx.can[i][si]) continue;
+      mn = Math.min(mn, st.cnt[i][si]);
+      mx = Math.max(mx, st.cnt[i][si]);
+    }
+    if (mx - mn > 1) gap += mx - mn - 1;
+  }
+  return gap;
+}
 function asFixedDiff(ctx, st) {
   let diff = 0;
   for (let i = 0; i < ctx.N; i++)
@@ -434,6 +484,7 @@ function asSoftScore(ctx, st) {
   for (let i = 0; i < ctx.N; i++) dup += asDupCount(ctx, st, i);
   const m = asMoneyStats(ctx, st);
   let s = asFixedDiff(ctx, st) * 1e6;
+  s += asBalanceGap(ctx, st) * 5000;
   if (ctx.balanceTypes) s += dup * 60;
   if (ctx.balanceMoney) s += m.std * 2 + m.range * 0.5;
   return s;
@@ -513,8 +564,10 @@ function asRunAttempt(ctx, rand) {
   if (asMissing(ctx, st) > 0) asRepair(ctx, st, rand);
   const missing = asMissing(ctx, st);
   const fixedDiff = asFixedDiff(ctx, st);
+  const gap = asBalanceGap(ctx, st);
   const soft = asSoftScore(ctx, st);
-  return { st, missing, fixedDiff, soft, score: missing * 1e9 + soft };
+  const fair = soft - fixedDiff * 1e6 - gap * 5000; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
+  return { st, missing, fixedDiff, gap, fair, soft, score: missing * 1e9 + soft };
 }
 
 // แปลงผลเป็น assignments ของตาราง + รายงาน
@@ -540,9 +593,17 @@ function asResultToOutput(ctx, res) {
           `${ctx.employees[i].name}: ${ctx.shifts[si].name} ได้ ${st.cnt[i][si]}/${fx}`
         );
     }
+  const balanceInfo = [];
+  for (let si = 0; si < ctx.S; si++) {
+    if (!ctx.balanceShift[si]) continue;
+    const parts = [];
+    for (let i = 0; i < ctx.N; i++)
+      if (ctx.can[i][si]) parts.push(`${ctx.employees[i].name} ${st.cnt[i][si]}`);
+    balanceInfo.push(`${ctx.shifts[si].name}: ${parts.join(' / ')}`);
+  }
   return {
     assignments,
-    report: { missingList, dup, fixedIssues, money: asMoneyStats(ctx, st) },
+    report: { missingList, dup, fixedIssues, balanceInfo, money: asMoneyStats(ctx, st) },
   };
 }
 
@@ -610,6 +671,23 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
     });
     dayFill.push({ filled, need });
   }
+  // เพดานต่อคนต่อเดือน (เช่น M รวมกันได้ 1 เวร)
+  const capViol = [];
+  employees.forEach((e) => {
+    const byGroup = {};
+    Object.entries(counts[e.id] || {}).forEach(([sid, n]) => {
+      const s = shiftById[sid];
+      if (!s || asCapOf(s) === null) return;
+      const k = asCapGroupKey(s);
+      byGroup[k] = byGroup[k] || { n: 0, cap: asCapOf(s), names: [] };
+      byGroup[k].n += n;
+      byGroup[k].cap = Math.min(byGroup[k].cap, asCapOf(s));
+      byGroup[k].names.push(s.name);
+    });
+    Object.values(byGroup).forEach((b) => {
+      if (b.n > b.cap) capViol.push(`${e.name}: ${b.names.join('+')} ${b.n} เวร (จำกัด ${b.cap})`);
+    });
+  });
   employees.forEach((e) => {
     Object.entries(e.fixedCounts || {}).forEach(([sid, n]) => {
       const s = shiftById[sid];
@@ -618,7 +696,7 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
       if (got !== Number(n)) fixedIssues.push(`${e.name}: ${s.name} ${got}/${n}`);
     });
   });
-  return { missing, over, violations, dayFill, fixedIssues };
+  return { missing, over, violations, dayFill, fixedIssues, capViol };
 }
 
 // ตรวจล่วงหน้าว่าเดือนนี้ "จัดครบได้ทางคณิตศาสตร์" หรือไม่
@@ -647,6 +725,21 @@ function asPrecheck(ctx) {
           `วันที่ ${dayNum(d)}–${dayNum(d + 1)} ต้องใช้รวม ${need2} คน แต่มีคนลงได้ ${avail2} คน (กฎห้ามเวรติดกัน ทำให้คนเดียวลงได้แค่ 1 ใน 2 วัน)`
         );
     }
+  }
+  // เพดานต่อคน: ช่องเวรในกลุ่มทั้งเดือน ต้องไม่เกิน (จำนวนคนที่ลงได้ × เพดาน)
+  for (let g = 0; g < ctx.G; g++) {
+    const members = [];
+    for (let si = 0; si < ctx.S; si++) if (ctx.capGroup[si] === g && ctx.capOf[si] !== null) members.push(si);
+    if (members.length === 0) continue;
+    const cap = Math.min(...members.map((si) => ctx.capOf[si]));
+    let slots = 0;
+    days.forEach((dy) => dy.slots.forEach((si) => (members.includes(si) ? slots++ : 0)));
+    let people = 0;
+    for (let i = 0; i < N; i++) if (members.some((si) => ctx.can[i][si])) people++;
+    if (slots > people * cap)
+      warnings.push(
+        `เวร ${members.map((si) => ctx.shifts[si].name).join('/')} เดือนนี้มี ${slots} ช่อง แต่จำกัด ${cap} เวร/คน และมีคนลงได้ ${people} คน (รับได้สูงสุด ${people * cap} ช่อง)`
+      );
   }
   // จำนวนเวรตายตัว: ลงได้สูงสุดกี่ครั้งถ้าห้ามติดกัน
   for (let i = 0; i < N; i++)
@@ -694,7 +787,7 @@ function asMakeCryptoRng() {
 }
 
 // เลือกผลลัพธ์: สุ่มเลือก 1 ตารางจากกลุ่มที่ "ดีเกือบเท่าตารางที่ดีที่สุด"
-// (ขาดเท่ากัน + เวรตายตัวเท่ากัน + คะแนนความสมดุลไม่เกิน 10% จากที่ดีที่สุด)
+// (ขาดเท่ากัน + เวรตายตัวเท่ากัน + เวรที่ต้องเฉลี่ยสมดุลเท่ากัน + ความสมดุลเงิน/ตัวเวรไม่เกิน 10% จากที่ดีที่สุด)
 function asPickResult(results, rand) {
   if (results.length === 0) return null;
   let best = results[0];
@@ -705,7 +798,8 @@ function asPickResult(results, rand) {
     (r) =>
       r.missing === best.missing &&
       r.fixedDiff === best.fixedDiff &&
-      r.soft <= best.soft * 1.1 + 20
+      r.gap === best.gap &&
+      r.fair <= best.fair * 1.1 + 20
   );
   return pool[Math.floor(rand() * pool.length)] || best;
 }
@@ -778,13 +872,13 @@ const AS_SEED_SHIFTS = [
   { id: 'as_I7', name: 'I7', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
   { id: 'as_P', name: 'P', color: '#10b981', start: '08:00', end: '16:00', min: 2, allowedDays: 'weekends_only', value: 340 },
   { id: 'as_T', name: 'T', color: '#64748b', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
-  { id: 'as_CH', name: 'ช', color: '#d946ef', start: '08:00', end: '16:00', min: 1, allowedDays: 'saturdays_only', value: 340 },
+  { id: 'as_CH', name: 'ช', color: '#d946ef', start: '08:00', end: '16:00', min: 1, allowedDays: 'saturdays_only', value: 340, balanceAmong: true },
   { id: 'as_CHR', name: 'ชR', color: '#f43f5e', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_only', value: 600 },
   { id: 'as_O1', name: 'O1', color: '#0ea5e9', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekday_holidays', value: 340 },
-  { id: 'as_M1', name: 'M1', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 1 },
-  { id: 'as_M2', name: 'M2', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 1 },
-  { id: 'as_M3', name: 'M3', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 201 },
-  { id: 'as_M4', name: 'M4', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 301 },
+  { id: 'as_M1', name: 'M1', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 1, capPerPerson: 1 },
+  { id: 'as_M2', name: 'M2', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 1, capPerPerson: 1 },
+  { id: 'as_M3', name: 'M3', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 201, capPerPerson: 1 },
+  { id: 'as_M4', name: 'M4', color: '#eab308', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170, dynamic: 'telemed', minAppt: 301, capPerPerson: 1 },
 ];
 
 const asSeedEmployees = () => {
@@ -1388,6 +1482,9 @@ function ScheduleManager() {
               {genReport.fixedIssues.length > 0 && (
                 <div>จำนวนเวรตายตัวไม่ครบ: {genReport.fixedIssues.join(' · ')}</div>
               )}
+              {(genReport.balanceInfo || []).length > 0 && (
+                <div>เวรที่เฉลี่ย: {genReport.balanceInfo.join(' · ')}</div>
+              )}
               {genReport.warnings.length > 0 && (
                 <div>
                   <div className="font-bold mt-1">ข้อจำกัดของเดือนนี้ (จัดให้ครบไม่ได้ทางคณิตศาสตร์):</div>
@@ -1435,7 +1532,8 @@ function ScheduleManager() {
               </div>
               {check.missing.length === 0 &&
                 check.over.length === 0 &&
-                check.violations.length === 0 && (
+                check.violations.length === 0 &&
+                check.capViol.length === 0 && (
                   <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
                     ✅ เวรครบทุกตำแหน่ง ไม่ผิดเงื่อนไข
                   </div>
@@ -1487,6 +1585,11 @@ function ScheduleManager() {
                       วัน {v.day}·{v.shiftName}·{v.name} ({v.reason})
                     </span>
                   ))}
+                </div>
+              )}
+              {check.capViol.length > 0 && (
+                <div className="px-2.5 py-1.5 bg-orange-50 border border-orange-200 rounded-lg text-xs font-bold text-orange-700">
+                  ⚠️ เกินเพดานต่อคน: {check.capViol.join(' · ')}
                 </div>
               )}
               {check.fixedIssues.length > 0 && (
@@ -2337,6 +2440,8 @@ function ShiftTypesManager() {
     value: '',
     dynamic: '',
     minAppt: '',
+    capPerPerson: '',
+    balanceAmong: false,
   });
 
   const handleSeed = () => {
@@ -2412,6 +2517,8 @@ function ShiftTypesManager() {
               value: '',
               dynamic: '',
               minAppt: '',
+              capPerPerson: '',
+              balanceAmong: false,
             });
             setIsModalOpen(true);
           }}
@@ -2474,6 +2581,17 @@ function ShiftTypesManager() {
                 <div className="flex items-center gap-2.5 text-amber-700 text-xs font-medium">
                   เปิดเมื่อยอดนัด {s.dynamic === 'telemed' ? 'Telemed' : 'SMC'} ≥{' '}
                   {s.minAppt || 1}
+                </div>
+              )}
+              {asCapOf(s) !== null && (
+                <div className="flex items-center gap-2.5 text-rose-700 text-xs font-medium">
+                  จำกัด {asCapOf(s)} เวร/คน/เดือน
+                  {s.dynamic ? ` (นับรวมทุกเวร ${s.dynamic === 'telemed' ? 'Telemed' : 'SMC'})` : ''}
+                </div>
+              )}
+              {s.balanceAmong && (
+                <div className="flex items-center gap-2.5 text-sky-700 text-xs font-medium">
+                  เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
                 </div>
               )}
               <div className="flex items-center gap-2.5 border-t pt-3 mt-3">
@@ -2653,6 +2771,40 @@ function ShiftTypesManager() {
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  จำกัดต่อคนต่อเดือน (เวร)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  placeholder={
+                    formData.dynamic === 'telemed'
+                      ? 'เว้นว่าง = 1 (นับรวม M ทุกตัว)'
+                      : 'เว้นว่าง = ไม่จำกัด'
+                  }
+                  className="w-full border border-gray-300 rounded-xl p-3 text-base outline-none"
+                  value={formData.capPerPerson ?? ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      capPerPerson: e.target.value === '' ? '' : Number(e.target.value),
+                    })
+                  }
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  เวรที่เปิดตามยอดนัดประเภทเดียวกัน (เช่น M1–M4) นับรวมกัน
+                </p>
+              </div>
+              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4"
+                  checked={!!formData.balanceAmong}
+                  onChange={(e) => setFormData({ ...formData, balanceAmong: e.target.checked })}
+                />
+                เฉลี่ยจำนวนเวรนี้ให้เท่ากันระหว่างคนที่ลงได้ (เช่น เวร ช)
+              </label>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
               <button
