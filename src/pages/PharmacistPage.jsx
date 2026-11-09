@@ -543,6 +543,37 @@ function ScheduleManager() {
 
     const isOffSpecial = (emp) => getGroup(emp) === 'off_special';
 
+    // ─── บ่ายวันหนัก: บi/บr ใน "วันทำการแรกหลังวันหยุด" ได้ไม่เกิน 1 ครั้ง/คน/เดือน (ยกเว้น Off พิเศษ) ───
+    // วันหนัก = ไม่ใช่วันหยุด และวันก่อนหน้าเป็นวันหยุด (จันทร์ปกติ / อังคารหลังจันทร์หยุด / วันที่ 1 ต่อจากวันหยุดเดือนก่อน)
+    const HEAVY_AFT_NAMES = new Set(['บI','บR']);
+    const isHeavyDay = (d) => {
+      if (isHol(d)) return false;
+      if (d === 1) return prevMonthLastHol;
+      return isHol(d - 1);
+    };
+    const isHeavyAft = (shift, d) =>
+      !!shift && getShiftCategory(shift) === 'บ่าย' &&
+      HEAVY_AFT_NAMES.has(shift.name.trim().toUpperCase()) && isHeavyDay(d);
+    // true = ถ้าให้ emp รับเวรนี้วันที่ d จะเกินโควตาบ่ายวันหนัก → ห้าม
+    const blocksHeavyAft = (emp, d, shift) =>
+      isHeavyAft(shift, d) && !isOffSpecial(emp) && (empStats[emp.id]?.heavyAft || 0) >= 1;
+
+    // true = ถ้าให้ emp รับเวรนี้จะผิดกฎ R1↔T1/T2 (rule_4/5) หรือ T1 XOR T2 (rule_9) — ใช้ในขั้นที่ย้ายเวร (PHASE 3f/3h)
+    const violatesRTRule = (emp, shift) => {
+      const st = empStats[emp.id];
+      if (!st || !shift) return false;
+      const u = shift.name.trim().toUpperCase();
+      if (rules.rule_4 || rules.rule_5) {
+        if ((u === 'T1' || u === 'T2') && st.hasR1) return true;
+        if (u === 'R1' && (st.hasT1 || st.hasT2)) return true;
+      }
+      if (rules.rule_9) {
+        if (u === 'T1' && st.hasT2) return true;
+        if (u === 'T2' && st.hasT1) return true;
+      }
+      return false;
+    };
+
     // ─── init empStats สำหรับทุกคน (รวมคนพักงาน เพื่อป้องกัน undefined) ───
     const empStats = {};
     employees.forEach(e => {
@@ -556,6 +587,7 @@ function ScheduleManager() {
         assignedNights: new Set(),
         assignedAfternoons: new Set(),
         afternoonCount: 0,
+        heavyAft: 0,       // จำนวน บi/บr ในวันทำการแรกหลังวันหยุด
         holShifts: 0,      // จำนวนเวรในวันหยุด (กระจายให้เท่ากัน)
         hasBe: false, hasR1: false, hasG: false, hasT1: false, hasT2: false,
         lastDay: null,     // วันล่าสุดที่มีเวร (ตรวจ rule_1 ทั้งหน้า-หลัง)
@@ -595,6 +627,7 @@ function ScheduleManager() {
         empStats[emp.id].assignedAfternoons.add(u);
         empStats[emp.id].afternoonCount++;
         if (u === 'บE') empStats[emp.id].hasBe = true;
+        if (isHeavyAft(shift, d)) empStats[emp.id].heavyAft++;
       }
       empStats[emp.id].lastDay = d;
       if (isHol(d)) empStats[emp.id].holShifts++;
@@ -651,6 +684,7 @@ function ScheduleManager() {
           empStats[eid].assignedAfternoons = new Set();
           empStats[eid].afternoonCount = 0;
           empStats[eid].hasBe = false;
+          empStats[eid].heavyAft = 0;
           for (let d2 = 1; d2 <= dim; d2++) {
             const s2 = shiftById.get(newAssignments[`${eid}_${fmtD(d2)}`]);
             if (!s2 || getShiftCategory(s2) !== 'บ่าย') continue;
@@ -658,6 +692,7 @@ function ScheduleManager() {
             empStats[eid].assignedAfternoons.add(u2);
             empStats[eid].afternoonCount++;
             if (u2 === 'บE') empStats[eid].hasBe = true;
+            if (isHeavyAft(s2, d2)) empStats[eid].heavyAft++;
           }
         });
       }
@@ -776,6 +811,9 @@ function ScheduleManager() {
 
       // Rule 2: บ่ายห้ามซ้ำตำแหน่ง (ยกเว้น off_special เพราะได้เวรน้อย)
       if (rules.rule_2 && cat === 'บ่าย' && !isOffSpecial(emp) && st.assignedAfternoons.has(u)) return false;
+
+      // บ่ายวันหนัก (บi/บr วันทำการแรกหลังวันหยุด) ≤ 1 ครั้ง/เดือน
+      if (blocksHeavyAft(emp, d, shift)) return false;
 
       // เวรดึกห้ามซ้ำตำแหน่ง (ยกเว้น R2 ที่อาจได้หลายครั้ง)
       if (cat === 'ดึก' && u !== 'R2' && st.assignedNights.has(u)) return false;
@@ -1269,9 +1307,9 @@ function ScheduleManager() {
         };
 
         // รอบ 1: ต้องการห่างกัน ≥2 วันระหว่าง R1-day กับ G-day (มาตรฐาน rule_1)
+        // ห่างกัน ≥2 วันเท่านั้น (ตัด fallback ห่าง 1 วันออก — เคยทำให้ R1/G อยู่วันติดกัน ผิดกฎห้ามเวรติดกัน)
+        // คนที่จับคู่ไม่ได้ → STEP D / PHASE 3e จัดการต่อ
         let result = tryPair(2);
-        // รอบ 2 (fallback): ผ่อนเหลือห่างกัน ≥1 วัน ถ้าหาคู่แบบเข้มไม่ได้
-        if (!result) result = tryPair(1);
         if (!result) continue; // คนนี้หาคู่ไม่ได้รอบนี้ — ปล่อยให้ STEP D + PHASE 3e จัดการทีหลัง
 
         const r1Slot = r1Slots[result.r1Idx];
@@ -1370,6 +1408,8 @@ function ScheduleManager() {
               if (cat2 === 'เช้า' && u2 !== 'R2' && st2.assignedMornings.has(u2)) return false;
               // ห้ามซ้ำตำแหน่งบ่าย (ยกเว้น off_special)
               if (cat2 === 'บ่าย' && !isOffSpecial(emp) && st2.assignedAfternoons.has(u2)) return false;
+              // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน (hard ทุกรอบ)
+              if (blocksHeavyAft(emp, d, shift)) return false;
               // ห้ามซ้ำตำแหน่งดึก (ยกเว้น R2)
               if (cat2 === 'ดึก' && u2 !== 'R2' && st2.assignedNights.has(u2)) return false;
               // rule_6: A/4 + As/4 รวมกันได้แค่ 1 ครั้ง/เดือน (นับรวมข้ามตำแหน่ง)
@@ -1419,6 +1459,8 @@ function ScheduleManager() {
               if (u3 === 'T2' && st3.hasT1) return false;
               // rule_2: บ่ายซ้ำตำแหน่ง
               if (cat3 === 'บ่าย' && !isOffSpecial(emp) && st3.assignedAfternoons.has(u3)) return false;
+              // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน (hard ทุกรอบ)
+              if (blocksHeavyAft(emp, d, shift)) return false;
               // บ่าย hard cap=2
               if (cat3 === 'บ่าย' && (st3.catCounts['บ่าย'] || 0) >= 2) return false;
               // Morning/Telemed hard cap
@@ -1429,6 +1471,8 @@ function ScheduleManager() {
               if ((u3 === 'A/4' || u3 === 'AS1' || u3 === 'AS/4') && st3.countA_As4 >= 1) return false;
               // ดึก cap
               if (cat3 === 'ดึก' && (st3.catCounts['ดึก'] || 0) >= CAP['ดึก']) return false;
+              // ดึกห้ามซ้ำตำแหน่ง (เหมือนรอบ 1–2)
+              if (cat3 === 'ดึก' && st3.assignedNights.has(u3)) return false;
               return true;
             });
           }
@@ -1590,6 +1634,8 @@ function ScheduleManager() {
               if ((empStats[underEmp.id].catCounts['บ่าย'] || 0) >= 2) continue;
               // ไม่ซ้ำตำแหน่งบ่าย
               if (!isOffSpecial(underEmp) && empStats[underEmp.id].assignedAfternoons.has(u)) continue;
+              // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน
+              if (blocksHeavyAft(underEmp, d, overShift)) continue;
             }
 
             if (cat === 'ดึก') {
@@ -1718,6 +1764,8 @@ function ScheduleManager() {
             }
             // off_special: ห้ามแค่ บe
             if (isOffSpecial(underEmp) && u === 'บE') continue;
+            // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน
+            if (blocksHeavyAft(underEmp, d, aftShift)) continue;
 
             // หา 4h ของ underEmp ที่จะ swap กลับให้ overEmp
             // เพื่อให้ชั่วโมงสมดุล: under +8-4=+4, over -8+4=-4
@@ -2146,12 +2194,19 @@ function ScheduleManager() {
 
             // ตรวจว่า off ไม่มีเวรวันที่ d2 (ก่อน swap step1)
             if (newAssignments[`${offEmp.id}_${ds2}`]) continue;
+            // ตรวจว่า normal ว่างวันที่ d1 (ไม่งั้น doSwap จะเขียนทับเวรเดิมของ normal → เวรนั้นหายจากตาราง)
+            if (newAssignments[`${normalEmp.id}_${ds1}`]) continue;
+            // rule_4/5: R1 ห้ามคู่ T1/T2 · rule_9: T1 XOR T2 (ตรวจทั้งสองฝั่งที่รับเวรใหม่)
+            if (violatesRTRule(normalEmp, s1) || violatesRTRule(offEmp, s2)) continue;
             // ตรวจว่า normal ไม่มีเวรวันที่ d1 (นอกจาก d1 ที่จะถูก swap ออก)
             // normalEmp มี ds2 อยู่แล้ว ซึ่งจะถูก swap ออก → OK
 
             // ตรวจ specificShifts: offEmp ต้องรับ s2 ได้, normalEmp ต้องรับ s1 ได้
             if (offEmp.specificShifts?.length > 0 && !offEmp.specificShifts.includes(s2.id)) continue;
             if (normalEmp.specificShifts?.length > 0 && !normalEmp.specificShifts.includes(s1.id)) continue;
+            // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน (ตรวจทั้งสองฝั่งที่รับเวรใหม่)
+            if (blocksHeavyAft(normalEmp, d1, s1)) continue;
+            if (blocksHeavyAft(offEmp, d2, s2)) continue;
 
             // SWAP วัน! ใช้ doSwap เพื่อ update empStats ด้วย
             doSwap(offEmp.id, normalEmp.id, ds1, s1);
@@ -2289,6 +2344,10 @@ function ScheduleManager() {
             }
             // off_special: ห้ามแค่ บe
             if (isOffSpecial(underEmp) && u === 'บE') continue;
+            // บ่ายวันหนัก ≤ 1 ครั้ง/เดือน
+            if (blocksHeavyAft(underEmp, d, eightShift)) continue;
+            // rule_4/5 + rule_9: R1↔T1/T2, T1 XOR T2
+            if (violatesRTRule(underEmp, eightShift)) continue;
 
             // rule_7: เช้าห้ามซ้ำตำแหน่ง
             if (cat === 'เช้า' && u !== 'R2' && empStats[underEmp.id].assignedMornings.has(u)) continue;
