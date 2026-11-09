@@ -103,6 +103,22 @@ const asCapOf = (shift) => {
   return shift.dynamic === 'telemed' ? 1 : null;
 };
 
+// ขั้นต่ำต่อคนต่อเดือน: เวรที่ตั้ง "กลุ่มขั้นต่ำ" ชื่อเดียวกันจะนับรวมกัน (เช่น OE + IE = กลุ่ม "บ่าย")
+const asMinPerPersonOf = (shift) => {
+  const v = Number(shift.minPerPerson);
+  return Number.isFinite(v) && v > 0 ? v : 0;
+};
+const asMinGroupKey = (shift) =>
+  shift.minGroup && String(shift.minGroup).trim() ? `g:${String(shift.minGroup).trim()}` : `id:${shift.id}`;
+const asMinGroupLabel = (shift, shifts) => {
+  if (!(shift.minGroup && String(shift.minGroup).trim())) return shift.name;
+  const key = asMinGroupKey(shift);
+  return shifts
+    .filter((x) => asMinPerPersonOf(x) > 0 && asMinGroupKey(x) === key)
+    .map((x) => x.name)
+    .join('/');
+};
+
 // สร้าง context: วัน, ช่องเวร, สิทธิ์ของพนักงาน
 function asBuildContext({
   year,
@@ -170,6 +186,28 @@ function asBuildContext({
       return v === undefined || v === null || v === '' ? null : Number(v);
     })
   );
+  // กลุ่มขั้นต่ำ
+  const minGroups = [];
+  const minGroupOf = shifts.map(() => -1);
+  shifts.forEach((sh, si) => {
+    const mn = asMinPerPersonOf(sh);
+    if (mn <= 0) return;
+    const key = asMinGroupKey(sh);
+    let g = minGroups.findIndex((x) => x.key === key);
+    if (g < 0) {
+      minGroups.push({ key, members: [], min: 0, label: asMinGroupLabel(sh, shifts) });
+      g = minGroups.length - 1;
+    }
+    minGroups[g].members.push(si);
+    minGroups[g].min = Math.max(minGroups[g].min, mn);
+    minGroupOf[si] = g;
+  });
+  minGroups.forEach((g) => {
+    g.eligible = [];
+    employees.forEach((_, i) => {
+      if (g.members.some((si) => can[i][si])) g.eligible.push(i);
+    });
+  });
   const balance = employees.map((e) => !e.excludeFromBalance);
   const dedicated = employees.map((e) => !!(e.specificShifts && e.specificShifts.length > 0));
   const empIdx = {};
@@ -194,6 +232,8 @@ function asBuildContext({
     capOf,
     G: capKeys.length,
     balanceShift,
+    minGroups,
+    minGroupOf,
     can,
     offDow,
     fixed,
@@ -293,6 +333,8 @@ function asPrefKey(ctx, st, i, si, noise) {
   let key = 0;
   const fx = ctx.fixed[i][si];
   if (fx !== null && st.cnt[i][si] < fx) key -= 1e9; // ต้องได้ครบจำนวนตายตัว
+  const mg = ctx.minGroupOf[si];
+  if (mg >= 0 && asGroupCount(ctx, st, i, mg) < ctx.minGroups[mg].min) key -= 5e8; // ยังไม่ถึงขั้นต่ำ
   if (ctx.balanceShift[si]) key += st.cnt[i][si] * 1e8; // เวรที่ต้องเฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
   else if (ctx.dedicated[i]) key -= 1e8; // คนที่ลงได้เฉพาะบางเวร ให้ได้เวรนั้นก่อน
   if (ctx.balanceTypes && fx === null) key += st.cnt[i][si] * 1e6; // หลีกเลี่ยงตัวเวรซ้ำ
@@ -479,12 +521,29 @@ function asMoneyStats(ctx, st) {
   const max = Math.max(...vals);
   return { std, range: max - min, min, max };
 }
+function asGroupCount(ctx, st, i, g) {
+  let c = 0;
+  for (const si of ctx.minGroups[g].members) c += st.cnt[i][si];
+  return c;
+}
+// จำนวนเวรที่ยังขาดจากขั้นต่ำ รวมทุกคนทุกกลุ่ม
+function asMinShort(ctx, st) {
+  let short = 0;
+  ctx.minGroups.forEach((grp, g) => {
+    grp.eligible.forEach((i) => {
+      const c = asGroupCount(ctx, st, i, g);
+      if (c < grp.min) short += grp.min - c;
+    });
+  });
+  return short;
+}
 function asSoftScore(ctx, st) {
   let dup = 0;
   for (let i = 0; i < ctx.N; i++) dup += asDupCount(ctx, st, i);
   const m = asMoneyStats(ctx, st);
   let s = asFixedDiff(ctx, st) * 1e6;
   s += asBalanceGap(ctx, st) * 5000;
+  s += asMinShort(ctx, st) * 2e6;
   if (ctx.balanceTypes) s += dup * 60;
   if (ctx.balanceMoney) s += m.std * 2 + m.range * 0.5;
   return s;
@@ -548,6 +607,66 @@ function asImprove(ctx, st, rand, iters) {
   }
 }
 
+// ---------- Phase 3b: เติมขั้นต่ำให้คนที่ยังไม่ได้ (ย้าย/สลับจากคนที่ได้เกิน) ----------
+function asFixMinimum(ctx, st, rand) {
+  const { D } = ctx;
+  for (let pass = 0; pass < 3; pass++) {
+    let changed = false;
+    ctx.minGroups.forEach((grp, g) => {
+      const needers = grp.eligible.filter((i) => asGroupCount(ctx, st, i, g) < grp.min);
+      for (const i of needers) {
+        const dOrder = Array.from({ length: D }, (_, d) => d).sort(() => rand() - 0.5);
+        let done = false;
+        for (const d of dOrder) {
+          if (done) break;
+          const slots = ctx.days[d].slots;
+          for (let k = 0; k < slots.length && !done; k++) {
+            if (!grp.members.includes(slots[k])) continue;
+            const j = st.slotEmp[d][k];
+            if (j < 0 || j === i) continue;
+            if (asGroupCount(ctx, st, j, g) <= grp.min) continue; // ไม่เอาจากคนที่มีพอดี
+            const before = asSoftScore(ctx, st);
+            const si = slots[k];
+            const ki = st.dayEmp[d][i];
+            if (ki < 0) {
+              // ย้าย: i ว่างวันนี้
+              if (asWorksAdjacent(ctx, st, i, d)) continue;
+              asUnassign(ctx, st, d, k);
+              if (asStaticOk(ctx, st, i, d, si)) {
+                asAssign(ctx, st, d, k, i);
+                if (asSoftScore(ctx, st) < before) {
+                  done = changed = true;
+                  continue;
+                }
+                asUnassign(ctx, st, d, k);
+              }
+              asAssign(ctx, st, d, k, j);
+            } else {
+              // สลับ: i มีเวรอื่นวันนี้ → ให้ j รับเวรของ i แทน
+              const si2 = slots[ki];
+              asUnassign(ctx, st, d, k);
+              asUnassign(ctx, st, d, ki);
+              if (asStaticOk(ctx, st, i, d, si) && asStaticOk(ctx, st, j, d, si2)) {
+                asAssign(ctx, st, d, k, i);
+                asAssign(ctx, st, d, ki, j);
+                if (asSoftScore(ctx, st) < before) {
+                  done = changed = true;
+                  continue;
+                }
+                asUnassign(ctx, st, d, k);
+                asUnassign(ctx, st, d, ki);
+              }
+              asAssign(ctx, st, d, k, j);
+              asAssign(ctx, st, d, ki, i);
+            }
+          }
+        }
+      }
+    });
+    if (!changed) break;
+  }
+}
+
 // สุ่ม 1 รอบ
 function asRunAttempt(ctx, rand) {
   const st = asNewState(ctx);
@@ -559,15 +678,18 @@ function asRunAttempt(ctx, rand) {
   }
   for (let d = 0; d < ctx.D; d++) asGreedyDay(ctx, st, d, rand);
   asRepair(ctx, st, rand);
+  if (ctx.minGroups.length > 0) asFixMinimum(ctx, st, rand);
   asImprove(ctx, st, rand, 6000);
+  if (ctx.minGroups.length > 0 && asMinShort(ctx, st) > 0) asFixMinimum(ctx, st, rand);
   // ลองเติมช่องว่างอีกครั้งหลังปรับ
   if (asMissing(ctx, st) > 0) asRepair(ctx, st, rand);
   const missing = asMissing(ctx, st);
   const fixedDiff = asFixedDiff(ctx, st);
   const gap = asBalanceGap(ctx, st);
+  const minShort = asMinShort(ctx, st);
   const soft = asSoftScore(ctx, st);
-  const fair = soft - fixedDiff * 1e6 - gap * 5000; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
-  return { st, missing, fixedDiff, gap, fair, soft, score: missing * 1e9 + soft };
+  const fair = soft - fixedDiff * 1e6 - gap * 5000 - minShort * 2e6; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
+  return { st, missing, fixedDiff, gap, minShort, fair, soft, score: missing * 1e9 + soft };
 }
 
 // แปลงผลเป็น assignments ของตาราง + รายงาน
@@ -601,9 +723,16 @@ function asResultToOutput(ctx, res) {
       if (ctx.can[i][si]) parts.push(`${ctx.employees[i].name} ${st.cnt[i][si]}`);
     balanceInfo.push(`${ctx.shifts[si].name}: ${parts.join(' / ')}`);
   }
+  const minIssues = [];
+  ctx.minGroups.forEach((grp, g) => {
+    grp.eligible.forEach((i) => {
+      const c = asGroupCount(ctx, st, i, g);
+      if (c < grp.min) minIssues.push(`${ctx.employees[i].name}: ${grp.label} ${c}/${grp.min}`);
+    });
+  });
   return {
     assignments,
-    report: { missingList, dup, fixedIssues, balanceInfo, money: asMoneyStats(ctx, st) },
+    report: { missingList, dup, fixedIssues, balanceInfo, minIssues, money: asMoneyStats(ctx, st) },
   };
 }
 
@@ -696,7 +825,30 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
       if (got !== Number(n)) fixedIssues.push(`${e.name}: ${s.name} ${got}/${n}`);
     });
   });
-  return { missing, over, violations, dayFill, fixedIssues, capViol };
+  // ขั้นต่ำต่อคน (เช่น ด1 ≥ 1, OE/IE ≥ 1)
+  const minIssues = [];
+  const groups = {};
+  shifts.forEach((s) => {
+    const mn = asMinPerPersonOf(s);
+    if (mn <= 0) return;
+    const key = asMinGroupKey(s);
+    groups[key] = groups[key] || { ids: [], min: 0, label: asMinGroupLabel(s, shifts) };
+    groups[key].ids.push(s.id);
+    groups[key].min = Math.max(groups[key].min, mn);
+  });
+  Object.values(groups).forEach((g) => {
+    employees.forEach((e) => {
+      const eligible = g.ids.some(
+        (sid) =>
+          !(e.offShifts && e.offShifts.includes(sid)) &&
+          !(e.specificShifts && e.specificShifts.length > 0 && !e.specificShifts.includes(sid))
+      );
+      if (!eligible) return;
+      const c = g.ids.reduce((a, sid) => a + ((counts[e.id] || {})[sid] || 0), 0);
+      if (c < g.min) minIssues.push(`${e.name}: ${g.label} ${c}/${g.min}`);
+    });
+  });
+  return { missing, over, violations, dayFill, fixedIssues, capViol, minIssues };
 }
 
 // ตรวจล่วงหน้าว่าเดือนนี้ "จัดครบได้ทางคณิตศาสตร์" หรือไม่
@@ -726,6 +878,16 @@ function asPrecheck(ctx) {
         );
     }
   }
+  // ขั้นต่ำต่อคน: ช่องเวรในกลุ่มทั้งเดือน ต้องพอให้ทุกคนได้ขั้นต่ำ
+  ctx.minGroups.forEach((grp) => {
+    let slots = 0;
+    days.forEach((dy) => dy.slots.forEach((si) => (grp.members.includes(si) ? slots++ : 0)));
+    const needSlots = grp.eligible.length * grp.min;
+    if (slots < needSlots)
+      warnings.push(
+        `เวร ${grp.label} เดือนนี้มี ${slots} ช่อง แต่ต้องให้ ${grp.eligible.length} คน ได้คนละอย่างน้อย ${grp.min} เวร (ต้องใช้ ${needSlots} ช่อง)`
+      );
+  });
   // เพดานต่อคน: ช่องเวรในกลุ่มทั้งเดือน ต้องไม่เกิน (จำนวนคนที่ลงได้ × เพดาน)
   for (let g = 0; g < ctx.G; g++) {
     const members = [];
@@ -799,6 +961,7 @@ function asPickResult(results, rand) {
       r.missing === best.missing &&
       r.fixedDiff === best.fixedDiff &&
       r.gap === best.gap &&
+      r.minShort === best.minShort &&
       r.fair <= best.fair * 1.1 + 20
   );
   return pool[Math.floor(rand() * pool.length)] || best;
@@ -848,11 +1011,11 @@ function asMakeRng(seed) {
 // ข้อมูลตั้งต้น (ตามเอกสารเวรเจ้าหน้าที่ห้องยา)
 // ==========================================
 const AS_SEED_SHIFTS = [
-  { id: 'as_D1', name: 'ด1', color: '#6366f1', start: '00:00', end: '08:00', min: 1, allowedDays: 'all', value: 340 },
+  { id: 'as_D1', name: 'ด1', color: '#6366f1', start: '00:00', end: '08:00', min: 1, allowedDays: 'all', value: 340, minPerPerson: 1 },
   { id: 'as_B1', name: 'บ1', color: '#f97316', start: '16:00', end: '00:00', min: 1, allowedDays: 'all', value: 340 },
   { id: 'as_B2', name: 'บ2', color: '#f59e0b', start: '16:00', end: '00:00', min: 1, allowedDays: 'all', value: 340 },
-  { id: 'as_OE', name: 'OE', color: '#ef4444', start: '16:00', end: '00:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
-  { id: 'as_IE', name: 'IE', color: '#ec4899', start: '16:00', end: '00:00', min: 1, allowedDays: 'weekdays', value: 340 },
+  { id: 'as_OE', name: 'OE', color: '#ef4444', start: '16:00', end: '00:00', min: 1, allowedDays: 'weekends_holidays', value: 340, minPerPerson: 1, minGroup: 'บ่าย' },
+  { id: 'as_IE', name: 'IE', color: '#ec4899', start: '16:00', end: '00:00', min: 1, allowedDays: 'weekdays', value: 340, minPerPerson: 1, minGroup: 'บ่าย' },
   { id: 'as_41', name: '41', color: '#14b8a6', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_42', name: '42', color: '#06b6d4', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_2O', name: '2O', color: '#84cc16', start: '16:00', end: '18:00', min: 1, allowedDays: 'mon_tue_only', value: 85 },
@@ -1460,7 +1623,9 @@ function ScheduleManager() {
       {genReport && (
         <div
           className={`mb-3 p-3 rounded-xl border text-xs shrink-0 print-hidden ${
-            genReport.missingList.length === 0 && genReport.fixedIssues.length === 0
+            genReport.missingList.length === 0 &&
+            genReport.fixedIssues.length === 0 &&
+            (genReport.minIssues || []).length === 0
               ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
               : 'bg-amber-50 border-amber-200 text-amber-900'
           }`}
@@ -1481,6 +1646,9 @@ function ScheduleManager() {
               )}
               {genReport.fixedIssues.length > 0 && (
                 <div>จำนวนเวรตายตัวไม่ครบ: {genReport.fixedIssues.join(' · ')}</div>
+              )}
+              {(genReport.minIssues || []).length > 0 && (
+                <div>ยังไม่ได้ขั้นต่ำ: {genReport.minIssues.join(' · ')}</div>
               )}
               {(genReport.balanceInfo || []).length > 0 && (
                 <div>เวรที่เฉลี่ย: {genReport.balanceInfo.join(' · ')}</div>
@@ -1533,7 +1701,8 @@ function ScheduleManager() {
               {check.missing.length === 0 &&
                 check.over.length === 0 &&
                 check.violations.length === 0 &&
-                check.capViol.length === 0 && (
+                check.capViol.length === 0 &&
+                check.minIssues.length === 0 && (
                   <div className="px-2.5 py-1.5 bg-green-50 border border-green-200 rounded-lg text-sm font-bold text-green-700">
                     ✅ เวรครบทุกตำแหน่ง ไม่ผิดเงื่อนไข
                   </div>
@@ -1585,6 +1754,11 @@ function ScheduleManager() {
                       วัน {v.day}·{v.shiftName}·{v.name} ({v.reason})
                     </span>
                   ))}
+                </div>
+              )}
+              {check.minIssues.length > 0 && (
+                <div className="px-2.5 py-1.5 bg-orange-50 border border-orange-200 rounded-lg text-xs font-bold text-orange-700">
+                  ⚠️ ยังไม่ได้ขั้นต่ำ: {check.minIssues.join(' · ')}
                 </div>
               )}
               {check.capViol.length > 0 && (
@@ -2442,6 +2616,8 @@ function ShiftTypesManager() {
     minAppt: '',
     capPerPerson: '',
     balanceAmong: false,
+    minPerPerson: '',
+    minGroup: '',
   });
 
   const handleSeed = () => {
@@ -2519,6 +2695,8 @@ function ShiftTypesManager() {
               minAppt: '',
               capPerPerson: '',
               balanceAmong: false,
+              minPerPerson: '',
+              minGroup: '',
             });
             setIsModalOpen(true);
           }}
@@ -2592,6 +2770,14 @@ function ShiftTypesManager() {
               {s.balanceAmong && (
                 <div className="flex items-center gap-2.5 text-sky-700 text-xs font-medium">
                   เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
+                </div>
+              )}
+              {asMinPerPersonOf(s) > 0 && (
+                <div className="flex items-center gap-2.5 text-green-700 text-xs font-medium">
+                  ทุกคนต้องได้อย่างน้อย {asMinPerPersonOf(s)} เวร
+                  {s.minGroup && String(s.minGroup).trim()
+                    ? ` (นับรวมกลุ่ม ${asMinGroupLabel(s, shifts)})`
+                    : ''}
                 </div>
               )}
               <div className="flex items-center gap-2.5 border-t pt-3 mt-3">
@@ -2805,6 +2991,41 @@ function ShiftTypesManager() {
                 />
                 เฉลี่ยจำนวนเวรนี้ให้เท่ากันระหว่างคนที่ลงได้ (เช่น เวร ช)
               </label>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                    ทุกคนต้องได้อย่างน้อย (เวร/เดือน)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder="เว้นว่าง = ไม่บังคับ"
+                    className="w-full border border-gray-300 rounded-xl p-3 text-base outline-none"
+                    value={formData.minPerPerson ?? ''}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        minPerPerson: e.target.value === '' ? '' : Number(e.target.value),
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                    ชื่อกลุ่มขั้นต่ำ
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="เช่น บ่าย"
+                    className="w-full border border-gray-300 rounded-xl p-3 text-base outline-none"
+                    value={formData.minGroup ?? ''}
+                    onChange={(e) => setFormData({ ...formData, minGroup: e.target.value })}
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-gray-400 -mt-3">
+                เวรที่ใส่ชื่อกลุ่มเดียวกันจะนับรวมกัน เช่น OE และ IE ใส่ "บ่าย" ทั้งคู่ = ทุกคนต้องได้ OE หรือ IE อย่างน้อย 1 เวร · ไม่นับคนที่ลงเวรนี้ไม่ได้
+              </p>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
               <button
