@@ -413,6 +413,8 @@ function ScheduleManager() {
     setTimeout(() => {
     const MAX_AUTO_RETRY = 150;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+    // วันสุดท้ายของเดือนก่อนเป็นวันหยุดไหม — ใช้ตัดสิน "วันแรกของช่วงหยุด" (T2) ของวันที่ 1 ให้ถูกเมื่อวันหยุดคร่อมเดือน
+    const prevMonthLastHol = isPrevMonthLastDayHoliday(activeSchedule, schedules);
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
 
@@ -461,7 +463,7 @@ function ScheduleManager() {
               const pd=d-1, pDow=pd>=1?new Date(activeSchedule.year,activeSchedule.month,pd).getDay():-1;
               const pDs=`${activeSchedule.year}-${String(activeSchedule.month+1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
               const pH=pDow===0||pDow===6||!!(activeSchedule.holidays?.[pDs]);
-              if (d===1||!pH) ok=true;
+              if (d===1 ? !prevMonthLastHol : !pH) ok=true;
             }
           }
           if (!ok) return;
@@ -523,7 +525,8 @@ function ScheduleManager() {
 
     const isFirstHol = (d) => {
       if (!isHol(d)) return false;
-      return d === 1 || !isHol(d - 1);
+      if (d === 1) return !prevMonthLastHol; // วันที่ 1: ดูวันสุดท้ายของเดือนก่อน (คร่อมเดือน)
+      return !isHol(d - 1);
     };
 
     // ─── กำหนดกลุ่มของแต่ละคน ───
@@ -2739,7 +2742,7 @@ function ScheduleManager() {
             for (let d = 1; d <= dim; d++) {
               const ds = fmtDateFor(activeSchedule, d);
               shifts.forEach(s => {
-                if (!isApplicableGlobal(s, d, activeSchedule)) return;
+                if (!isApplicableGlobal(s, d, activeSchedule, schedules)) return;
                 const minToday = getShiftCategory(s) === 'Telemed'
                   ? (activeSchedule?.telemed?.[ds] ?? 0)
                   : (s.min || 1);
@@ -2769,7 +2772,7 @@ function ScheduleManager() {
               for(let d=1;d<=dim;d++){
                 const ds=fmtDateFor(activeSchedule,d);
                 shifts.forEach(s=>{
-                  if(!isApplicableGlobal(s,d,activeSchedule))return;
+                  if(!isApplicableGlobal(s,d,activeSchedule,schedules))return;
                   const minToday = getShiftCategory(s) === 'Telemed'
                     ? (activeSchedule?.telemed?.[ds] ?? 0)
                     : (s.min||1);
@@ -2786,7 +2789,7 @@ function ScheduleManager() {
                   const g=emp.group||'normal';
                   if(g==='off_special'&&isShiftBannedForOffSpecial(s))over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(off_special)`});
                   if(['off_night','r2_off_night','off_special'].includes(g)&&getShiftCategory(s)==='ดึก')over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(งดดึก)`});
-                  if(!isApplicableGlobal(s,dateNum,activeSchedule))over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(ผิดวัน)`});
+                  if(!isApplicableGlobal(s,dateNum,activeSchedule,schedules))over.push({day:dateNum,shiftName:s.name,shiftColor:s.color,reason:`${emp.name}(ผิดวัน)`});
                 });
               });
             }
@@ -3619,12 +3622,28 @@ function fmtDateFor(schedule, d) {
   return `${schedule.year}-${String(schedule.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
 }
 
+// วันสุดท้ายของเดือนก่อนหน้าเป็นวันหยุดหรือไม่ (ใช้กับวันที่ 1 — วันหยุดคร่อมเดือน เช่น 31/12 → 1/1)
+// เสาร์-อาทิตย์: ดูจากปฏิทินได้เลย / นักขัตฤกษ์: ดูจาก holidays ของตารางเดือนก่อน (ถ้ายังมีในระบบ)
+function isPrevMonthLastDayHoliday(schedule, allSchedules) {
+  if (!schedule) return false;
+  const last = new Date(Number(schedule.year), Number(schedule.month), 0); // วันสุดท้ายของเดือนก่อน
+  const dow = last.getDay();
+  if (dow === 0 || dow === 6) return true;
+  const py = last.getFullYear(), pm = last.getMonth(), pd = last.getDate();
+  const prev = Array.isArray(allSchedules)
+    ? allSchedules.find(s => s && Number(s.year) === py && Number(s.month) === pm)
+    : null;
+  if (!prev) return false;
+  const pDs = `${py}-${String(pm + 1).padStart(2,'0')}-${String(pd).padStart(2,'0')}`;
+  return !!(prev.holidays?.[pDs]);
+}
+
 function isHolidayRaw(d, dow, dateStr, schedule) {
   return dow === 0 || dow === 6 || !!(schedule?.holidays?.[dateStr]);
 }
 
 // ─── isApplicable module-level — ใช้ทุกที่ แก้ที่เดียว ───
-function isApplicableGlobal(shift, d, schedule) {
+function isApplicableGlobal(shift, d, schedule, allSchedules) {
   if (!schedule) return false;
   if (shift.suspended) return false; // เวรที่ถูกระงับ — ไม่นับใน action bar/missing/over
   const dow = new Date(schedule.year, schedule.month, d).getDay();
@@ -3644,7 +3663,8 @@ function isApplicableGlobal(shift, d, schedule) {
     const pDow = pd >= 1 ? new Date(schedule.year, schedule.month, pd).getDay() : -1;
     const pDs = fmtDateFor(schedule, pd);
     const pHol = pDow === 0 || pDow === 6 || !!(schedule.holidays?.[pDs]);
-    return d === 1 || !pHol;
+    if (d === 1) return !isPrevMonthLastDayHoliday(schedule, allSchedules); // คร่อมเดือน
+    return !pHol;
   }
   if (a === 'second_fourth_sunday') return dow === 0 && (Math.ceil(d / 7) === 2 || Math.ceil(d / 7) === 4);
   if (a === 'mon_thu') return [1,2,3,4].includes(dow) && !hol;
