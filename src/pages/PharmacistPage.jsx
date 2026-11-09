@@ -217,10 +217,12 @@ function ScheduleManager() {
   // ─── Label แยกตำแหน่งสำหรับเวรที่รับหลายคน (4o → 4o1, 4o2) — แสดงผลเท่านั้น ไม่กระทบ logic การสุ่ม ───
   // หมุนเลขตามวันที่ เพื่อไม่ให้คนเดิมได้เลข 1 ตลอด (ผลคงที่ทุกครั้งที่เปิดดู)
   const SPLIT_LABEL_NAMES = new Set(['4O']);
-  const getDisplayLabel = (sched, empId, ds) => {
+  // forExport=true (CSV/Excel): เวร PMC ทุกแบบ (PMC-DAY, PMC-SUN, PMC-Doff, PMC-sat …) แสดงเป็น "PMC"
+  const getDisplayLabel = (sched, empId, ds, forExport = false) => {
     const sid = sched?.assignments?.[`${empId}_${ds}`];
     const s = shiftById.get(sid);
     if (!s) return '';
+    if (forExport && /^PMC/i.test((s.name || '').trim())) return 'PMC';
     if (!SPLIT_LABEL_NAMES.has((s.name || '').trim().toUpperCase())) return s.name;
     const holders = employees.filter(e => sched.assignments[`${e.id}_${ds}`] === sid);
     if (holders.length < 2) return s.name;
@@ -302,7 +304,7 @@ function ScheduleManager() {
       for (let d = 1; d <= dim; d++) {
         const ds = fmtDateFor(activeSchedule, d);
         const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
-        row.push(s ? `"${getDisplayLabel(activeSchedule, emp.id, ds)}"` : '');
+        row.push(s ? `"${getDisplayLabel(activeSchedule, emp.id, ds, true)}"` : '');
         if (s) {
           money += getShiftValue(s); hours += getShiftHours(s);
           const c = getShiftCategory(s);
@@ -344,7 +346,7 @@ function ScheduleManager() {
         for (let d = 1; d <= dim; d++) {
           const ds = fmtDateFor(activeSchedule, d);
           const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
-          row.push(s ? getDisplayLabel(activeSchedule, emp.id, ds) : '');
+          row.push(s ? getDisplayLabel(activeSchedule, emp.id, ds, true) : '');
           if (s) {
             money += getShiftValue(s); hours += getShiftHours(s);
             const c = getShiftCategory(s);
@@ -415,6 +417,32 @@ function ScheduleManager() {
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
     // วันสุดท้ายของเดือนก่อนเป็นวันหยุดไหม — ใช้ตัดสิน "วันแรกของช่วงหยุด" (T2) ของวันที่ 1 ให้ถูกเมื่อวันหยุดคร่อมเดือน
     const prevMonthLastHol = isPrevMonthLastDayHoliday(activeSchedule, schedules);
+    // ─── ขอบเดือน: เวร 2 วันท้ายเดือนก่อน + 2 วันแรกเดือนถัดไป (ถ้ามีตาราง) ───
+    // ใช้ตรวจกฎห้ามเวรติดกัน/เว้นห่างข้ามเดือน — key พิเศษ BNDP1/BNDP2 (เดือนก่อน), BNDN1/BNDN2 (เดือนถัดไป)
+    // ถูกลบออกก่อนบันทึกเสมอ ไม่ปนเข้าตารางเดือนนี้
+    const BOUNDARY_DAYS = 2;
+    const boundarySeed = (() => {
+      const seed = {};
+      const findSch = (y, m) => schedules.find(s => s && Number(s.year) === y && Number(s.month) === m);
+      const dstr = (y, m, d) => `${y}-${String(m + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      const Y = Number(activeSchedule.year), M = Number(activeSchedule.month);
+      const prevLast = new Date(Y, M, 0);                 // วันสุดท้ายเดือนก่อน
+      const prevSch = findSch(prevLast.getFullYear(), prevLast.getMonth());
+      const nextFirst = new Date(Y, M + 1, 1);            // วันแรกเดือนถัดไป
+      const nextSch = findSch(nextFirst.getFullYear(), nextFirst.getMonth());
+      for (let k = 1; k <= BOUNDARY_DAYS; k++) {
+        const pd = prevLast.getDate() - (k - 1);
+        const pDs = dstr(prevLast.getFullYear(), prevLast.getMonth(), pd);
+        const nDs = dstr(nextFirst.getFullYear(), nextFirst.getMonth(), k);
+        employees.forEach(e => {
+          const ps = prevSch?.assignments?.[`${e.id}_${pDs}`];
+          if (ps && shiftById.has(ps)) seed[`${e.id}_BNDP${k}`] = ps;
+          const ns = nextSch?.assignments?.[`${e.id}_${nDs}`];
+          if (ns && shiftById.has(ns)) seed[`${e.id}_BNDN${k}`] = ns;
+        });
+      }
+      return seed;
+    })();
     let TARGET_NORMAL = 60;
     let TARGET_OFF_NIGHT = 44;
 
@@ -507,10 +535,12 @@ function ScheduleManager() {
     };
 
     const runOnce = () => {
-      const newAssignments = {};
+      const newAssignments = { ...boundarySeed };   // มีเวรขอบเดือนไว้ให้ตรวจกฎ (ลบออกก่อนบันทึก)
 
     const fmtD = (d) => {
-      if (d < 1 || d > dim) return null;
+      // นอกเดือนไม่เกิน 2 วัน → key ขอบเดือน (ใช้ตรวจเพื่อนบ้านข้ามเดือน) · ไกลกว่านั้น → null
+      if (d < 1) return (1 - d) <= BOUNDARY_DAYS ? `BNDP${1 - d}` : null;
+      if (d > dim) return (d - dim) <= BOUNDARY_DAYS ? `BNDN${d - dim}` : null;
       return `${activeSchedule.year}-${String(activeSchedule.month + 1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     };
 
@@ -592,6 +622,9 @@ function ScheduleManager() {
         hasBe: false, hasR1: false, hasG: false, hasT1: false, hasT2: false,
         lastDay: null,     // วันล่าสุดที่มีเวร (ตรวจ rule_1 ทั้งหน้า-หลัง)
       };
+      // มีเวรท้ายเดือนก่อน → lastDay = 0 (วันสุดท้าย) / -1 (วันก่อนสุดท้าย) ให้ตัวเรียงรู้ว่าเพิ่งทำงาน
+      if (newAssignments[`${e.id}_BNDP1`]) empStats[e.id].lastDay = 0;
+      else if (newAssignments[`${e.id}_BNDP2`]) empStats[e.id].lastDay = -1;
     });
 
     // ─── shuffle ───
@@ -2557,6 +2590,8 @@ function ScheduleManager() {
       }
     }
 
+    // ลบ key ขอบเดือนออกก่อนบันทึก/ให้คะแนน — ต้องไม่ปนเข้าตารางเดือนนี้
+    Object.keys(newAssignments).forEach(k => { if (k.includes('_BND')) delete newAssignments[k]; });
     setSchedules(schedules.map(s => s.id === activeSchedule?.id ? { ...s, assignments: newAssignments } : s));
     setTargetNormalDisplay(TARGET_NORMAL);
     setTargetOffNightDisplay(TARGET_OFF_NIGHT);
