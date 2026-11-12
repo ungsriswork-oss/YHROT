@@ -1018,7 +1018,7 @@ const AS_SEED_SHIFTS = [
   { id: 'as_IE', name: 'IE', color: '#ec4899', start: '16:00', end: '00:00', min: 1, allowedDays: 'weekdays', value: 340, minPerPerson: 1, minGroup: 'บ่าย' },
   { id: 'as_41', name: '41', color: '#14b8a6', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_42', name: '42', color: '#06b6d4', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
-  { id: 'as_2O', name: '2O', color: '#84cc16', start: '16:00', end: '18:00', min: 1, allowedDays: 'mon_tue_only', value: 85 },
+  { id: 'as_2O', name: '2O', color: '#84cc16', start: '16:00', end: '18:00', min: 1, allowedDays: 'mon_tue_only', value: 85, capPerPerson: 1 },
   { id: 'as_4S1', name: '4S1', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
   { id: 'as_4S2', name: '4S2', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
   { id: 'as_4S3', name: '4S3', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
@@ -2620,6 +2620,47 @@ function ShiftTypesManager() {
     minGroup: '',
   });
 
+  // อัปเดตเฉพาะ "กฎ" ของเวรที่มีอยู่ให้ตรงค่าแนะนำ (ไม่แตะชื่อ/สี/เวลา/ค่าเวร/พนักงาน/ตาราง)
+  const AS_RULE_KEYS = ['minPerPerson', 'minGroup', 'capPerPerson', 'balanceAmong'];
+  const handleApplyRecommendedRules = () => {
+    const changes = [];
+    const next = shifts.map((sh) => {
+      const seed =
+        AS_SEED_SHIFTS.find((x) => x.id === sh.id) ||
+        AS_SEED_SHIFTS.find((x) => x.name === (sh.name || '').trim());
+      if (!seed) return sh;
+      const upd = { ...sh };
+      const diff = [];
+      AS_RULE_KEYS.forEach((k) => {
+        if (seed[k] === undefined) return;
+        if (upd[k] !== seed[k]) {
+          upd[k] = seed[k];
+          diff.push(k);
+        }
+      });
+      if (diff.length > 0) changes.push(sh.name);
+      return upd;
+    });
+    if (changes.length === 0) {
+      alert('กฎของทุกเวรตรงกับค่าแนะนำอยู่แล้ว');
+      return;
+    }
+    if (
+      !confirm(
+        `จะตั้งกฎตามค่าแนะนำให้เวร: ${changes.join(', ')}\n\n` +
+          '• ด1: ทุกคนที่ลงได้ ต้องได้อย่างน้อย 1 เวร\n' +
+          '• OE/IE (กลุ่ม "บ่าย"): ทุกคนที่ลงได้ ต้องได้อย่างน้อย 1 เวร\n' +
+          '• 2O: ไม่เกิน 1 เวร/คน/เดือน\n' +
+          '• M1–M4: รวมกันไม่เกิน 1 เวร/คน/เดือน\n' +
+          '• ช: เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้\n\n' +
+          'ไม่แตะชื่อ สี เวลา ค่าเวร รายชื่อพนักงาน และตารางเดิม — ยืนยัน?'
+      )
+    )
+      return;
+    setShifts(next);
+    alert('อัปเดตกฎเรียบร้อย — กดสุ่มเวรใหม่ได้เลย');
+  };
+
   const handleSeed = () => {
     if (
       !confirm(
@@ -2675,6 +2716,12 @@ function ShiftTypesManager() {
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-xl font-bold">จัดการประเภทเวร (ผู้ช่วยเภสัชกร)</h2>
         <div className="flex gap-2">
+        <button
+          onClick={handleApplyRecommendedRules}
+          className="bg-white text-green-700 border border-green-300 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-green-50 shadow-sm"
+        >
+          <CheckCircle2 className="w-4 h-4" /> ตั้งกฎตามค่าแนะนำ
+        </button>
         <button
           onClick={handleSeed}
           className="bg-white text-indigo-700 border border-indigo-300 px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 hover:bg-indigo-50 shadow-sm"
