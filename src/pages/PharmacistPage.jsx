@@ -320,6 +320,9 @@ function ScheduleManager() {
     a.click();
   };
 
+  // ─── Export Excel: รูปแบบเดียวกับ template ของโปรแกรมแลกเวร (upload ได้) ───
+  // แถว 1: ชื่อตาราง (merge ทั้งแถว) · แถว 2: ลำดับ | ชื่อ - สกุล | วันที่ 1..n | สรุป 12 ช่อง
+  // แถว 3: ชื่อวัน (อา จ อ …) · แถว 4+: ข้อมูลรายคน · ทุกช่องเป็นข้อความ (เหมือน template)
   const handleExportExcel = () => {
     if (!activeSchedule) return;
     const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
@@ -331,18 +334,22 @@ function ScheduleManager() {
       const XLSX = window.XLSX;
       const wb = XLSX.utils.book_new();
 
-      // header row 1: พนักงาน, กลุ่ม, วันที่ 1-31, สรุป
-      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','PMC(ชม.)','ชม.','รวม(บ.)'];
-      const header = ['พนักงาน','กลุ่ม', ...Array.from({length:dim},(_,i)=>i+1), ...summaryHeaders];
+      const DOW_TH = ['อา','จ','อ','พ','พฤ','ศ','ส'];
+      const summaryHeaders = ['เช้า','บ่าย','ดึก','As/4','A/4','SMC','4o','2o','4T','PMC(ชม)','ชม','รวม(บ)'];
+      const totalCols = 2 + dim + summaryHeaders.length;
+      const yy = String((activeSchedule.year + 543) % 100).padStart(2, '0');
+      const title = `ตารางเวร เภสัชกร — กลุ่ม เภสัชกร เดือน${thaiMonths[activeSchedule.month]} ${yy}`;
 
-      const wsData = [header];
+      const row1 = [title, ...Array(totalCols - 1).fill('')];
+      const row2 = ['ลำดับ', 'ชื่อ - สกุล', ...Array.from({ length: dim }, (_, i) => String(i + 1)), ...summaryHeaders];
+      const row3 = ['', '', ...Array.from({ length: dim }, (_, i) =>
+        DOW_TH[new Date(activeSchedule.year, activeSchedule.month, i + 1).getDay()]), ...Array(summaryHeaders.length).fill('')];
+      const wsData = [row1, row2, row3];
 
-      // ข้อมูลแต่ละคน
-      employees.filter(e => !e.onLeave).forEach(emp => {
-        const grp = PHARMACIST_GROUPS.find(g => g.id === emp.group)?.label || 'ปกติ';
-        const row = [emp.name, grp];
+      employees.forEach((emp, idx) => {
+        const row = [String(idx + 1), emp.name];
         let money = 0, hours = 0;
-        let cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
+        const cnt = { เช้า:0, บ่าย:0, ดึก:0, 'As/4':0, 'A/4':0, SMC:0, '4o':0, '2o':0, 'Telemed':0, 'PMC':0 };
         for (let d = 1; d <= dim; d++) {
           const ds = fmtDateFor(activeSchedule, d);
           const s = shiftById.get(activeSchedule.assignments[`${emp.id}_${ds}`]);
@@ -353,51 +360,32 @@ function ScheduleManager() {
             if (c === 'PMC') cnt[c] += getShiftHours(s); else if (cnt[c] !== undefined) cnt[c]++;
           }
         }
-        row.push(cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PMC'],hours,money);
+        row.push(...[cnt['เช้า'],cnt['บ่าย'],cnt['ดึก'],cnt['As/4'],cnt['A/4'],cnt['SMC'],cnt['4o'],cnt['2o'],cnt['Telemed'],cnt['PMC'],hours,money].map(String));
         wsData.push(row);
       });
 
       const ws = XLSX.utils.aoa_to_sheet(wsData);
 
-      // ─── กำหนด column width ───
-      ws['!cols'] = [
-        {wch:14}, {wch:10},
-        ...Array.from({length:dim}, ()=>({wch:5})),
-        ...summaryHeaders.map(()=>({wch:5}))
+      // ทุกช่องเป็นข้อความ (template ใช้ mso-number-format "@")
+      Object.keys(ws).forEach(k => { if (k[0] !== '!' && ws[k]) { ws[k].t = 's'; ws[k].v = String(ws[k].v ?? ''); ws[k].z = '@'; } });
+
+      // merge: ชื่อตาราง ทั้งแถว · ลำดับ / ชื่อ - สกุล / ช่องสรุป สูง 2 แถว
+      const merges = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
+        { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } },
       ];
-
-      // ─── ไฮไลต์วันหยุด (header row และทุก row) ───
-      const HOL_BG = 'FFFFD6D6'; // สีแดงอ่อน
-      const HOL_HEADER_BG = 'FFFF9999'; // สีแดงเข้มขึ้นสำหรับ header
-
-      for (let d = 1; d <= dim; d++) {
-        const dow = new Date(activeSchedule.year, activeSchedule.month, d).getDay();
-        const ds = fmtDateFor(activeSchedule, d);
-        const isHolDay = dow === 0 || dow === 6 || !!(activeSchedule.holidays?.[ds]);
-        if (!isHolDay) continue;
-
-        const colIdx = d + 1; // col 0=พนักงาน, 1=กลุ่ม, 2=วันที่1 ...
-        const colLetter = XLSX.utils.encode_col(colIdx);
-
-        // ไฮไลต์ header
-        const headerCell = colLetter + '1';
-        if (!ws[headerCell]) ws[headerCell] = {v: d, t:'n'};
-        ws[headerCell].s = {
-          fill: {patternType:'solid', fgColor:{rgb: HOL_HEADER_BG}},
-          font: {bold:true, color:{rgb:'FF990000'}},
-          alignment: {horizontal:'center'}
-        };
-
-        // ไฮไลต์ทุก row ของวันนั้น
-        for (let r = 2; r <= wsData.length; r++) {
-          const cellRef = colLetter + r;
-          if (!ws[cellRef]) ws[cellRef] = {v:'', t:'s'};
-          ws[cellRef].s = {
-            fill: {patternType:'solid', fgColor:{rgb: HOL_BG}},
-            alignment: {horizontal:'center'}
-          };
-        }
+      for (let i = 0; i < summaryHeaders.length; i++) {
+        const c = 2 + dim + i;
+        merges.push({ s: { r: 1, c }, e: { r: 2, c } });
       }
+      ws['!merges'] = merges;
+
+      ws['!cols'] = [
+        { wch: 6 }, { wch: 24 },
+        ...Array.from({ length: dim }, () => ({ wch: 5 })),
+        ...summaryHeaders.map(h => ({ wch: Math.max(5, h.length + 1) })),
+      ];
 
       XLSX.utils.book_append_sheet(wb, ws, 'ตารางเวร');
       XLSX.writeFile(wb, `ตารางเวร_${thaiMonths[activeSchedule.month]}_${activeSchedule.year+543}.xlsx`);
