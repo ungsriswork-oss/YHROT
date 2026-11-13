@@ -1079,6 +1079,70 @@ const asSeedEmployees = () => {
 };
 // === AS_SEED_END ===
 
+// === AS_EXPORT_START ===
+// ==========================================
+// Export Excel แบบ template ของโปรแกรมแลกเวร (กลุ่ม เจ้าหน้าที่)
+// ==========================================
+const AS_EXPORT_HEADERS = [
+  'I/P/ช', '4S', 'สี่', 'ชS', 'บ', 'ด', 'ชม', 'สอง', 'แปด',
+  'เงิน2', 'เงิน4', 'เงิน4S', 'เงิน8', '8smc', 'เงินรวม',
+];
+const asShiftHours = (shift) => {
+  if (!shift || !shift.start || !shift.end) return 0;
+  const [h1, m1] = shift.start.split(':').map(Number);
+  const [h2, m2] = shift.end.split(':').map(Number);
+  let hrs = h2 - h1 + (m2 - m1) / 60;
+  if (hrs <= 0) hrs += 24;
+  return hrs;
+};
+// หมวดของเวรตาม template: ipc (I/P/T) · 4s · four (41/42/M) · chs (ชR/ชS) · two (2O) · eight (เวร 8 ชม. อื่น ๆ)
+const asExportKind = (shift) => {
+  const n = (shift.name || '').trim().toUpperCase();
+  if (/^ช[RS]$/.test(n)) return 'chs';
+  if (shift.dynamic === 'smc' || /^4S/.test(n)) return '4s';
+  if (shift.dynamic === 'telemed' || /^M\d*$/.test(n) || /^4\d+$/.test(n)) return 'four';
+  if (/^2O/.test(n)) return 'two';
+  if (/^I\d*$/.test(n) || n === 'P' || n === 'T') return 'ipc';
+  return 'other';
+};
+// สรุป 15 ช่องท้ายแถวของ 1 คน จากรายการเวรที่ได้ทั้งเดือน
+function asExportSummary(shiftList) {
+  const c = { ipc: 0, s4: 0, four: 0, chs: 0, b: 0, d: 0, hours: 0, two: 0, eight: 0 };
+  const m = { two: 0, four: 0, s4: 0, eight: 0, chs: 0 };
+  shiftList.forEach((s) => {
+    const kind = asExportKind(s);
+    const val = asGetShiftValue(s);
+    const hrs = asShiftHours(s);
+    const grp = asShiftGroup(s);
+    if (kind === 'ipc') c.ipc++;
+    if (grp === 'บ') c.b++;
+    if (grp === 'ด') c.d++;
+    if (kind === 'chs') {
+      c.chs++;
+      c.eight++;
+      m.chs += val;
+      return; // ชS ไม่นับชั่วโมง (ตาม template)
+    }
+    c.hours += hrs;
+    if (kind === '4s') {
+      c.s4++;
+      m.s4 += val;
+    } else if (kind === 'four') {
+      c.four++;
+      m.four += val;
+    } else if (kind === 'two') {
+      c.two++;
+      m.two += val;
+    } else if (hrs >= 8) {
+      c.eight++;
+      m.eight += val;
+    }
+  });
+  const total = m.two + m.four + m.s4 + m.eight + m.chs;
+  return [c.ipc, c.s4, c.four, c.chs, c.b, c.d, c.hours, c.two, c.eight, m.two, m.four, m.s4, m.eight, m.chs, total];
+}
+// === AS_EXPORT_END ===
+
 // ==========================================
 // ฟังก์ชันคำนวณมูลค่าเวร
 // ==========================================
@@ -1253,7 +1317,86 @@ function ScheduleManager() {
     }
   };
 
+  // ─── Export Excel: รูปแบบเดียวกับ template ของโปรแกรมแลกเวร (upload ได้) ───
+  // แถว 1: ชื่อตาราง (merge ทั้งแถว) · แถว 2: ลำดับ | ชื่อ - สกุล | วันที่ 1..n | สรุป 15 ช่อง
+  // แถว 3: ชื่อวัน (อา จ อ …) · แถว 4+: ข้อมูลรายคน · ทุกช่องเป็นข้อความ (เหมือน template)
   const handleExportExcel = () => {
+    if (!activeSchedule) return;
+    const dim = new Date(activeSchedule.year, activeSchedule.month + 1, 0).getDate();
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    script.onload = () => {
+      const XLSX = window.XLSX;
+      const wb = XLSX.utils.book_new();
+      const DOW_TH = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+      const totalCols = 2 + dim + AS_EXPORT_HEADERS.length;
+      const yy = String((activeSchedule.year + 543) % 100).padStart(2, '0');
+      const title = `ตารางเวร เภสัชกร — กลุ่ม เจ้าหน้าที่ เดือน${thaiMonths[activeSchedule.month]} ${yy}`;
+      const row1 = [title, ...Array(totalCols - 1).fill('')];
+      const row2 = [
+        'ลำดับ',
+        'ชื่อ - สกุล',
+        ...Array.from({ length: dim }, (_, i) => String(i + 1)),
+        ...AS_EXPORT_HEADERS,
+      ];
+      const row3 = [
+        '',
+        '',
+        ...Array.from(
+          { length: dim },
+          (_, i) => DOW_TH[new Date(activeSchedule.year, activeSchedule.month, i + 1).getDay()]
+        ),
+        ...Array(AS_EXPORT_HEADERS.length).fill(''),
+      ];
+      const wsData = [row1, row2, row3];
+      employees.forEach((emp, idx) => {
+        const row = [String(idx + 1), emp.name];
+        const got = [];
+        for (let d = 1; d <= dim; d++) {
+          const ds = asDateStr(activeSchedule.year, activeSchedule.month, d);
+          const sh = shifts.find((x) => x.id === activeSchedule.assignments[`${emp.id}_${ds}`]);
+          row.push(sh ? sh.name : '');
+          if (sh) got.push(sh);
+        }
+        row.push(...asExportSummary(got).map(String));
+        wsData.push(row);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(wsData);
+      // ทุกช่องเป็นข้อความ (template ใช้ mso-number-format "@")
+      Object.keys(ws).forEach((k) => {
+        if (k[0] !== '!' && ws[k]) {
+          ws[k].t = 's';
+          ws[k].v = String(ws[k].v ?? '');
+          ws[k].z = '@';
+        }
+      });
+      const merges = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: totalCols - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 2, c: 0 } },
+        { s: { r: 1, c: 1 }, e: { r: 2, c: 1 } },
+      ];
+      for (let i = 0; i < AS_EXPORT_HEADERS.length; i++) {
+        const c = 2 + dim + i;
+        merges.push({ s: { r: 1, c }, e: { r: 2, c } });
+      }
+      ws['!merges'] = merges;
+      ws['!cols'] = [
+        { wch: 6 },
+        { wch: 24 },
+        ...Array.from({ length: dim }, () => ({ wch: 5 })),
+        ...AS_EXPORT_HEADERS.map((h) => ({ wch: Math.max(5, h.length + 1) })),
+      ];
+      XLSX.utils.book_append_sheet(wb, ws, 'ตารางเวร');
+      XLSX.writeFile(
+        wb,
+        `ตารางเวรผู้ช่วย_${thaiMonths[activeSchedule.month]}_${activeSchedule.year + 543}.xlsx`
+      );
+    };
+    document.head.appendChild(script);
+  };
+
+  // CSV เดิม (ไว้ส่งให้ Claude ตรวจ / ใช้ภายใน)
+  const handleExportCSV = () => {
     if (!activeSchedule) return;
     const daysInMonth = new Date(
       activeSchedule.year,
@@ -1787,6 +1930,12 @@ function ScheduleManager() {
             className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
           >
             <Download className="w-4 h-4" /> Excel
+          </button>
+          <button
+            onClick={handleExportCSV}
+            className="text-slate-600 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-slate-50 transition-colors"
+          >
+            <Download className="w-4 h-4" /> CSV
           </button>
           <button
             onClick={() => window.print()}
