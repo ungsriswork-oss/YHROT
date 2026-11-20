@@ -539,10 +539,18 @@ function asWindowSolve(ctx, st, d0, k0, rand) {
   const W0 = Math.max(0, d0 - 3);
   const W1 = Math.min(D - 1, d0 + 3);
   const si0 = ctx.days[d0].slots[k0];
-  // คนที่เกี่ยวข้อง = คนที่ลงเวรที่ว่างได้ → ปลดเวรของคนกลุ่มนี้ในช่วงวันนั้นมาจัดใหม่ด้วย
+  // คนที่เกี่ยวข้อง = คนที่ลงเวรที่ว่างได้ + คนที่ลงเวรหายากในช่วงวันนั้นได้
+  // → ปลดเวรทุกเวรของคนกลุ่มนี้ในช่วงวันนั้นมาจัดใหม่ (เช่น ขันแก้วติด P วันอาทิตย์ จึงลง T วันเสาร์ไม่ได้)
   const involved = new Set();
-  for (let i = 0; i < ctx.N; i++)
-    if (ctx.can[i][si0] && !ctx.offDow[i][si0].includes(ctx.days[d0].dow)) involved.add(i);
+  const addElig = (d, si) => {
+    for (let i = 0; i < ctx.N; i++)
+      if (ctx.can[i][si] && !ctx.offDow[i][si].includes(ctx.days[d].dow)) involved.add(i);
+  };
+  addElig(d0, si0);
+  for (let d = W0; d <= W1; d++)
+    ctx.days[d].slots.forEach((si) => {
+      if (asEligCount(ctx, d, si) <= AS_SCARCE_LIMIT) addElig(d, si);
+    });
   const slots = [];
   for (let d = W0; d <= W1; d++)
     ctx.days[d].slots.forEach((si, k) => {
@@ -551,7 +559,7 @@ function asWindowSolve(ctx, st, d0, k0, rand) {
       if ((d === d0 && k === k0) || scarce || (holder >= 0 && involved.has(holder)))
         slots.push({ d, k, si, orig: holder, n: asEligCount(ctx, d, si) });
     });
-  if (slots.length > 40) return false;
+  if (slots.length > 60) return false;
   slots.forEach((x) => {
     if (x.orig >= 0) asUnassign(ctx, st, x.d, x.k);
   });
@@ -1847,7 +1855,7 @@ function ScheduleManager() {
           s.id === scheduleId ? { ...s, assignments: out.assignments } : s
         )
       );
-      setGenReport({ ...out.report, warnings });
+      setGenReport({ ...out.report, warnings, scheduleId });
       setIsGenerating(false);
     };
     setTimeout(runChunk, 30);
@@ -2079,7 +2087,7 @@ function ScheduleManager() {
         </div>
       </div>
 
-      {genReport && (
+      {genReport && genReport.scheduleId === activeScheduleId && (
         <div
           className={`mb-3 p-3 rounded-xl border text-xs shrink-0 print-hidden ${
             genReport.missingList.length === 0 &&
