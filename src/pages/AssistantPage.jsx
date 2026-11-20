@@ -94,7 +94,13 @@ const asShiftNeedOnDay = (shift, dateStr, dow, isHolidayFlag, telemedAppts, smcA
 // เพดานจำนวนเวรต่อคนต่อเดือน: นับรวมทุกเวรในกลุ่มเดียวกัน
 // - เวรที่เปิดตามยอดนัด (M1–M4 / 4S5–4S7) นับเป็นกลุ่มเดียวกันตามประเภทยอดนัด
 // - เวร Telemed ถ้าไม่ได้ตั้งค่า = 1 เวร/คน/เดือน
-const asCapGroupKey = (shift) => (shift.dynamic ? `dyn:${shift.dynamic}` : shift.id);
+// กลุ่มเพดาน: ถ้าตั้ง "ชื่อกลุ่ม" ไว้ ใช้ชื่อกลุ่ม (เช่น 4S1–4S7 = กลุ่ม 4S) · ไม่ตั้ง → เวรตามยอดนัดนับรวมตามประเภท · อื่น ๆ นับแยกรายเวร
+const asCapGroupKey = (shift) =>
+  shift.minGroup && String(shift.minGroup).trim()
+    ? `g:${String(shift.minGroup).trim()}`
+    : shift.dynamic
+      ? `dyn:${shift.dynamic}`
+      : shift.id;
 const asCapOf = (shift) => {
   if (shift.capPerPerson !== undefined && shift.capPerPerson !== null && shift.capPerPerson !== '') {
     const v = Number(shift.capPerPerson);
@@ -147,6 +153,25 @@ function asBuildContext({
     return g;
   });
   const capOf = shifts.map((s) => asCapOf(s));
+  // หน่วยเฉลี่ย: เวรที่ติ๊ก "เฉลี่ยให้เท่ากัน" — ถ้ามีชื่อกลุ่มจะเฉลี่ยยอดรวมทั้งกลุ่ม (เช่น 4S รวม)
+  const balUnits = [];
+  const balUnitOf = shifts.map(() => -1);
+  shifts.forEach((sh, si) => {
+    if (!sh.balanceAmong) return;
+    const key =
+      sh.minGroup && String(sh.minGroup).trim() ? `g:${String(sh.minGroup).trim()}` : `id:${sh.id}`;
+    let u = balUnits.findIndex((x) => x.key === key);
+    if (u < 0) {
+      balUnits.push({
+        key,
+        members: [],
+        label: key.startsWith('g:') ? String(sh.minGroup).trim() : sh.name,
+      });
+      u = balUnits.length - 1;
+    }
+    balUnits[u].members.push(si);
+    balUnitOf[si] = u;
+  });
   const balanceShift = shifts.map((s) => !!s.balanceAmong);
 
   const days = [];
@@ -232,6 +257,8 @@ function asBuildContext({
     capOf,
     G: capKeys.length,
     balanceShift,
+    balUnits,
+    balUnitOf,
     minGroups,
     minGroupOf,
     can,
@@ -335,7 +362,7 @@ function asPrefKey(ctx, st, i, si, noise) {
   if (fx !== null && st.cnt[i][si] < fx) key -= 1e9; // ต้องได้ครบจำนวนตายตัว
   const mg = ctx.minGroupOf[si];
   if (mg >= 0 && asGroupCount(ctx, st, i, mg) < ctx.minGroups[mg].min) key -= 5e8; // ยังไม่ถึงขั้นต่ำ
-  if (ctx.balanceShift[si]) key += st.cnt[i][si] * 1e8; // เวรที่ต้องเฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
+  if (ctx.balanceShift[si]) key += asUnitCount(ctx, st, i, ctx.balUnitOf[si]) * 1e8; // เวรที่ต้องเฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
   else if (ctx.dedicated[i]) key -= 1e8; // คนที่ลงได้เฉพาะบางเวร ให้ได้เวรนั้นก่อน
   if (ctx.balanceTypes && fx === null) key += st.cnt[i][si] * 1e6; // หลีกเลี่ยงตัวเวรซ้ำ
   if (ctx.balanceMoney && ctx.balance[i]) key += st.money[i];
@@ -486,17 +513,23 @@ function asDupCount(ctx, st, i) {
   }
   return dup;
 }
+function asUnitCount(ctx, st, i, u) {
+  let c = 0;
+  for (const si of ctx.balUnits[u].members) c += st.cnt[i][si];
+  return c;
+}
+const asUnitEligible = (ctx, i, u) => ctx.balUnits[u].members.some((si) => ctx.can[i][si]);
 // เวรที่ติ๊ก "เฉลี่ยให้เท่ากัน": ผลรวมของ (มากสุด − น้อยสุด − 1) ระหว่างคนที่ลงได้ (ต่างกันไม่เกิน 1 = ไม่ปรับ)
 function asBalanceGap(ctx, st) {
   let gap = 0;
-  for (let si = 0; si < ctx.S; si++) {
-    if (!ctx.balanceShift[si]) continue;
+  for (let u = 0; u < ctx.balUnits.length; u++) {
     let mn = Infinity;
     let mx = -Infinity;
     for (let i = 0; i < ctx.N; i++) {
-      if (!ctx.can[i][si]) continue;
-      mn = Math.min(mn, st.cnt[i][si]);
-      mx = Math.max(mx, st.cnt[i][si]);
+      if (!asUnitEligible(ctx, i, u)) continue;
+      const c = asUnitCount(ctx, st, i, u);
+      mn = Math.min(mn, c);
+      mx = Math.max(mx, c);
     }
     if (mx - mn > 1) gap += mx - mn - 1;
   }
@@ -667,6 +700,68 @@ function asFixMinimum(ctx, st, rand) {
   }
 }
 
+// ---------- Phase 3c: เฉลี่ยเวรที่ติ๊ก "เฉลี่ยให้เท่ากัน" (ย้าย/สลับจากคนที่ได้มากสุด → คนที่ได้น้อยสุด) ----------
+function asTryGive(ctx, st, d, k, i) {
+  // ย้ายช่อง (d,k) ไปให้ i: ถ้า i ว่างวันนั้น = ย้ายตรง · ถ้า i มีเวรอื่นวันนั้น = สลับกัน · รับเมื่อคะแนนดีขึ้น
+  const j = st.slotEmp[d][k];
+  if (j < 0 || j === i) return false;
+  const si = ctx.days[d].slots[k];
+  const before = asSoftScore(ctx, st);
+  const ki = st.dayEmp[d][i];
+  if (ki < 0) {
+    if (asWorksAdjacent(ctx, st, i, d)) return false;
+    asUnassign(ctx, st, d, k);
+    if (asStaticOk(ctx, st, i, d, si)) {
+      asAssign(ctx, st, d, k, i);
+      if (asSoftScore(ctx, st) < before) return true;
+      asUnassign(ctx, st, d, k);
+    }
+    asAssign(ctx, st, d, k, j);
+    return false;
+  }
+  const si2 = ctx.days[d].slots[ki];
+  asUnassign(ctx, st, d, k);
+  asUnassign(ctx, st, d, ki);
+  if (asStaticOk(ctx, st, i, d, si) && asStaticOk(ctx, st, j, d, si2)) {
+    asAssign(ctx, st, d, k, i);
+    asAssign(ctx, st, d, ki, j);
+    if (asSoftScore(ctx, st) < before) return true;
+    asUnassign(ctx, st, d, k);
+    asUnassign(ctx, st, d, ki);
+  }
+  asAssign(ctx, st, d, k, j);
+  asAssign(ctx, st, d, ki, i);
+  return false;
+}
+function asFixBalance(ctx, st, rand) {
+  ctx.balUnits.forEach((unit, u) => {
+    for (let round = 0; round < 60; round++) {
+      const elig = [];
+      for (let i = 0; i < ctx.N; i++) if (asUnitEligible(ctx, i, u)) elig.push(i);
+      if (elig.length < 2) return;
+      const cnt = (i) => asUnitCount(ctx, st, i, u);
+      const mx = Math.max(...elig.map(cnt));
+      const mn = Math.min(...elig.map(cnt));
+      if (mx - mn <= 1) return;
+      const highs = elig.filter((i) => cnt(i) === mx).sort(() => rand() - 0.5);
+      const lows = elig.filter((i) => cnt(i) === mn).sort(() => rand() - 0.5);
+      let moved = false;
+      for (const lo of lows) {
+        for (const hi of highs) {
+          for (let d = 0; d < ctx.D && !moved; d++) {
+            const k = st.dayEmp[d][hi];
+            if (k < 0 || !unit.members.includes(ctx.days[d].slots[k])) continue;
+            if (asTryGive(ctx, st, d, k, lo)) moved = true;
+          }
+          if (moved) break;
+        }
+        if (moved) break;
+      }
+      if (!moved) return;
+    }
+  });
+}
+
 // สุ่ม 1 รอบ
 function asRunAttempt(ctx, rand) {
   const st = asNewState(ctx);
@@ -679,7 +774,9 @@ function asRunAttempt(ctx, rand) {
   for (let d = 0; d < ctx.D; d++) asGreedyDay(ctx, st, d, rand);
   asRepair(ctx, st, rand);
   if (ctx.minGroups.length > 0) asFixMinimum(ctx, st, rand);
+  if (ctx.balUnits.length > 0) asFixBalance(ctx, st, rand);
   asImprove(ctx, st, rand, 6000);
+  if (ctx.balUnits.length > 0) asFixBalance(ctx, st, rand);
   if (ctx.minGroups.length > 0 && asMinShort(ctx, st) > 0) asFixMinimum(ctx, st, rand);
   // ลองเติมช่องว่างอีกครั้งหลังปรับ
   if (asMissing(ctx, st) > 0) asRepair(ctx, st, rand);
@@ -716,13 +813,28 @@ function asResultToOutput(ctx, res) {
         );
     }
   const balanceInfo = [];
-  for (let si = 0; si < ctx.S; si++) {
-    if (!ctx.balanceShift[si]) continue;
-    const parts = [];
-    for (let i = 0; i < ctx.N; i++)
-      if (ctx.can[i][si]) parts.push(`${ctx.employees[i].name} ${st.cnt[i][si]}`);
-    balanceInfo.push(`${ctx.shifts[si].name}: ${parts.join(' / ')}`);
-  }
+  ctx.balUnits.forEach((unit, u) => {
+    const elig = [];
+    for (let i = 0; i < ctx.N; i++) if (asUnitEligible(ctx, i, u)) elig.push(i);
+    if (elig.length <= 6) {
+      balanceInfo.push(
+        `${unit.label}: ${elig.map((i) => `${ctx.employees[i].name} ${asUnitCount(ctx, st, i, u)}`).join(' / ')}`
+      );
+    } else {
+      const hist = {};
+      elig.forEach((i) => {
+        const c = asUnitCount(ctx, st, i, u);
+        hist[c] = (hist[c] || 0) + 1;
+      });
+      balanceInfo.push(
+        `${unit.label}: ${Object.keys(hist)
+          .map(Number)
+          .sort((a, b) => a - b)
+          .map((c) => `${c} เวร ${hist[c]} คน`)
+          .join(' · ')}`
+      );
+    }
+  });
   const minIssues = [];
   ctx.minGroups.forEach((grp, g) => {
     grp.eligible.forEach((i) => {
@@ -1019,13 +1131,13 @@ const AS_SEED_SHIFTS = [
   { id: 'as_41', name: '41', color: '#14b8a6', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_42', name: '42', color: '#06b6d4', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_2O', name: '2O', color: '#84cc16', start: '16:00', end: '18:00', min: 1, allowedDays: 'mon_tue_only', value: 85, capPerPerson: 1 },
-  { id: 'as_4S1', name: '4S1', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
-  { id: 'as_4S2', name: '4S2', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
-  { id: 'as_4S3', name: '4S3', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
-  { id: 'as_4S4', name: '4S4', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300 },
-  { id: 'as_4S5', name: '4S5', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 301 },
-  { id: 'as_4S6', name: '4S6', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 401 },
-  { id: 'as_4S7', name: '4S7', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 480 },
+  { id: 'as_4S1', name: '4S1', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S2', name: '4S2', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S3', name: '4S3', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S4', name: '4S4', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S5', name: '4S5', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 301, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S6', name: '4S6', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 401, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S7', name: '4S7', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 480, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
   { id: 'as_I1', name: 'I1', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
   { id: 'as_I2', name: 'I2', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
   { id: 'as_I3', name: 'I3', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
@@ -2801,7 +2913,8 @@ function ShiftTypesManager() {
           '• OE/IE (กลุ่ม "บ่าย"): ทุกคนที่ลงได้ ต้องได้อย่างน้อย 1 เวร\n' +
           '• 2O: ไม่เกิน 1 เวร/คน/เดือน\n' +
           '• M1–M4: รวมกันไม่เกิน 1 เวร/คน/เดือน\n' +
-          '• ช: เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้\n\n' +
+          '• ช: เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้\n' +
+          '• 4S1–4S7 (กลุ่ม "4S"): คนละ 2–4 เวร และเฉลี่ยให้เท่ากัน\n\n' +
           'ไม่แตะชื่อ สี เวลา ค่าเวร รายชื่อพนักงาน และตารางเดิม — ยืนยัน?'
       )
     )
@@ -2960,7 +3073,11 @@ function ShiftTypesManager() {
               {asCapOf(s) !== null && (
                 <div className="flex items-center gap-2.5 text-rose-700 text-xs font-medium">
                   จำกัด {asCapOf(s)} เวร/คน/เดือน
-                  {s.dynamic ? ` (นับรวมทุกเวร ${s.dynamic === 'telemed' ? 'Telemed' : 'SMC'})` : ''}
+                  {s.minGroup && String(s.minGroup).trim()
+                    ? ` (นับรวมกลุ่ม ${String(s.minGroup).trim()})`
+                    : s.dynamic
+                      ? ` (นับรวมทุกเวร ${s.dynamic === 'telemed' ? 'Telemed' : 'SMC'})`
+                      : ''}
                 </div>
               )}
               {s.balanceAmong && (
@@ -3208,7 +3325,7 @@ function ShiftTypesManager() {
                 </div>
                 <div>
                   <label className="block text-sm font-bold text-gray-700 mb-1.5">
-                    ชื่อกลุ่มขั้นต่ำ
+                    ชื่อกลุ่ม (นับรวม)
                   </label>
                   <input
                     type="text"
@@ -3220,7 +3337,7 @@ function ShiftTypesManager() {
                 </div>
               </div>
               <p className="text-[11px] text-gray-400 -mt-3">
-                เวรที่ใส่ชื่อกลุ่มเดียวกันจะนับรวมกัน เช่น OE และ IE ใส่ "บ่าย" ทั้งคู่ = ทุกคนต้องได้ OE หรือ IE อย่างน้อย 1 เวร · ไม่นับคนที่ลงเวรนี้ไม่ได้
+                เวรที่ใส่ชื่อกลุ่มเดียวกันจะนับรวมกันทั้ง "อย่างน้อย" "จำกัดต่อคน" และ "เฉลี่ยให้เท่ากัน" เช่น 4S1–4S7 ใส่ "4S" = ทุกคนได้ 4S รวมกัน 2–4 เวร · ไม่นับคนที่ลงเวรนี้ไม่ได้
               </p>
             </div>
             <div className="flex gap-3 justify-end mt-8 pt-4 border-t border-gray-100">
