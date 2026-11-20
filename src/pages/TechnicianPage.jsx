@@ -1116,6 +1116,39 @@ function tcPickResult(results, rand) {
   return pool[Math.floor(rand() * pool.length)] || best;
 }
 
+// ─── Export Excel สำหรับโปรแกรมแลกเวร (กลุ่ม เจ้าพนักงาน, dept29) ───
+// รายชื่อและลำดับตามไฟล์ template ของโปรแกรมแลกเวร — คนที่ไม่มีในรายชื่อนี้จะต่อท้าย
+const TC_EXPORT_ROSTER = [
+  'สุรินทร์ อุบลบาน', 'ชลาลัย ขาวพันธุ์', 'พัชราภา โพธิ์ทอง', 'โยธิน สุวรรณประทีป',
+  'วรรณพร พลเสน', 'สุทธิลักษณ์ กลิ่นสุคนธ์', 'พรทิพย์ ตั้งพรชัย', 'จักรกฤษ คงสมจิตต์',
+  'อรวรรณ ปทุมสูติ', 'พงษกร เลี่ยนเพชร', 'นงลักษณ์ จันทิวาสน์', 'สัญญา มีนิล',
+  'จุลลดา แจ้งสว่าง', 'กมลทิพย์ อู่แสงทอง', 'ฟ้าใส ชนะพงษ์', 'ปิยะณัฐ ทรัพย์พันธุ์',
+  'พีรดา อินทนะ', 'นัตยา จันทร์เสวก', 'สุรีย์ เริ่มลึก', 'อรุณี ทองโสภา',
+  'เสริมศิริ นุ่มพันธุ์', 'วะลาพร เจริญโอกาศ', 'ปิ่นอนงค์ สุดแก้ว', 'กฤษติกา ทองรอด',
+  'บุศราภรณ์ วงษ์มีพันธุ์', 'พิชญุตม์ พงศ์สมานวรกุล', 'ผกามาศ เตียบฉายพันธุ์', 'เสกสินธุ์ ช้างป่าดี',
+  'ชุตาภา ทองบุญเหลือ', 'อภิชัย เข็มทอง', 'วรัญญา ทองโสภา', 'พิธุภา เศวตนันทิกุล',
+  'มุทิตา เสือหิน',
+];
+// ชื่อที่สะกดต่างจาก template
+const TC_NAME_ALIAS = { เสริมสิริ: 'เสริมศิริ' };
+const tcFirstName = (n) => String(n || '').trim().split(/\s+/)[0];
+const tcNormFirst = (n) => {
+  const f = tcFirstName(n);
+  return TC_NAME_ALIAS[f] || f;
+};
+// รหัสเวรในไฟล์ Excel: 4S1/4S2 → S4, นอกนั้นใช้ชื่อเวรตามเดิม
+const tcExportCode = (shift) => {
+  const g = tcShiftGroup(shift);
+  if (g === '4S') return 'S4';
+  return shift.name;
+};
+const tcEscHtml = (v) =>
+  String(v ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
 // หมวดเวรสำหรับสรุปท้ายตาราง: S1 / ช / บ / ด / 4S / 4O / 2O
 const TC_SUMMARY_GROUPS = [
   ['S1', 'bg-rose-50/60', 'text-rose-700'],
@@ -1466,6 +1499,126 @@ function ScheduleManager() {
       new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     );
     link.download = `ตารางเวรเจ้าพนักงาน_${thaiMonths[activeSchedule.month]}.csv`;
+    link.click();
+  };
+
+  // ─── Export Excel: รูปแบบเดียวกับไฟล์ของโปรแกรมแลกเวร (HTML table .xls) ───
+  const handleExportExcel = () => {
+    if (!activeSchedule) return;
+    const { year, month } = activeSchedule;
+    const D = new Date(year, month + 1, 0).getDate();
+    const mm = String(month + 1).padStart(2, '0');
+    const shiftById = {};
+    shifts.forEach((s) => (shiftById[s.id] = s));
+
+    // จับคู่รายชื่อ template กับพนักงานในระบบ (ชื่อเต็ม หรือชื่อต้น)
+    const used = new Set();
+    const findEmp = (full) => {
+      const byFull = employees.find((e) => !used.has(e.id) && (e.fullName || '').trim() === full);
+      if (byFull) return byFull;
+      const f = tcNormFirst(full);
+      return employees.find(
+        (e) => !used.has(e.id) && tcNormFirst(e.fullName || e.name) === f
+      );
+    };
+    const rows = TC_EXPORT_ROSTER.map((full) => {
+      const emp = findEmp(full);
+      if (emp) used.add(emp.id);
+      return { name: full, emp };
+    });
+    // คนที่ไม่อยู่ในรายชื่อของโปรแกรมแลกเวร: ต่อท้ายเฉพาะเดือนที่มีเวร (กันอัปโหลดแล้ว error จากชื่อที่ไม่รู้จัก)
+    const hasShift = (e) =>
+      Object.keys(activeSchedule.assignments || {}).some(
+        (k) => k.startsWith(`${e.id}_${year}-${mm}-`) && shiftById[activeSchedule.assignments[k]]
+      );
+    const extras = employees.filter((e) => !used.has(e.id) && hasShift(e));
+    extras.forEach((e) => rows.push({ name: (e.fullName || '').trim() || e.name, emp: e }));
+    if (extras.length > 0)
+      alert(
+        'มีรายชื่อที่ไม่อยู่ในโปรแกรมแลกเวร (ต่อท้ายตารางให้แล้ว):\n' +
+          extras.map((e) => '• ' + ((e.fullName || '').trim() || e.name)).join('\n') +
+          '\n\nถ้าอัปโหลดแล้ว error ให้ใส่ "ชื่อ - สกุล" ในหน้าพนักงานให้ตรงกับโปรแกรมแลกเวร'
+      );
+
+    const sumHeads = [
+      ['ช', 'เวร ช2-ช7 (8 ชม.)'],
+      ['บ', 'เวร บ1-บ4 (8 ชม.)'],
+      ['ด', 'เวร ด1-ด2 (8 ชม.)'],
+      ['2', 'เวร 2O (2 ชม.)'],
+      ['4', 'เวร 4O (4 ชม.) รวม 4O ที่พ่วงกับ S1'],
+      ['S1', 'เวร S1 (8.00-20.00)'],
+      ['S4', 'เวร S4/4S (16.30-20.30)'],
+      ['เงิน8', '(ช+บ+ด) × 530'],
+      ['SMC OPD', 'S1 × 960'],
+      ['เงิน4', '4O × 265'],
+      ['เงิน2', '2O × 132'],
+      ['เงินS4', 'S4 × 480'],
+      ['เงินรวม', 'เงิน8 + SMC OPD + เงิน4 + เงิน2 + เงินS4'],
+    ];
+    const ncol = 2 + D + sumHeads.length;
+    const yy = String((year + 543) % 100).padStart(2, '0');
+    const title = `ตารางเวร เภสัชกร — กลุ่ม เจ้าพนักงาน เดือน${thaiMonths[month]} ${yy}`;
+
+    let h = '';
+    h += '<tr>\n<th class="title" colspan="' + ncol + '">' + tcEscHtml(title) + '</th>\n</tr>\n';
+    h += '<tr>\n<th class="hd" rowspan="2">ลำดับ</th>\n<th class="hd" rowspan="2">ชื่อ - สกุล</th>\n';
+    for (let d = 1; d <= D; d++) h += '<th class="hd">' + d + '</th>\n';
+    sumHeads.forEach(([lb, tt]) => {
+      h += '<th class="hd" rowspan="2" title="' + tcEscHtml(tt) + '">' + tcEscHtml(lb) + '</th>\n';
+    });
+    h += '</tr>\n<tr>\n';
+    for (let d = 1; d <= D; d++)
+      h += '<th class="hd">' + thaiDays[new Date(year, month, d).getDay()] + '</th>\n';
+    h += '</tr>\n';
+
+    rows.forEach((r, idx) => {
+      const c = { ช: 0, บ: 0, ด: 0, '2O': 0, '4o': 0, S1: 0, '4S': 0 };
+      h += '<tr>\n<td>' + (idx + 1) + '</td>\n<td class="name">' + tcEscHtml(r.name) + '</td>\n';
+      for (let d = 1; d <= D; d++) {
+        const ds = `${year}-${mm}-${String(d).padStart(2, '0')}`;
+        const sh = r.emp ? shiftById[activeSchedule.assignments[`${r.emp.id}_${ds}`]] : null;
+        if (sh) {
+          const g = tcShiftGroup(sh);
+          if (g && c[g] !== undefined) c[g]++;
+        }
+        h += '<td>' + (sh ? tcEscHtml(tcExportCode(sh)) : '') + '</td>\n';
+      }
+      const n4 = c['4o'] + c.S1; // 4O รวม 4O ที่พ่วงกับ S1
+      const m8 = (c.ช + c.บ + c.ด) * 530;
+      const mS1 = c.S1 * 960;
+      const m4 = n4 * 265;
+      const m2 = c['2O'] * 132;
+      const mS4 = c['4S'] * 480;
+      [c.ช, c.บ, c.ด, c['2O'], n4, c.S1, c['4S'], m8, mS1, m4, m2, mS4, m8 + mS1 + m4 + m2 + mS4].forEach(
+        (v) => (h += '<td>' + v + '</td>\n')
+      );
+      h += '</tr>\n';
+    });
+
+    const html =
+      '<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">\n' +
+      '<head>\n<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n' +
+      '<!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet>\n' +
+      '<x:Name>ตารางเวร</x:Name>\n' +
+      '<x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions>\n' +
+      '</x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->\n' +
+      '<style>\n' +
+      "    table { border-collapse: collapse; font-family: 'TH Sarabun New', 'Tahoma', sans-serif; }\n" +
+      '    td, th { border: 0.5pt solid #000000; font-size: 14px; text-align: center; vertical-align: top; mso-number-format:"\\@"; }\n' +
+      '    .title { font-size: 18px; font-weight: bold; }\n' +
+      '    .hd { font-weight: bold; }\n' +
+      '    .name { text-align: left; padding-left: 4px; white-space: nowrap; }\n' +
+      '    .sumlbl { text-align: left; padding-left: 4px; font-weight: bold; }\n' +
+      '    .slot2 { }\n' +
+      '</style>\n</head>\n<body>\n<table>\n' +
+      h +
+      '</table>\n</body>\n</html>';
+
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(
+      new Blob(['\uFEFF' + html], { type: 'application/vnd.ms-excel;charset=utf-8' })
+    );
+    link.download = `ตารางเวร_dept29_${year}-${mm}.xls`;
     link.click();
   };
 
@@ -1959,6 +2112,13 @@ function ScheduleManager() {
             className="text-red-600 bg-red-50 border border-red-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-red-100 transition-colors mr-2"
           >
             <Trash2 className="w-3.5 h-3.5" /> ลบตารางนี้
+          </button>
+          <button
+            onClick={handleExportExcel}
+            className="text-emerald-700 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-emerald-100 transition-colors"
+            title="ไฟล์ .xls รูปแบบเดียวกับโปรแกรมแลกเวร"
+          >
+            <Download className="w-4 h-4" /> Excel
           </button>
           <button
             onClick={handleExportCSV}
@@ -2508,6 +2668,7 @@ function EmployeesManager() {
                         offRanges: emp.offRanges || [],
                         moneyOffset: emp.moneyOffset || 0,
                         note: emp.note || '',
+                        fullName: emp.fullName || '',
                       });
                       setIsModalOpen(true);
                     }}
@@ -2838,6 +2999,16 @@ function EmployeesManager() {
                 </p>
               </div>
               <div>
+                <label className="block text-sm font-bold text-gray-700 mb-1.5">
+                  ชื่อ - สกุล (สำหรับไฟล์ Excel)
+                </label>
+                <input
+                  type="text"
+                  placeholder="เว้นว่าง = ใช้ชื่อตามรายชื่อของโปรแกรมแลกเวร"
+                  className="w-full border border-gray-300 rounded-lg p-2 text-sm mb-3"
+                  value={formData.fullName || ''}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                />
                 <label className="block text-sm font-bold text-gray-700 mb-1.5">หมายเหตุ</label>
                 <input
                   type="text"
