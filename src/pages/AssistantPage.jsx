@@ -137,6 +137,7 @@ function asBuildContext({
   rules,
   prevDayWorkers,
   nextDayWorkers,
+  nextPreview,
 }) {
   const D = new Date(year, month + 1, 0).getDate();
   const shiftIdx = {};
@@ -199,6 +200,24 @@ function asBuildContext({
     });
     days.push({ dateStr, dow, slots });
   }
+  // มองล่วงหน้า 3 วันแรกของเดือนถัดไป (เมื่อเดือนถัดไปยังไม่มีเวร) — จัดไว้เพื่อ "กันคน" เท่านั้น ไม่บันทึก/ไม่นับเงิน
+  const realD = D;
+  const hasNextWorkers = (nextDayWorkers || []).length > 0;
+  if (nextPreview && !hasNextWorkers) {
+    const ny = month === 11 ? year + 1 : year;
+    const nm = month === 11 ? 0 : month + 1;
+    for (let d = 1; d <= 3; d++) {
+      const dateStr = asDateStr(ny, nm, d);
+      const dow = new Date(ny, nm, d).getDay();
+      const hol = !!(nextPreview.holidays || {})[dateStr];
+      const slots = [];
+      shifts.forEach((s, si) => {
+        const need = asShiftNeedOnDay(s, dateStr, dow, hol, nextPreview.telemedAppts, nextPreview.smcAppts);
+        for (let k = 0; k < need; k++) slots.push(si);
+      });
+      days.push({ dateStr, dow, slots, phantom: true });
+    }
+  }
 
   const N = employees.length;
   // can[i][si] = พนักงาน i ลงเวร si ได้ไหม (ไม่สนวัน)
@@ -259,7 +278,8 @@ function asBuildContext({
   };
 
   return {
-    D,
+    D: days.length,
+    realD,
     N,
     S: shifts.length,
     days,
@@ -322,11 +342,12 @@ function asAssign(ctx, st, d, k, i) {
   const si = ctx.days[d].slots[k];
   st.slotEmp[d][k] = i;
   st.dayEmp[d][i] = k;
+  if (st.log) st.log.push([0, d, k, i]);
+  if (ctx.days[d].phantom) return; // วันของเดือนถัดไป: ไม่นับจำนวน/เงิน
   st.cnt[i][si]++;
   st.gcnt[i][ctx.capGroup[si]]++;
   st.money[i] += ctx.shiftValue[si];
   st.total[i]++;
-  if (st.log) st.log.push([0, d, k, i]);
 }
 function asUnassign(ctx, st, d, k) {
   const i = st.slotEmp[d][k];
@@ -334,11 +355,12 @@ function asUnassign(ctx, st, d, k) {
   const si = ctx.days[d].slots[k];
   st.slotEmp[d][k] = -1;
   st.dayEmp[d][i] = -1;
+  if (st.log) st.log.push([1, d, k, i]);
+  if (ctx.days[d].phantom) return i;
   st.cnt[i][si]--;
   st.gcnt[i][ctx.capGroup[si]]--;
   st.money[i] -= ctx.shiftValue[si];
   st.total[i]--;
-  if (st.log) st.log.push([1, d, k, i]);
   return i;
 }
 function asRollback(ctx, st, mark) {
@@ -503,6 +525,67 @@ function asTryFill(ctx, st, d, k, depth, banned, rand) {
   return false;
 }
 
+// ---------- Phase 2b: แก้ช่องว่างของเวรที่มีคนลงได้น้อย ด้วยการค้นทุกทางเลือกในช่วง ±3 วัน ----------
+// (เช่น T วันอาทิตย์ลงได้แค่ 2 คน: ต้องสลับคนทั้งศุกร์–เสาร์–อาทิตย์ทีเดียว ซึ่งการย้ายทีละช่องหาไม่เจอ)
+const AS_SCARCE_LIMIT = 4;
+function asEligCount(ctx, d, si) {
+  let c = 0;
+  for (let i = 0; i < ctx.N; i++)
+    if (ctx.can[i][si] && !ctx.offDow[i][si].includes(ctx.days[d].dow)) c++;
+  return c;
+}
+function asWindowSolve(ctx, st, d0, k0, rand) {
+  const { D } = ctx;
+  const W0 = Math.max(0, d0 - 3);
+  const W1 = Math.min(D - 1, d0 + 3);
+  const si0 = ctx.days[d0].slots[k0];
+  // คนที่เกี่ยวข้อง = คนที่ลงเวรที่ว่างได้ → ปลดเวรของคนกลุ่มนี้ในช่วงวันนั้นมาจัดใหม่ด้วย
+  const involved = new Set();
+  for (let i = 0; i < ctx.N; i++)
+    if (ctx.can[i][si0] && !ctx.offDow[i][si0].includes(ctx.days[d0].dow)) involved.add(i);
+  const slots = [];
+  for (let d = W0; d <= W1; d++)
+    ctx.days[d].slots.forEach((si, k) => {
+      const holder = st.slotEmp[d][k];
+      const scarce = asEligCount(ctx, d, si) <= AS_SCARCE_LIMIT;
+      if ((d === d0 && k === k0) || scarce || (holder >= 0 && involved.has(holder)))
+        slots.push({ d, k, si, orig: holder, n: asEligCount(ctx, d, si) });
+    });
+  if (slots.length > 40) return false;
+  slots.forEach((x) => {
+    if (x.orig >= 0) asUnassign(ctx, st, x.d, x.k);
+  });
+  slots.sort((a, b) => a.n - b.n || a.d - b.d);
+  let nodes = 0;
+  const order = Array.from({ length: ctx.N }, (_, i) => i).sort(() => rand() - 0.5);
+  const dfs = (idx) => {
+    if (idx === slots.length) return true;
+    if (++nodes > 60000) return false;
+    const { d, k, si, orig } = slots[idx];
+    const cands = orig >= 0 ? [orig, ...order.filter((i) => i !== orig)] : order;
+    for (const i of cands) {
+      if (st.dayEmp[d][i] >= 0) continue;
+      if (!asStaticOk(ctx, st, i, d, si)) continue;
+      if (asWorksAdjacent(ctx, st, i, d)) continue;
+      asAssign(ctx, st, d, k, i);
+      if (dfs(idx + 1)) return true;
+      asUnassign(ctx, st, d, k);
+    }
+    // ช่องที่ว่างอยู่แล้วตั้งแต่ก่อน (ไม่ใช่ช่องเป้าหมาย) ยอมให้ว่างต่อได้
+    if (orig < 0 && !(d === d0 && k === k0)) return dfs(idx + 1);
+    return false;
+  };
+  if (dfs(0)) return true;
+  // หาไม่เจอ → คืนค่าเดิม
+  slots.forEach((x) => {
+    if (st.slotEmp[x.d][x.k] >= 0) asUnassign(ctx, st, x.d, x.k);
+  });
+  slots.forEach((x) => {
+    if (x.orig >= 0) asAssign(ctx, st, x.d, x.k, x.orig);
+  });
+  return false;
+}
+
 function asRepair(ctx, st, rand) {
   st.log = [];
   let total = 30000; // จำกัดงานต่อรอบ กันหน้าเว็บค้างเมื่อเดือนนั้นจัดให้ครบไม่ได้จริง ๆ
@@ -520,6 +603,10 @@ function asRepair(ctx, st, rand) {
     }
   }
   st.log = null;
+  // ช่องที่ยังว่าง → ลองค้นทุกทางเลือกในช่วงวันรอบ ๆ
+  for (let d = 0; d < ctx.D; d++)
+    for (let k = 0; k < ctx.days[d].slots.length; k++)
+      if (st.slotEmp[d][k] < 0) asWindowSolve(ctx, st, d, k, rand);
 }
 
 // ---------- คะแนน ----------
@@ -610,9 +697,20 @@ function asSoftScore(ctx, st) {
   if (ctx.balanceMoney) s += m.std * 2 + m.range * 0.5;
   return s;
 }
+// ช่องว่างในเดือนนี้ (ไม่นับวันล่วงหน้าของเดือนถัดไป)
 function asMissing(ctx, st) {
   let miss = 0;
-  st.slotEmp.forEach((arr) => arr.forEach((i) => (i < 0 ? miss++ : 0)));
+  st.slotEmp.forEach((arr, d) => {
+    if (!ctx.days[d].phantom) arr.forEach((i) => (i < 0 ? miss++ : 0));
+  });
+  return miss;
+}
+// ช่องว่างในวันล่วงหน้าของเดือนถัดไป (ใช้เป็นตัวช่วยตัดสิน: กันคนที่จำเป็นไว้ให้ต้นเดือนหน้า)
+function asPhantomMissing(ctx, st) {
+  let miss = 0;
+  st.slotEmp.forEach((arr, d) => {
+    if (ctx.days[d].phantom) arr.forEach((i) => (i < 0 ? miss++ : 0));
+  });
   return miss;
 }
 
@@ -808,15 +906,53 @@ function asRunAttempt(ctx, rand) {
   if (ctx.balUnits.length > 0) asFixBalance(ctx, st, rand);
   if (ctx.minGroups.length > 0 && asMinShort(ctx, st) > 0) asFixMinimum(ctx, st, rand);
   // ลองเติมช่องว่างอีกครั้งหลังปรับ
-  if (asMissing(ctx, st) > 0) asRepair(ctx, st, rand);
+  if (asMissing(ctx, st) + asPhantomMissing(ctx, st) > 0) asRepair(ctx, st, rand);
   const missing = asMissing(ctx, st);
+  const phantomMiss = asPhantomMissing(ctx, st);
   const fixedDiff = asFixedDiff(ctx, st);
   const gap = asBalanceGap(ctx, st);
   const minShort = asMinShort(ctx, st);
   const excess = asCapExcess(ctx, st);
   const soft = asSoftScore(ctx, st);
   const fair = soft - fixedDiff * 1e6 - gap * 5000 - minShort * 2e6 - excess * 3e6; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
-  return { st, missing, fixedDiff, gap, minShort, excess, fair, soft, score: missing * 1e9 + soft };
+  return {
+    st,
+    missing,
+    phantomMiss,
+    fixedDiff,
+    gap,
+    minShort,
+    excess,
+    fair,
+    soft,
+    score: missing * 1e9 + phantomMiss * 1e6 + soft,
+  };
+}
+
+// อธิบายว่าทำไมช่องนี้ว่าง: คนที่ลงเวรนี้ได้ติดอะไรอยู่
+function asMissingReason(ctx, st, d, si) {
+  const dayNum = (dd) => Number(ctx.days[dd].dateStr.slice(8));
+  const elig = [];
+  for (let i = 0; i < ctx.N; i++)
+    if (ctx.can[i][si] && !ctx.offDow[i][si].includes(ctx.days[d].dow)) elig.push(i);
+  if (elig.length === 0) return 'ไม่มีใครลงเวรนี้ในวันนี้ได้';
+  if (elig.length > 6) return `มีคนลงได้ ${elig.length} คน แต่ติดเวรวันเดียวกัน/วันติดกันทั้งหมด`;
+  const why = elig.map((i) => {
+    const nm = String(ctx.employees[i].name || '(ไม่มีชื่อ)').split(/\s+/)[0];
+    const k = st.dayEmp[d][i];
+    if (k >= 0) return `${nm} อยู่ ${ctx.shifts[ctx.days[d].slots[k]].name} วันนี้`;
+    if (ctx.noConsec) {
+      if (d === 0 && ctx.prevSet.has(i)) return `${nm} อยู่เวรวันสุดท้ายของเดือนก่อน`;
+      if (d > 0 && st.dayEmp[d - 1][i] >= 0) return `${nm} อยู่เวรวันที่ ${dayNum(d - 1)}`;
+      if (d === ctx.D - 1 && ctx.nextSet.has(i)) return `${nm} อยู่เวรวันแรกของเดือนถัดไป`;
+      if (d < ctx.D - 1 && st.dayEmp[d + 1][i] >= 0)
+        return ctx.days[d + 1].phantom
+          ? `${nm} ถูกกันไว้สำหรับต้นเดือนถัดไป`
+          : `${nm} อยู่เวรวันที่ ${dayNum(d + 1)}`;
+    }
+    return `${nm} ครบจำนวนเวรที่กำหนดแล้ว`;
+  });
+  return `ลงได้ ${elig.length} คน: ${why.join(', ')}`;
 }
 
 // แปลงผลเป็น assignments ของตาราง + รายงาน
@@ -825,10 +961,16 @@ function asResultToOutput(ctx, res) {
   const assignments = {};
   const missingList = [];
   ctx.days.forEach((dy, d) => {
+    if (dy.phantom) return;
     dy.slots.forEach((si, k) => {
       const i = st.slotEmp[d][k];
       if (i >= 0) assignments[`${ctx.employees[i].id}_${dy.dateStr}`] = ctx.shifts[si].id;
-      else missingList.push({ dateStr: dy.dateStr, shiftName: ctx.shifts[si].name });
+      else
+        missingList.push({
+          dateStr: dy.dateStr,
+          shiftName: ctx.shifts[si].name,
+          reason: asMissingReason(ctx, st, d, si),
+        });
     });
   });
   let dup = 0;
@@ -1012,7 +1154,9 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
 // ตรวจล่วงหน้าว่าเดือนนี้ "จัดครบได้ทางคณิตศาสตร์" หรือไม่
 function asPrecheck(ctx) {
   const warnings = [];
-  const { D, N, days, noConsec } = ctx;
+  const { N, noConsec } = ctx;
+  const D = ctx.realD;
+  const days = ctx.days.slice(0, D);
   const dummy = asNewState(ctx); // cnt = 0 ทั้งหมด
   const canDay = (i, d) => {
     if (d === 0 && noConsec && ctx.prevSet.has(i)) return false;
@@ -1123,6 +1267,7 @@ function asPickResult(results, rand) {
       r.gap === best.gap &&
       r.minShort === best.minShort &&
       r.excess === best.excess &&
+      r.phantomMiss === best.phantomMiss &&
       r.fair <= best.fair * 1.1 + 20
   );
   return pool[Math.floor(rand() * pool.length)] || best;
@@ -1620,7 +1765,16 @@ function ScheduleManager() {
             .filter((k) => k.endsWith(`_${ds}`))
             .map((k) => k.slice(0, k.length - ds.length - 1))
         : [];
-    return { prev: pick(prevSch, prevLast), next: pick(nextSch, nextFirst) };
+    const next = pick(nextSch, nextFirst);
+    // ข้อมูลต้นเดือนถัดไป (ใช้มองล่วงหน้าตอนเดือนถัดไปยังไม่มีเวร): ใช้วันหยุด/ยอดนัดที่ตั้งไว้ ถ้ายังไม่สร้างตาราง ใช้ 1 ม.ค. เป็นวันหยุด
+    const nextPreview = nextSch
+      ? {
+          holidays: nextSch.holidays || {},
+          telemedAppts: nextSch.telemedAppts || {},
+          smcAppts: nextSch.smcAppts || {},
+        }
+      : { holidays: nextM === 0 ? { [nextFirst]: true } : {}, telemedAppts: {}, smcAppts: {} };
+    return { prev: pick(prevSch, prevLast), next, nextPreview };
   };
 
   const AS_ATTEMPTS = 120;
@@ -1659,6 +1813,7 @@ function ScheduleManager() {
       rules,
       prevDayWorkers: boundary.prev,
       nextDayWorkers: boundary.next,
+      nextPreview: boundary.nextPreview,
     });
     const warnings = asPrecheck(ctx);
     const rng = asMakeCryptoRng();
@@ -1944,7 +2099,10 @@ function ScheduleManager() {
               {genReport.missingList.length > 0 && (
                 <div>
                   {genReport.missingList
-                    .map((m) => `${Number(m.dateStr.slice(8))}: ${m.shiftName}`)
+                    .map(
+                      (m) =>
+                        `${Number(m.dateStr.slice(8))}: ${m.shiftName}${m.reason ? ` (${m.reason})` : ''}`
+                    )
                     .join(' · ')}
                 </div>
               )}
