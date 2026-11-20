@@ -153,6 +153,19 @@ function asBuildContext({
     return g;
   });
   const capOf = shifts.map((s) => asCapOf(s));
+  // เพดานแบบยืดหยุ่น: กลุ่มที่ทุกเวรที่มีเพดานติ๊ก "เกินได้ถ้าจำเป็น" → ไม่บังคับ แต่หลีกเลี่ยงให้มากที่สุด
+  const groupCap = capKeys.map(() => null);
+  const groupSoft = capKeys.map(() => true);
+  shifts.forEach((sh, si) => {
+    const c = capOf[si];
+    if (c === null) return;
+    const g = capGroup[si];
+    groupCap[g] = groupCap[g] === null ? c : Math.min(groupCap[g], c);
+    if (!sh.capSoft) groupSoft[g] = false;
+  });
+  groupCap.forEach((c, g) => {
+    if (c === null) groupSoft[g] = false;
+  });
   // หน่วยเฉลี่ย: เวรที่ติ๊ก "เฉลี่ยให้เท่ากัน" — ถ้ามีชื่อกลุ่มจะเฉลี่ยยอดรวมทั้งกลุ่ม (เช่น 4S รวม)
   const balUnits = [];
   const balUnitOf = shifts.map(() => -1);
@@ -255,6 +268,8 @@ function asBuildContext({
     shiftValue,
     capGroup,
     capOf,
+    groupCap,
+    groupSoft,
     G: capKeys.length,
     balanceShift,
     balUnits,
@@ -344,7 +359,8 @@ function asStaticOk(ctx, st, i, d, si) {
   const fx = ctx.fixed[i][si];
   if (fx !== null && st.cnt[i][si] >= fx) return false;
   const cap = ctx.capOf[si];
-  if (cap !== null && st.gcnt[i][ctx.capGroup[si]] >= cap) return false;
+  if (cap !== null && !ctx.groupSoft[ctx.capGroup[si]] && st.gcnt[i][ctx.capGroup[si]] >= cap)
+    return false;
   return true;
 }
 // มีเวรในวัน d±1 (รวมข้ามเดือน) หรือไม่
@@ -360,6 +376,8 @@ function asPrefKey(ctx, st, i, si, noise) {
   let key = 0;
   const fx = ctx.fixed[i][si];
   if (fx !== null && st.cnt[i][si] < fx) key -= 1e9; // ต้องได้ครบจำนวนตายตัว
+  const cg = ctx.capGroup[si];
+  if (ctx.groupSoft[cg] && st.gcnt[i][cg] >= ctx.groupCap[cg]) key += 4e8; // ถึงเพดานแล้ว ให้คนอื่นก่อน
   const mg = ctx.minGroupOf[si];
   if (mg >= 0 && asGroupCount(ctx, st, i, mg) < ctx.minGroups[mg].min) key -= 5e8; // ยังไม่ถึงขั้นต่ำ
   if (ctx.balanceShift[si]) key += asUnitCount(ctx, st, i, ctx.balUnitOf[si]) * 1e8; // เวรที่ต้องเฉลี่ยให้เท่ากันระหว่างคนที่ลงได้
@@ -570,6 +588,16 @@ function asMinShort(ctx, st) {
   });
   return short;
 }
+// จำนวนเวรที่เกินเพดานแบบยืดหยุ่น รวมทุกคน
+function asCapExcess(ctx, st) {
+  let ex = 0;
+  for (let g = 0; g < ctx.G; g++) {
+    if (!ctx.groupSoft[g]) continue;
+    const cap = ctx.groupCap[g];
+    for (let i = 0; i < ctx.N; i++) if (st.gcnt[i][g] > cap) ex += st.gcnt[i][g] - cap;
+  }
+  return ex;
+}
 function asSoftScore(ctx, st) {
   let dup = 0;
   for (let i = 0; i < ctx.N; i++) dup += asDupCount(ctx, st, i);
@@ -577,6 +605,7 @@ function asSoftScore(ctx, st) {
   let s = asFixedDiff(ctx, st) * 1e6;
   s += asBalanceGap(ctx, st) * 5000;
   s += asMinShort(ctx, st) * 2e6;
+  s += asCapExcess(ctx, st) * 3e6;
   if (ctx.balanceTypes) s += dup * 60;
   if (ctx.balanceMoney) s += m.std * 2 + m.range * 0.5;
   return s;
@@ -784,9 +813,10 @@ function asRunAttempt(ctx, rand) {
   const fixedDiff = asFixedDiff(ctx, st);
   const gap = asBalanceGap(ctx, st);
   const minShort = asMinShort(ctx, st);
+  const excess = asCapExcess(ctx, st);
   const soft = asSoftScore(ctx, st);
-  const fair = soft - fixedDiff * 1e6 - gap * 5000 - minShort * 2e6; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
-  return { st, missing, fixedDiff, gap, minShort, fair, soft, score: missing * 1e9 + soft };
+  const fair = soft - fixedDiff * 1e6 - gap * 5000 - minShort * 2e6 - excess * 3e6; // ส่วนความสมดุลเงิน/ตัวเวรซ้ำ
+  return { st, missing, fixedDiff, gap, minShort, excess, fair, soft, score: missing * 1e9 + soft };
 }
 
 // แปลงผลเป็น assignments ของตาราง + รายงาน
@@ -835,6 +865,17 @@ function asResultToOutput(ctx, res) {
       );
     }
   });
+  const capOver = [];
+  for (let g = 0; g < ctx.G; g++) {
+    if (!ctx.groupSoft[g]) continue;
+    const names = [];
+    for (let si = 0; si < ctx.S; si++) if (ctx.capGroup[si] === g) names.push(ctx.shifts[si].name);
+    const over = [];
+    for (let i = 0; i < ctx.N; i++)
+      if (st.gcnt[i][g] > ctx.groupCap[g]) over.push(`${ctx.employees[i].name} ${st.gcnt[i][g]}`);
+    if (over.length > 0)
+      capOver.push(`${names.join('/')} (เพดาน ${ctx.groupCap[g]}): ${over.join(', ')}`);
+  }
   const minIssues = [];
   ctx.minGroups.forEach((grp, g) => {
     grp.eligible.forEach((i) => {
@@ -844,7 +885,7 @@ function asResultToOutput(ctx, res) {
   });
   return {
     assignments,
-    report: { missingList, dup, fixedIssues, balanceInfo, minIssues, money: asMoneyStats(ctx, st) },
+    report: { missingList, dup, fixedIssues, balanceInfo, minIssues, capOver, money: asMoneyStats(ctx, st) },
   };
 }
 
@@ -914,19 +955,24 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
   }
   // เพดานต่อคนต่อเดือน (เช่น M รวมกันได้ 1 เวร)
   const capViol = [];
+  const capSoftOver = []; // เกินเพดานแบบยืดหยุ่น (อนุญาตเพื่อไม่ให้เวรขาด) — แจ้งเพื่อทราบ
   employees.forEach((e) => {
     const byGroup = {};
     Object.entries(counts[e.id] || {}).forEach(([sid, n]) => {
       const s = shiftById[sid];
       if (!s || asCapOf(s) === null) return;
       const k = asCapGroupKey(s);
-      byGroup[k] = byGroup[k] || { n: 0, cap: asCapOf(s), names: [] };
+      byGroup[k] = byGroup[k] || { n: 0, cap: asCapOf(s), names: [], soft: true };
       byGroup[k].n += n;
       byGroup[k].cap = Math.min(byGroup[k].cap, asCapOf(s));
       byGroup[k].names.push(s.name);
+      if (!s.capSoft) byGroup[k].soft = false;
     });
     Object.values(byGroup).forEach((b) => {
-      if (b.n > b.cap) capViol.push(`${e.name}: ${b.names.join('+')} ${b.n} เวร (จำกัด ${b.cap})`);
+      if (b.n <= b.cap) return;
+      const msg = `${e.name}: ${b.names.join('+')} ${b.n} เวร (เพดาน ${b.cap})`;
+      if (b.soft) capSoftOver.push(msg);
+      else capViol.push(msg);
     });
   });
   employees.forEach((e) => {
@@ -960,7 +1006,7 @@ function asCrossCheck({ schedule, employees, shifts, rules, prevDayWorkers, next
       if (c < g.min) minIssues.push(`${e.name}: ${g.label} ${c}/${g.min}`);
     });
   });
-  return { missing, over, violations, dayFill, fixedIssues, capViol, minIssues };
+  return { missing, over, violations, dayFill, fixedIssues, capViol, capSoftOver, minIssues };
 }
 
 // ตรวจล่วงหน้าว่าเดือนนี้ "จัดครบได้ทางคณิตศาสตร์" หรือไม่
@@ -1012,7 +1058,9 @@ function asPrecheck(ctx) {
     for (let i = 0; i < N; i++) if (members.some((si) => ctx.can[i][si])) people++;
     if (slots > people * cap)
       warnings.push(
-        `เวร ${members.map((si) => ctx.shifts[si].name).join('/')} เดือนนี้มี ${slots} ช่อง แต่จำกัด ${cap} เวร/คน และมีคนลงได้ ${people} คน (รับได้สูงสุด ${people * cap} ช่อง)`
+        ctx.groupSoft[g]
+          ? `เวร ${members.map((si) => ctx.shifts[si].name).join('/')} เดือนนี้มี ${slots} ช่อง เกินกว่า ${people} คน × ${cap} เวร — จะให้บางคนเกิน ${cap} เวร (เฉลี่ยกัน) เพื่อไม่ให้เวรขาด`
+          : `เวร ${members.map((si) => ctx.shifts[si].name).join('/')} เดือนนี้มี ${slots} ช่อง แต่จำกัด ${cap} เวร/คน และมีคนลงได้ ${people} คน (รับได้สูงสุด ${people * cap} ช่อง)`
       );
   }
   // จำนวนเวรตายตัว: ลงได้สูงสุดกี่ครั้งถ้าห้ามติดกัน
@@ -1074,6 +1122,7 @@ function asPickResult(results, rand) {
       r.fixedDiff === best.fixedDiff &&
       r.gap === best.gap &&
       r.minShort === best.minShort &&
+      r.excess === best.excess &&
       r.fair <= best.fair * 1.1 + 20
   );
   return pool[Math.floor(rand() * pool.length)] || best;
@@ -1131,13 +1180,13 @@ const AS_SEED_SHIFTS = [
   { id: 'as_41', name: '41', color: '#14b8a6', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_42', name: '42', color: '#06b6d4', start: '16:00', end: '20:00', min: 1, allowedDays: 'weekdays', value: 170 },
   { id: 'as_2O', name: '2O', color: '#84cc16', start: '16:00', end: '18:00', min: 1, allowedDays: 'mon_tue_only', value: 85, capPerPerson: 1 },
-  { id: 'as_4S1', name: '4S1', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S2', name: '4S2', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S3', name: '4S3', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S4', name: '4S4', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S5', name: '4S5', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 301, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S6', name: '4S6', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 401, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
-  { id: 'as_4S7', name: '4S7', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 480, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, balanceAmong: true },
+  { id: 'as_4S1', name: '4S1', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S2', name: '4S2', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S3', name: '4S3', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S4', name: '4S4', color: '#8b5cf6', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S5', name: '4S5', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 301, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S6', name: '4S6', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 401, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
+  { id: 'as_4S7', name: '4S7', color: '#a855f7', start: '16:30', end: '20:30', min: 1, allowedDays: 'weekdays', value: 300, dynamic: 'smc', minAppt: 480, minPerPerson: 2, minGroup: '4S', capPerPerson: 4, capSoft: true, balanceAmong: true },
   { id: 'as_I1', name: 'I1', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
   { id: 'as_I2', name: 'I2', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
   { id: 'as_I3', name: 'I3', color: '#3b82f6', start: '08:00', end: '16:00', min: 1, allowedDays: 'weekends_holidays', value: 340 },
@@ -1902,6 +1951,9 @@ function ScheduleManager() {
               {genReport.fixedIssues.length > 0 && (
                 <div>จำนวนเวรตายตัวไม่ครบ: {genReport.fixedIssues.join(' · ')}</div>
               )}
+              {(genReport.capOver || []).length > 0 && (
+                <div>เกินเพดานเพื่อไม่ให้เวรขาด: {genReport.capOver.join(' · ')}</div>
+              )}
               {(genReport.minIssues || []).length > 0 && (
                 <div>ยังไม่ได้ขั้นต่ำ: {genReport.minIssues.join(' · ')}</div>
               )}
@@ -2019,6 +2071,14 @@ function ScheduleManager() {
               {check.capViol.length > 0 && (
                 <div className="px-2.5 py-1.5 bg-orange-50 border border-orange-200 rounded-lg text-xs font-bold text-orange-700">
                   ⚠️ เกินเพดานต่อคน: {check.capViol.join(' · ')}
+                </div>
+              )}
+              {check.capSoftOver.length > 0 && (
+                <div
+                  className="px-2.5 py-1.5 bg-sky-50 border border-sky-200 rounded-lg text-xs font-bold text-sky-700"
+                  title="เพดานแบบยืดหยุ่น: อนุญาตให้เกินได้เพื่อไม่ให้เวรขาด"
+                >
+                  ℹ️ เกินเพดาน (อนุญาต): {check.capSoftOver.join(' · ')}
                 </div>
               )}
               {check.fixedIssues.length > 0 && (
@@ -2876,13 +2936,14 @@ function ShiftTypesManager() {
     dynamic: '',
     minAppt: '',
     capPerPerson: '',
+    capSoft: false,
     balanceAmong: false,
     minPerPerson: '',
     minGroup: '',
   });
 
   // อัปเดตเฉพาะ "กฎ" ของเวรที่มีอยู่ให้ตรงค่าแนะนำ (ไม่แตะชื่อ/สี/เวลา/ค่าเวร/พนักงาน/ตาราง)
-  const AS_RULE_KEYS = ['minPerPerson', 'minGroup', 'capPerPerson', 'balanceAmong'];
+  const AS_RULE_KEYS = ['minPerPerson', 'minGroup', 'capPerPerson', 'capSoft', 'balanceAmong'];
   const handleApplyRecommendedRules = () => {
     const changes = [];
     const next = shifts.map((sh) => {
@@ -2914,7 +2975,7 @@ function ShiftTypesManager() {
           '• 2O: ไม่เกิน 1 เวร/คน/เดือน\n' +
           '• M1–M4: รวมกันไม่เกิน 1 เวร/คน/เดือน\n' +
           '• ช: เฉลี่ยให้เท่ากันระหว่างคนที่ลงได้\n' +
-          '• 4S1–4S7 (กลุ่ม "4S"): คนละ 2–4 เวร และเฉลี่ยให้เท่ากัน\n\n' +
+          '• 4S1–4S7 (กลุ่ม "4S"): อย่างน้อยคนละ 2 เวร เฉลี่ยให้เท่ากัน พยายามไม่เกิน 4 (เกินได้ถ้าจำเป็น เพื่อไม่ให้เวรขาด)\n\n' +
           'ไม่แตะชื่อ สี เวลา ค่าเวร รายชื่อพนักงาน และตารางเดิม — ยืนยัน?'
       )
     )
@@ -3003,6 +3064,7 @@ function ShiftTypesManager() {
               dynamic: '',
               minAppt: '',
               capPerPerson: '',
+              capSoft: false,
               balanceAmong: false,
               minPerPerson: '',
               minGroup: '',
@@ -3072,7 +3134,7 @@ function ShiftTypesManager() {
               )}
               {asCapOf(s) !== null && (
                 <div className="flex items-center gap-2.5 text-rose-700 text-xs font-medium">
-                  จำกัด {asCapOf(s)} เวร/คน/เดือน
+                  {s.capSoft ? 'พยายามไม่เกิน' : 'จำกัด'} {asCapOf(s)} เวร/คน/เดือน
                   {s.minGroup && String(s.minGroup).trim()
                     ? ` (นับรวมกลุ่ม ${String(s.minGroup).trim()})`
                     : s.dynamic
@@ -3294,6 +3356,15 @@ function ShiftTypesManager() {
                 <p className="text-[11px] text-gray-400 mt-1">
                   เวรที่เปิดตามยอดนัดประเภทเดียวกัน (เช่น M1–M4) นับรวมกัน
                 </p>
+                <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer mt-2">
+                  <input
+                    type="checkbox"
+                    className="w-4 h-4"
+                    checked={!!formData.capSoft}
+                    onChange={(e) => setFormData({ ...formData, capSoft: e.target.checked })}
+                  />
+                  เกินได้ถ้าจำเป็น เพื่อไม่ให้เวรขาด
+                </label>
               </div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
                 <input
